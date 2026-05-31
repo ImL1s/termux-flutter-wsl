@@ -597,6 +597,65 @@ if [ -d "$ENG_ART/linux-arm64" ] && [ ! -e "$ENG_ART/linux-x64" ]; then
     echo "  ✓ linux-x64 -> linux-arm64"
 fi
 
+# 12.6. Patch Flutter Tools Android-host lookups for Termux
+# Dart's Platform.operatingSystem returns 'android' on Termux. Flutter 3.44's
+# FontSubsetArtifacts only recognizes macos/linux/windows, so commands that
+# verify the cache and discover devices can abort before reaching useful
+# diagnostics. Reuse Linux host lookups on Android/Termux hosts.
+echo "[12.6/13] Patching Flutter Tools Android-host lookups for Termux..."
+FLUTTER_CACHE="$FLUTTER_ROOT/packages/flutter_tools/lib/src/flutter_cache.dart"
+if [ -f "$FLUTTER_CACHE" ]; then
+    if ! grep -q 'Termux: map Android host to Linux artifacts' "$FLUTTER_CACHE" 2>/dev/null; then
+        sed -i "s|final List<String>? binaryDirs = artifacts\[_platform.operatingSystem\];|final List<String>? binaryDirs = artifacts[_platform.isAndroid ? 'linux' : _platform.operatingSystem]; // Termux: map Android host to Linux artifacts|" "$FLUTTER_CACHE"
+        echo "  ✓ flutter_cache.dart patched"
+    else
+        echo "  ✓ Already patched"
+    fi
+    # Always rebuild flutter_tools after touching source. A previous package
+    # install may have left a snapshot compiled before this runtime patch.
+    rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.stamp" 2>/dev/null
+    rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot" 2>/dev/null
+    echo "  ✓ Forced flutter_tools rebuild"
+else
+    echo "  ⚠ flutter_cache.dart not found"
+fi
+
+ARTIFACTS_DART="$FLUTTER_ROOT/packages/flutter_tools/lib/src/artifacts.dart"
+if [ -f "$ARTIFACTS_DART" ]; then
+    if ! grep -q 'Termux: map Android host to Linux artifacts' "$ARTIFACTS_DART" 2>/dev/null; then
+        sed -i "s#if (platform.isLinux) {#if (platform.isLinux || platform.isAndroid) { // Termux: map Android host to Linux artifacts.#" "$ARTIFACTS_DART"
+        echo "  ✓ artifacts.dart patched"
+    else
+        echo "  ✓ artifacts.dart already patched"
+    fi
+else
+    echo "  ⚠ artifacts.dart not found"
+fi
+
+BUILD_INFO_DART="$FLUTTER_ROOT/packages/flutter_tools/lib/src/build_info.dart"
+if [ -f "$BUILD_INFO_DART" ]; then
+    if ! grep -q 'Termux: Android host uses Linux artifacts' "$BUILD_INFO_DART" 2>/dev/null; then
+        sed -i "s#if (globals.platform.isLinux) {#if (globals.platform.isLinux || globals.platform.isAndroid) { // Termux: Android host uses Linux artifacts.#" "$BUILD_INFO_DART"
+        echo "  ✓ build_info.dart patched"
+    else
+        echo "  ✓ build_info.dart already patched"
+    fi
+else
+    echo "  ⚠ build_info.dart not found"
+fi
+
+CHROME_DART="$FLUTTER_ROOT/packages/flutter_tools/lib/src/web/chrome.dart"
+if [ -f "$CHROME_DART" ]; then
+    if ! grep -q 'Termux: use Linux Chrome lookup on Android host' "$CHROME_DART" 2>/dev/null; then
+        sed -i "s#if (platform.isLinux) {#if (platform.isLinux || platform.isAndroid) { // Termux: use Linux Chrome lookup on Android host.#" "$CHROME_DART"
+        echo "  ✓ chrome.dart patched"
+    else
+        echo "  ✓ chrome.dart already patched"
+    fi
+else
+    echo "  ⚠ chrome.dart not found"
+fi
+
 # 12.7a. Patch flutter build linux to work on Termux
 # Dart's Platform.operatingSystem returns 'android' on Termux, but uname -s returns 'Linux'.
 # Patch build_linux.dart to skip the platform check so linux desktop builds work.

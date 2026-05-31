@@ -42,3 +42,55 @@ index af58cbe68fa..0117f99b11f 100644
        allowed: <String>['android-arm', 'android-arm64', 'android-x64'],
        help: 'The target platform for which the app is compiled.',
      );
+diff --git a/packages/flutter_tools/lib/src/flutter_cache.dart b/packages/flutter_tools/lib/src/flutter_cache.dart
+index bf144dbc2a5..6f099da0e54 100644
+--- a/packages/flutter_tools/lib/src/flutter_cache.dart
++++ b/packages/flutter_tools/lib/src/flutter_cache.dart
+@@ -783,7 +783,7 @@ class FontSubsetArtifacts extends EngineCachedArtifact {
+     if (cache.includeAllPlatforms) {
+       return artifacts.values.toList();
+     } else {
+-      final List<String>? binaryDirs = artifacts[_platform.operatingSystem];
++      final List<String>? binaryDirs = artifacts[_platform.isAndroid ? "linux" : _platform.operatingSystem]; // Termux: map Android host to Linux artifacts.
+       if (binaryDirs == null) {
+         throwToolExit('Unsupported operating system: ${_platform.operatingSystem}');
+       }
+diff --git a/packages/flutter_tools/lib/src/artifacts.dart b/packages/flutter_tools/lib/src/artifacts.dart
+index 6d3f133c3ed..cfd42289819 100644
+--- a/packages/flutter_tools/lib/src/artifacts.dart
++++ b/packages/flutter_tools/lib/src/artifacts.dart
+@@ -929,7 +929,7 @@ TargetPlatform _currentHostPlatform(Platform platform, OperatingSystemUtils oper
+   if (platform.isMacOS) {
+     return TargetPlatform.darwin;
+   }
+-  if (platform.isLinux) {
++  if (platform.isLinux || platform.isAndroid) { // Termux: map Android host to Linux artifacts.
+     return switch (operatingSystemUtils.hostPlatform) {
+       HostPlatform.linux_x64 => TargetPlatform.linux_x64,
+       HostPlatform.linux_riscv64 => TargetPlatform.linux_riscv64,
+diff --git a/packages/flutter_tools/lib/src/build_info.dart b/packages/flutter_tools/lib/src/build_info.dart
+index 29ef12f7bb8..4edf30d6870 100644
+--- a/packages/flutter_tools/lib/src/build_info.dart
++++ b/packages/flutter_tools/lib/src/build_info.dart
+@@ -903,7 +903,7 @@ HostPlatform getCurrentHostPlatform() {
+       DarwinArch.armv7 => throw Exception('Unsupported macOS arch "amv7"'),
+     };
+   }
+-  if (globals.platform.isLinux) {
++  if (globals.platform.isLinux || globals.platform.isAndroid) { // Termux: Android host uses Linux artifacts.
+     // support x64 and arm64 architecture.
+     return globals.os.hostPlatform;
+   }
+diff --git a/packages/flutter_tools/lib/src/web/chrome.dart b/packages/flutter_tools/lib/src/web/chrome.dart
+index 2d41ab695f5..25dfac64ead 100644
+--- a/packages/flutter_tools/lib/src/web/chrome.dart
++++ b/packages/flutter_tools/lib/src/web/chrome.dart
+@@ -57,7 +57,7 @@ String findChromeExecutable(Platform platform, FileSystem fileSystem) {
+   if (platform.environment.containsKey(kChromeEnvironment)) {
+     return platform.environment[kChromeEnvironment]!;
+   }
+-  if (platform.isLinux) {
++  if (platform.isLinux || platform.isAndroid) { // Termux: use Linux Chrome lookup on Android host.
+     return kLinuxExecutable;
+   }
+   if (platform.isMacOS) {
