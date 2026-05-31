@@ -226,7 +226,7 @@ flutter doctor -v
 
 - Flutter: 3.44.0
 - Flutter Tools Dart: 3.12.1
-- Engine Dart VM: 3.12.0
+- Dart VM: post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`)
 - Target: aarch64 (ARM64)
 
 ## Verified Feature Status (2026-06-01)

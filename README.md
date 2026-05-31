@@ -154,7 +154,7 @@ bin/cache/artifacts/engine/
 |------|------|----------------|
 | `flutter --version` | ✅ | Flutter 3.44.0，Tools Dart 3.12.1 |
 | `dart --version` | ✅ | Termux JIT Dart 3.12.1 (`android_arm64`) |
-| `dartvm --version` | ✅ | Engine Dart VM 3.12.0 (`linux_arm64`) |
+| `dartvm --version` | ✅ | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | `flutter doctor -v` | ✅ | Android SDK / Java 21 / network resources OK；unknown channel 與未連 ADB device 為預期警告 |
 | `flutter create` | ✅ | `--platforms=android,linux` smoke project |
 | `flutter build apk --release` | ✅ | Samsung SM-X716B / Android 16 / Termux；ARM64 APK 產出成功 |
@@ -532,7 +532,7 @@ python3 build.py build_android_gen_snapshot --arch=arm64 --mode=release
 > ✅ **已驗證**：gen_snapshot 在 Termux 上成功運行：
 > ```
 > $ gen_snapshot --version
-> Dart SDK version: 3.12.0 on "linux_arm64"
+> Dart SDK version: 3.12.x on "android_arm64"
 > ```
 
 **技術說明**：官方 Flutter SDK 的 gen_snapshot 只能在 x86_64 Linux 上運行。我們使用 NDK 交叉編譯了一個能在 ARM64 Android (Termux) 上原生運行的版本，這是實現 `flutter build apk` 的關鍵。

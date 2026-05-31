@@ -13,7 +13,7 @@ This release updates the Termux Flutter SDK package to Flutter 3.44.0 and fixes 
 | SHA256 | `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846` |
 | Flutter | 3.44.0 |
 | Flutter Tools Dart | 3.12.1 |
-| Engine Dart VM | 3.12.0 |
+| Dart VM | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | Target host | Termux / Android bionic / ARM64 |
 
 ## Install

@@ -154,7 +154,7 @@ This project is **the world's first** to achieve a **complete Flutter developmen
 |------|--------|---------------------|
 | `flutter --version` | ✅ | Flutter 3.44.0, Tools Dart 3.12.1 |
 | `dart --version` | ✅ | Termux JIT Dart 3.12.1 (`android_arm64`) |
-| `dartvm --version` | ✅ | Engine Dart VM 3.12.0 (`linux_arm64`) |
+| `dartvm --version` | ✅ | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | `flutter doctor -v` | ✅ | Android SDK / Java 21 / network resources OK; unknown channel and no ADB device are expected warnings unless ADB is connected |
 | `flutter create` | ✅ | Smoke project with `--platforms=android,linux` |
 | `flutter build apk --release` | ✅ | Verified on Samsung SM-X716B / Android 16 / Termux; ARM64 APK built successfully |
