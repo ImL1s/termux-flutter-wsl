@@ -1,0 +1,57 @@
+name: Device smoke (self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_labels_json:
+        description: JSON array for runs-on labels. Use a Windows runner connected to the tablet by ADB.
+        required: true
+        default: '["self-hosted","windows"]'
+      adb_path:
+        description: Full adb path, or adb if it is on PATH
+        required: true
+        default: adb
+      device_serial:
+        description: Optional adb serial
+        required: false
+        default: ''
+      deb_url:
+        description: Deb URL to test. Leave default for latest v3.44.0 release asset.
+        required: true
+        default: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb
+      expected_sha256:
+        description: Expected SHA256 for the deb under test
+        required: true
+        default: b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846
+      timeout_minutes:
+        description: Device smoke timeout in minutes. Keep the tablet awake/unlocked before starting.
+        required: true
+        default: '45'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: device-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Termux tablet smoke
+    runs-on: ${{ fromJSON(inputs.runner_labels_json) }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Termux smoke through ADB
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          scripts/device/run_termux_smoke.ps1 `
+            -AdbPath '${{ inputs.adb_path }}' `
+            -DeviceSerial '${{ inputs.device_serial }}' `
+            -DebUrl '${{ inputs.deb_url }}' `
+            -ExpectedSha256 '${{ inputs.expected_sha256 }}' `
+            -TimeoutMinutes ${{ inputs.timeout_minutes }}

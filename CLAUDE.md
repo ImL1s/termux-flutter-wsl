@@ -51,8 +51,13 @@ python3 build.py debuild --arch=arm64
 | `patches/{version}/*.patch` | Version-specific Engine/Dart/Skia patches |
 | `scripts/install/post_install.sh` | Post-installation setup for APK builds |
 | `scripts/build/` | Build helper scripts (profile, gen_snapshot, etc.) |
+| `scripts/ci/check_repo.py` | Lightweight repository contract checks for PR CI |
+| `scripts/device/` | Windows ADB driver + Termux smoke script |
+| `scripts/test/gh_e2e_test.sh` | GitHub Release clean-install E2E smoke script |
 | `scripts/setup/` | WSL/NDK/Gradle environment setup scripts |
 | `scripts/fix/` | Workaround scripts (aapt2, gradle, SSH) |
+| `.github/workflows/` | GitHub-hosted CI and manual self-hosted build/device gates |
+| `docs/CI_CD.md` | CI/CD and device-lab operating guide |
 | `install_flutter_complete.sh` | One-command Termux installation script |
 | `CHANGELOG.md` | Version history and release notes |
 | `BUILD_GUIDE.md` | Detailed build guide and troubleshooting |
@@ -71,6 +76,8 @@ flutter_termux/
 │       └── skia.patch
 ├── scripts/
 │   ├── build/                  # Build helper scripts
+│   ├── ci/                     # PR sanity checks
+│   ├── device/                 # ADB/Termux smoke automation
 │   ├── setup/                  # Environment setup scripts
 │   ├── install/                # Installation scripts
 │   │   └── post_install.sh
@@ -78,6 +85,13 @@ flutter_termux/
 │   └── test/                   # Test scripts
 └── .github/workflows/          # CI/CD (requires self-hosted runner)
 ```
+
+## CI/CD Notes
+
+- `.github/workflows/ci.yml` is the only workflow that runs automatically on PRs; it uses GitHub-hosted Ubuntu and must stay lightweight.
+- `.github/workflows/build-deb.yml` and `.github/workflows/device-smoke.yml` are manual self-hosted workflows because the full engine build is multi-hour and the device smoke needs an attached ADB tablet.
+- `.github/workflows/release-check.yml` verifies the public release asset metadata and SHA256.
+- Keep the release/device contracts in sync with `scripts/ci/check_repo.py` and `docs/CI_CD.md`.
 
 ## Architecture Overview
 

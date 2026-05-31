@@ -34,6 +34,7 @@ __pycache__/
 *.log
 *.txt
 !README*.txt
+!requirements.txt
 
 # ----- IDE / 編輯器 -----
 .vscode/
@@ -55,6 +56,8 @@ node_modules/
 .ninja_log
 .ninja_deps
 .gclient
+.omx/
+.omc/
 
 # ----- 中間產物 -----
 *.o
@@ -119,3 +122,4 @@ temp_*.*
 
 # ----- 臨時 PowerShell 腳本 -----
 *.ps1
+!scripts/**/*.ps1

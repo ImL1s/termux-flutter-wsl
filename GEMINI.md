@@ -63,6 +63,23 @@ Termux (runtime)
     └── /data/data/com.termux/files/usr/opt/flutter/
 ```
 
+## CI/CD and Device Lab
+
+| Workflow | Trigger | Runner | Purpose |
+|----------|---------|--------|---------|
+| `.github/workflows/ci.yml` | PR / push / manual | GitHub-hosted Ubuntu | Python, Shell, PowerShell, YAML, package/docs sanity |
+| `.github/workflows/build-deb.yml` | Manual | self-hosted Linux/WSL | Full Flutter Engine build and `.deb` packaging |
+| `.github/workflows/device-smoke.yml` | Manual | self-hosted Windows + ADB | Install deb on Termux and run doctor/create/APK/Linux smoke |
+| `.github/workflows/release-check.yml` | Release / manual | GitHub-hosted Ubuntu | Verify release asset name, size, and SHA256 |
+
+Supporting scripts:
+
+- `scripts/ci/check_repo.py` — lightweight repository contract checker.
+- `scripts/device/run_termux_smoke.ps1` — Windows ADB driver that keeps the tablet awake, pushes the deb/script, and polls the Termux log.
+- `scripts/device/termux_smoke.sh` — Termux-side install/doctor/create/build smoke script.
+- `scripts/test/gh_e2e_test.sh` — manual GitHub Release clean-install smoke script inside Termux.
+- `docs/CI_CD.md` — workflow and runner documentation.
+
 ## Key Design Decisions
 
 1. **Linux target builds all three modes** (debug, release, profile). `build_all()` runs configure+build for each mode.
