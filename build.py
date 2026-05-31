@@ -260,7 +260,7 @@ class Build:
             if '<type_traits>' in content and 'extern "C++"' not in content:
                 content = content.replace(
                     '#include <type_traits>',
-                    'extern "C++" {\\n#include <type_traits>\\n}'
+                    'extern "C++" {\n#include <type_traits>\n}'
                 )
                 glib_typeof.write_text(content, encoding='utf-8')
                 logger.success("Fixed #4: Patched glib-typeof.h with extern C++ wrapper")
