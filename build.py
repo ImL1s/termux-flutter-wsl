@@ -469,6 +469,17 @@ class Build:
         root = root or self.root
         sysroot = os.path.abspath(sysroot or self._sysroot.path)
         toolchain = os.path.abspath(toolchain or self.toolchain)
+        toolchain_path = Path(toolchain)
+        ndk_root = toolchain_path.parents[3]
+        clang_rt_dir = toolchain_path / 'lib' / 'clang'
+        clang_rt_versions = [
+            p.name for p in clang_rt_dir.iterdir()
+            if p.is_dir() and p.name.split('.')[0].isdigit()
+        ] if clang_rt_dir.is_dir() else []
+        clang_rt_version = max(
+            clang_rt_versions,
+            key=lambda it: tuple(int(part) for part in it.split('.') if part.isdigit()),
+            default='19')
 
         # Output directory for Android build
         out_dir = f'android_{mode}_{arch}'
@@ -489,7 +500,8 @@ class Build:
             # Note: no --target-toolchain for Android (uses default)
             # Termux cross-host settings
             '--gn-args', 'termux_cross_host=true',
-            '--gn-args', f'android_ndk_root="/opt/android-ndk-r27d"',
+            '--gn-args', f'android_ndk_root="{ndk_root}"',
+            '--gn-args', f'android_clang_rt_version="{clang_rt_version}"',
             '--gn-args', f'termux_ndk_path="{toolchain}"',
             '--gn-args', f'target_sysroot="{sysroot}"',
             '--gn-args', 'symbol_level=0',
