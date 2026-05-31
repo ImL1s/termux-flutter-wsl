@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- GitHub-hosted `CI` workflow for lightweight PR/push checks: Python compile, shell syntax, PowerShell parse, workflow/package/docs sanity, and whitespace guard.
+- Manual self-hosted workflows for full `.deb` builds, Windows+ADB tablet smoke tests, and release asset metadata verification.
+- `docs/CI_CD.md` documenting workflow boundaries, runner requirements, security model, and local equivalents.
+- `scripts/ci/check_repo.py` to keep release/docs/package contracts from silently regressing.
+- `scripts/device/run_termux_smoke.ps1` and `scripts/device/termux_smoke.sh` for repeatable Termux tablet smoke testing.
+
+### Changed
+- Moved the GitHub Release E2E script from repository root to `scripts/test/gh_e2e_test.sh`.
+- Removed the stale `.agent/workflows/build-termux-flutter.md` workflow in favor of maintained GitHub Actions and `docs/CI_CD.md`.
+- Updated README/README_EN directory maps and CI/CD guidance to match the organized `scripts/{ci,device,test}` layout.
+- Ignored local OMX/OMC runtime state and normalized line-ending rules for workflows, Python, Markdown, shell, and PowerShell files.
+
 ## [3.44.0-termux] - 2026-06-01
 
 ### Added

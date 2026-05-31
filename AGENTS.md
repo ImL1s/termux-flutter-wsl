@@ -42,6 +42,25 @@ python3 build.py debuild --arch=arm64                     # Package .deb
 | `package.yaml` | Declarative artifact mapping: build output paths → Termux install paths |
 | `utils.py` | Helpers: arch mapping (`arm64→aarch64`), output path resolution, Termux detection |
 | `patches/{version}/` | Git patches for Engine, Dart VM, Skia (version-specific) |
+| `.github/workflows/ci.yml` | GitHub-hosted PR/push sanity checks |
+| `.github/workflows/build-deb.yml` | Manual self-hosted full `.deb` build / optional release publish |
+| `.github/workflows/device-smoke.yml` | Manual Windows+ADB Termux tablet smoke workflow |
+| `.github/workflows/release-check.yml` | Release asset metadata / SHA256 verifier |
+| `scripts/ci/check_repo.py` | Lightweight repo contract checker used by CI |
+| `scripts/device/` | Windows ADB driver and Termux-side smoke script |
+| `scripts/test/gh_e2e_test.sh` | GitHub Release clean-install E2E smoke script |
+| `docs/CI_CD.md` | CI/CD, runner, and device-lab guide |
+
+## Lightweight Verification
+
+```bash
+python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py
+bash -n scripts/install/post_install.sh scripts/test/gh_e2e_test.sh scripts/device/termux_smoke.sh
+python scripts/ci/check_repo.py
+git diff --check
+```
+
+Self-hosted workflows are manual-only. Do not run expensive full build or tablet smoke automatically on PRs.
 
 ## Critical Implementation Details
 

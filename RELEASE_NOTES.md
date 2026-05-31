@@ -74,6 +74,12 @@ Flutter Tools still assumes host OS is macOS/Linux/Windows. On Termux, Dart repo
 - `tool_backend.sh` shebang is rewritten for Termux.
 - Projects should add `set(CMAKE_SYSTEM_NAME Linux)` at the top of `linux/CMakeLists.txt`.
 
+### Maintainer automation
+
+- GitHub-hosted PR CI now runs lightweight repository sanity checks without touching self-hosted hardware.
+- Manual self-hosted workflows cover the full `.deb` build and Windows+ADB Termux tablet smoke test.
+- `scripts/ci/check_repo.py`, `scripts/device/run_termux_smoke.ps1`, and `docs/CI_CD.md` document and enforce the release/device validation contract.
+
 ## Required per-project Android settings
 
 ```properties

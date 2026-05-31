@@ -20,6 +20,7 @@
   <img src="https://img.shields.io/badge/Flutter-3.44.0-02569B?logo=flutter" alt="Flutter Version"/>
   <img src="https://img.shields.io/badge/Platform-ARM64-green" alt="Platform"/>
   <img src="https://img.shields.io/badge/Build-WSL-0078D6?logo=windows" alt="WSL"/>
+  <a href="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml"><img src="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <img src="https://img.shields.io/badge/build_apk-✓-success" alt="Build APK"/>
   <img src="https://img.shields.io/badge/hot_reload-✓-success" alt="Hot Reload"/>
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue" alt="License"/>
@@ -176,6 +177,20 @@ This project is **the world's first** to achieve a **complete Flutter developmen
 - 📦 Produces installable `flutter_3.44.0_aarch64.deb`
 - 🤖 Automated build, package, and on-device smoke-test workflow
 
+### 🤖 CI/CD and Device Lab
+
+The repository separates cheap PR checks from expensive engine/device validation:
+
+| Workflow | Trigger | Runner | Purpose |
+|----------|---------|--------|---------|
+| `CI` | PR / push / manual | GitHub-hosted Ubuntu | Python, Shell, PowerShell, YAML, and package/docs contract sanity |
+| `Build deb` | Manual | self-hosted Linux/WSL | Full Flutter Engine build, `.deb` packaging, optional release publishing |
+| `Device smoke` | Manual | self-hosted Windows + ADB | Install the deb in Termux, then run doctor/create/APK/Linux smoke tests |
+| `Release check` | Release / manual | GitHub-hosted Ubuntu | Verify release asset name, size, and SHA256 |
+
+See [`docs/CI_CD.md`](docs/CI_CD.md) for workflow details, runner requirements, and local equivalents.
+> Device smoke requires the tablet to stay awake and unlocked; secure lock screens block ADB text injection into Termux.
+
 ### ⚠️ System Requirements
 
 | Item | Minimum |
@@ -231,7 +246,7 @@ curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/insta
 If you only need `flutter run -d linux`, no APK building:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
+curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
 ```
 
 After install, **restart Termux** then run:
@@ -287,7 +302,7 @@ rm -rf ~/.gradle/caches ~/.gradle/daemon
 
 ```bash
 # Build everything
-./build_termux_flutter.sh
+bash scripts/build/build_termux_flutter.sh
 
 # Or step-by-step
 python3 build.py sysroot --arch=arm64    # Assemble Termux sysroot
@@ -466,16 +481,28 @@ adb install build/app/outputs/flutter-apk/app-release.apk
 
 ```
 termux-flutter-wsl/
+├── .github/workflows/        # GitHub-hosted CI + self-hosted build/device gates
+│   ├── ci.yml                # Fast PR/push checks
+│   ├── build-deb.yml         # Manual full .deb build / release publish
+│   ├── device-smoke.yml      # Manual tablet Termux smoke test
+│   └── release-check.yml     # Release asset metadata verification
+├── docs/
+│   └── CI_CD.md              # CI/CD, runner, and device-lab guide
+├── scripts/
+│   ├── build/                # WSL/Engine build helper scripts
+│   ├── ci/                   # Lightweight repository contract checks
+│   ├── device/               # ADB → Termux smoke automation
+│   ├── install/              # Termux install and post-install patches
+│   ├── setup/                # WSL/SDK/Gradle setup scripts
+│   ├── fix/                  # Historical workaround scripts
+│   └── test/                 # GitHub Release / Termux E2E smoke scripts
+├── patches/3.44.0/           # Flutter Engine / Dart / Skia patches
+├── package.yaml              # .deb artifact mapping
 ├── build.py                  # Main build script
-├── build.toml                # Configuration
-├── patches/                  # Engine patches
-├── build_termux_flutter.sh   # One-click build (WSL)
-├── install_termux_flutter.sh # Termux one-click installer
-├── setup_flutter_project.sh  # Project configuration script
+├── build.toml                # Build configuration
+├── install_flutter_complete.sh # Termux one-click installer
 ├── README.md                 # Chinese docs
-├── README_EN.md              # English docs
-├── assets/                   # Assets
-└── .agent/workflows/         # Automation
+└── README_EN.md              # English docs
 ```
 
 ---

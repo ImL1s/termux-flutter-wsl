@@ -32,7 +32,7 @@ sudo apt update
 sudo apt install -y git curl python3 python3-pip ninja-build pkg-config
 
 # Python packages
-pip3 install fire loguru toml pyyaml
+pip3 install -r requirements.txt
 
 # depot_tools
 cd ~
@@ -62,11 +62,16 @@ python3 build.py sync
 ```bash
 # 應用 Termux 適配補丁
 python3 build.py patch_engine
+python3 build.py patch_dart
+python3 build.py patch_skia
+python3 build.py patch_flutter_sdk
 ```
 
-補丁文件位於 `patches/` 目錄，主要修改：
-- `patches/engine.patch` - Flutter Engine 的 Termux 工具鏈配置
-- `patches/dart.patch` - Dart SDK 補丁
+補丁文件位於 `patches/3.44.0/` 目錄，主要修改：
+- `patches/3.44.0/engine.patch` - Flutter Engine 的 Termux 工具鏈配置
+- `patches/3.44.0/dart.patch` - Dart SDK / VM Termux 適配
+- `patches/3.44.0/skia.patch` - Skia Android/bionic build 適配
+- `patches/3.44.0/flutter_sdk_arm64_default.patch` - Flutter SDK 預設 ARM64 APK target
 
 ### 階段 3：構建 Sysroot
 
@@ -108,7 +113,7 @@ python3 build.py build_android_gen_snapshot --arch=arm64 --mode=release
 python3 build.py debuild --arch=arm64
 ```
 
-產出：`release/flutter_3.35.0_aarch64.deb`
+產出：`release/flutter_3.44.0_aarch64.deb`
 
 ---
 
@@ -229,11 +234,12 @@ Flag dedup_instructions is false in snapshot, but dedup_instructions is always t
 ```bash
 # 1. 傳輸 deb 到設備
 # 使用 PowerShell（Git Bash 會損壞路徑）
-adb push flutter_3.35.0_aarch64.deb /sdcard/Download/
+adb push flutter_3.44.0_aarch64.deb /sdcard/Download/
 
 # 2. 在 Termux 中安裝
 pkg install x11-repo
-dpkg -i /sdcard/Download/flutter_3.35.0_aarch64.deb
+dpkg -i /sdcard/Download/flutter_3.44.0_aarch64.deb
+bash $PREFIX/share/flutter/post_install.sh
 apt-get install -f
 
 # 3. 載入環境
@@ -247,8 +253,8 @@ flutter create testapp
 cd testapp
 
 # 6. 測試構建（可能有問題）
-flutter build apk --release
-flutter build linux --debug
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
+flutter build linux --release
 ```
 
 ### 測試結果記錄
@@ -268,7 +274,8 @@ flutter build linux --debug
 
 確認以下文件的版本號一致：
 - `build.toml` - `tag` 字段
-- `install_termux_flutter.sh` - `FLUTTER_VERSION`
+- `install_flutter_complete.sh` - `FLUTTER_VERSION`
+- `scripts/install/install_termux_flutter.sh` - `FLUTTER_VERSION`
 - `README.md` - 版本徽章和文字
 - `package.yaml` - `Version: $tag`
 
@@ -276,13 +283,13 @@ flutter build linux --debug
 
 ```bash
 # 最終產物位置
-release/flutter_3.35.0_aarch64.deb
+release/flutter_3.44.0_aarch64.deb
 ```
 
 ### 3. 上傳到 GitHub Releases
 
-1. 創建新 Release：`v3.35.0`
-2. 上傳 deb 檔案：`flutter_3.35.0_aarch64.deb`
+1. 創建新 Release：`v3.44.0`
+2. 上傳 deb 檔案：`flutter_3.44.0_aarch64.deb`
 3. 填寫 Release Notes
 
 ### 4. 驗證一鍵安裝腳本
@@ -332,13 +339,18 @@ python3 build.py patch_engine
 ## 文件結構參考
 
 ```
-termux-flutter/
+termux-flutter-wsl/
+├── .github/workflows/    # CI / self-hosted build and device smoke workflows
+├── docs/CI_CD.md         # CI/CD 與裝置實驗室說明
+├── scripts/
+│   ├── ci/               # 輕量 contract checks
+│   ├── device/           # ADB → Termux smoke automation
+│   ├── install/          # 安裝與 post-install 修補
+│   └── test/             # Release E2E smoke scripts
+├── patches/3.44.0/       # Flutter Engine / Dart / Skia 補丁
 ├── build.py              # 主構建腳本
 ├── build.toml            # 構建配置（版本號等）
 ├── package.yaml          # deb 包定義
-├── patches/
-│   ├── engine.patch      # Flutter Engine 補丁
-│   └── dart.patch        # Dart SDK 補丁
 ├── sysroot/              # Termux 運行時依賴（構建時生成）
 ├── flutter/              # Flutter 源碼（構建時克隆）
 │   └── engine/src/out/   # 構建產物
@@ -348,6 +360,11 @@ termux-flutter/
 ---
 
 ## 更新日誌
+
+### 2026-06-01
+- 更新本文檔至 Flutter 3.44.0 / Dart 3.12 狀態
+- 補上 `scripts/ci`、`scripts/device`、GitHub Actions 與 release metadata check
+- 測試流程改為 ARM64 APK + Linux release smoke
 
 ### 2025-12-29
 - 創建本文檔

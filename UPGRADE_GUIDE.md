@@ -412,9 +412,11 @@ termux-flutter-wsl/
 │   ├── install/
 │   │   ├── post_install.sh   # 設備端 post-install 配置
 │   │   └── install_termux_flutter.sh  # 一鍵安裝腳本
+│   ├── ci/check_repo.py      # 輕量 repo contract check
+│   ├── device/               # ADB → Termux smoke automation
+│   ├── test/gh_e2e_test.sh   # GitHub Release E2E 測試腳本
 │   └── ...
 │
-├── gh_e2e_test.sh            # E2E 測試腳本
 ├── install_flutter_complete.sh # 完整安裝腳本（含 Android SDK）
 │
 ├── README.md                 # 中文文檔

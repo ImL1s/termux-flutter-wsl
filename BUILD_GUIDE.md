@@ -21,6 +21,26 @@
 
 `debuild` 會重新打包整個 SDK（約 6-8 分鐘），但不會重新編譯 engine；不要把它和 `ninja` build 混在一起判斷耗時。
 
+## CI/CD 與裝置驗證
+
+完整引擎 build 仍然應在 WSL/self-hosted runner 執行，但 PR 可以先跑輕量檢查：
+
+```bash
+python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py
+bash -n scripts/install/post_install.sh scripts/test/gh_e2e_test.sh scripts/device/termux_smoke.sh
+python scripts/ci/check_repo.py
+git diff --check
+```
+
+GitHub Actions 目前拆成四條線：
+
+- `.github/workflows/ci.yml`：PR/push 的 GitHub-hosted sanity checks。
+- `.github/workflows/build-deb.yml`：手動 self-hosted Linux/WSL 完整 `.deb` build，可選 release publish。
+- `.github/workflows/device-smoke.yml`：手動 self-hosted Windows + ADB 平板 smoke test。
+- `.github/workflows/release-check.yml`：Release asset metadata / SHA256 檢查。
+
+細節見 [`docs/CI_CD.md`](docs/CI_CD.md)。
+
 ## 技術架構總覽
 
 ### 我們編譯的組件（WSL 交叉編譯）
@@ -785,6 +805,8 @@ gh release create v3.45.0-termux \
 - ✅ Flutter 3.44.0 / Dart 3.12 deb 打包完成並通過 artifact validator
 - ✅ Termux smoke：doctor / create / build apk / build linux
 - ✅ 補上 Flutter Gradle plugin `PLATFORM_ABI_LIST` 與 cache cleanup
+- ✅ 補上 GitHub-hosted PR CI、self-hosted full build / tablet smoke workflow、release metadata check
+- 🧹 將 GitHub Release E2E 與裝置 smoke 腳本整理到 `scripts/test/`、`scripts/device/`
 - 📝 重新整理 README、INSTALL、RELEASE_NOTES、CHANGELOG 的 3.44.0 狀態
 
 ### 2025-12-29 v5

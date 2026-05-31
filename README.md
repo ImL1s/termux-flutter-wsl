@@ -20,6 +20,7 @@
   <img src="https://img.shields.io/badge/Flutter-3.44.0-02569B?logo=flutter" alt="Flutter Version"/>
   <img src="https://img.shields.io/badge/Platform-ARM64-green" alt="Platform"/>
   <img src="https://img.shields.io/badge/Build-WSL-0078D6?logo=windows" alt="WSL"/>
+  <a href="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml"><img src="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <img src="https://img.shields.io/badge/build_apk-✓-success" alt="Build APK"/>
   <img src="https://img.shields.io/badge/hot_reload-✓-success" alt="Hot Reload"/>
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue" alt="License"/>
@@ -176,6 +177,20 @@ bin/cache/artifacts/engine/
 - 📦 產出可安裝的 `flutter_3.44.0_aarch64.deb`
 - 🤖 完整自動化構建、打包與裝置 smoke test 流程
 
+### 🤖 CI/CD 與裝置實驗室
+
+本專案把「快速 PR 檢查」和「昂貴的引擎/實機驗證」分開：
+
+| Workflow | 觸發 | Runner | 用途 |
+|----------|------|--------|------|
+| `CI` | PR / push / 手動 | GitHub-hosted Ubuntu | Python、Shell、PowerShell、YAML、package/docs contract sanity |
+| `Build deb` | 手動 | self-hosted Linux/WSL | 完整 Flutter Engine build、`.deb` 打包、可選 release publish |
+| `Device smoke` | 手動 | self-hosted Windows + ADB | 平板 Termux 安裝 deb、doctor、create、APK/Linux build smoke |
+| `Release check` | Release / 手動 | GitHub-hosted Ubuntu | 驗證 release asset 名稱、大小與 SHA256 |
+
+詳細流程、runner 需求與本地等效指令請看 [`docs/CI_CD.md`](docs/CI_CD.md)。
+> 裝置 smoke 需要平板保持喚醒且已解鎖；安全鎖定畫面會阻止 ADB 將命令輸入到 Termux。
+
 ### ⚠️ 系統需求
 
 | 項目 | 最低需求 |
@@ -231,7 +246,7 @@ curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/insta
 如果只需要 `flutter run -d linux`，不需要構建 APK：
 
 ```bash
-curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
+curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
 ```
 
 安裝完成後，**重啟 Termux** 或執行：
@@ -287,7 +302,7 @@ rm -rf ~/.gradle/caches ~/.gradle/daemon
 
 ```bash
 # 一鍵構建
-./build_termux_flutter.sh
+bash scripts/build/build_termux_flutter.sh
 
 # 或分步驟執行
 python3 build.py sysroot --arch=arm64    # 組裝 Termux 運行時依賴
@@ -466,16 +481,28 @@ adb install build/app/outputs/flutter-apk/app-release.apk
 
 ```
 termux-flutter-wsl/
+├── .github/workflows/        # GitHub-hosted CI + self-hosted build/device gates
+│   ├── ci.yml                # PR/push 快速檢查
+│   ├── build-deb.yml         # 手動完整 .deb build / release publish
+│   ├── device-smoke.yml      # 手動平板 Termux smoke test
+│   └── release-check.yml     # Release asset metadata 驗證
+├── docs/
+│   └── CI_CD.md              # CI/CD、runner 與裝置實驗室說明
+├── scripts/
+│   ├── build/                # WSL/Engine build helper scripts
+│   ├── ci/                   # 輕量 repo contract checks
+│   ├── device/               # ADB → Termux smoke automation
+│   ├── install/              # Termux 安裝與 post-install 修補
+│   ├── setup/                # WSL/SDK/Gradle setup scripts
+│   ├── fix/                  # 歷史 workaround scripts
+│   └── test/                 # GitHub Release / Termux E2E smoke scripts
+├── patches/3.44.0/           # Flutter Engine / Dart / Skia patches
+├── package.yaml              # .deb artifact mapping
 ├── build.py                  # 主構建腳本
 ├── build.toml                # 構建配置
-├── patches/                  # 引擎補丁
-├── build_termux_flutter.sh   # 一鍵構建腳本 (WSL)
-├── install_termux_flutter.sh # Termux 一鍵安裝腳本
-├── setup_flutter_project.sh  # 專案配置腳本
+├── install_flutter_complete.sh # Termux 一鍵安裝腳本
 ├── README.md                 # 中文文檔
-├── README_EN.md              # 英文文檔
-├── assets/                   # 專案資源
-└── .agent/workflows/         # 自動化工作流
+└── README_EN.md              # 英文文檔
 ```
 
 ---
