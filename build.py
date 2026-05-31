@@ -203,7 +203,13 @@ class Build:
 
         # Fix #5: package_config.json language version too old
         # 1. Replace prebuilt dart-sdk with matching version (3.12.0)
-        dart_sdk_dir = Path(src) / 'engine' / 'src' / 'third_party' / 'dart' / 'tools' / 'sdks' / 'dart-sdk'
+        engine_src_dir = Path(src) / 'engine' / 'src'
+        engine_checkout_dir = engine_src_dir / 'flutter'
+        if not engine_checkout_dir.exists():
+            engine_checkout_dir = engine_src_dir
+
+        dart_dir = engine_checkout_dir / 'third_party' / 'dart'
+        dart_sdk_dir = dart_dir / 'tools' / 'sdks' / 'dart-sdk'
         if dart_sdk_dir.exists():
             import urllib.request
             import zipfile
@@ -222,16 +228,20 @@ class Build:
                     shutil.rmtree(dart_sdk_dir)
                     with zipfile.ZipFile(zip_path, 'r') as zf:
                         zf.extractall(dart_sdk_dir.parent)
+                    for bin_path in (dart_sdk_dir / 'bin').iterdir():
+                        if bin_path.is_file():
+                            bin_path.chmod(bin_path.stat().st_mode | 0o111)
                 
                 logger.success('Fixed #5: Replaced prebuilt dart-sdk with version 3.12.0')
 
-        # 2. Run dart pub get in third_party/dart/
-        dart_dir = Path(src) / 'engine' / 'src' / 'third_party' / 'dart'
-        if dart_dir.exists():
-            logger.info('Running dart pub get in third_party/dart/ ...')
-            dart_bin = dart_sdk_dir / 'bin' / 'dart'
-            cmd_pub = [str(dart_bin), 'pub', 'get']
-            subprocess.run(cmd_pub, cwd=dart_dir, check=True)
+        # 2. Run dart pub get for package_config.json files used by GN actions.
+        dart_bin = dart_sdk_dir / 'bin' / 'dart'
+        if dart_bin.exists():
+            for pub_dir in (dart_dir, engine_checkout_dir):
+                if not (pub_dir / 'pubspec.yaml').exists():
+                    continue
+                logger.info(f'Running dart pub get in {pub_dir} ...')
+                subprocess.run([str(dart_bin), 'pub', 'get'], cwd=pub_dir, check=True)
             logger.success('Fixed #5: Finished dart pub get')
 
     def patch(self, *, file, path):
