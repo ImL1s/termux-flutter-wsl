@@ -159,7 +159,7 @@ python3 build.py debuild --arch=arm64
 
 構建完成後，deb 包位於：
 ```
-release/flutter_3.35.0_aarch64.deb
+release/flutter_3.44.0_aarch64.deb
 ```
 
 ## deb 包內容
@@ -278,25 +278,26 @@ python3 build.py debuild --arch=arm64
 ```bash
 # 下載 ARM64 NDK（約 550MB）
 cd ~
-wget https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r27b-aarch64.zip
+wget https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z
 
 # 解壓到 Android SDK 目錄
 mkdir -p $ANDROID_HOME/ndk
-unzip android-ndk-r27b-aarch64.zip -d $ANDROID_HOME/ndk/
-mv $ANDROID_HOME/ndk/android-ndk-r27b $ANDROID_HOME/ndk/27.1.12297006
+pkg install p7zip
+7z x android-ndk-r29-aarch64.7z -o$ANDROID_HOME/ndk/
+mv $ANDROID_HOME/ndk/android-ndk-r29 $ANDROID_HOME/ndk/29.0.14206865
 ```
 
 #### 2. 配置項目使用 ARM64 NDK
 在 Flutter 專案的 `android/local.properties` 中添加：
 
 ```properties
-ndk.dir=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
+ndk.dir=/data/data/com.termux/files/usr/opt/android-sdk/ndk/29.0.14206865
 ```
 
 在 `android/app/build.gradle.kts` 中設置正確的 NDK 版本：
 
 ```kotlin
-ndkVersion = "27.1.12297006"  // 或你的 NDK 版本
+ndkVersion = "29.0.14206865"  // 或你的 NDK 版本
 ```
 
 #### 3. 修復 CMake
@@ -608,7 +609,7 @@ flutter build linux --debug     # ✅ 已驗證（需要 Termux:X11）
 flutter run                     # ✅ 已驗證（Hot Reload 支援）
 ```
 
-## 當前版本狀態 (v3.35.0)
+## 目標版本狀態 (v3.44.0)
 
 ### 功能測試結果 (2025-12-29 更新)
 
@@ -750,7 +751,7 @@ EOF
 Termux 的 clang 需要正確的庫路徑，創建 wrapper script：
 
 ```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
+NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/29.0.14206865
 mkdir -p $NDK/toolchains/llvm/prebuilt/bin
 
 # 備份原始 clang（如果存在）
@@ -759,9 +760,10 @@ mv $NDK/toolchains/llvm/prebuilt/bin/clang $NDK/toolchains/llvm/prebuilt/bin/cla
 # 創建 clang wrapper
 cat > $NDK/toolchains/llvm/prebuilt/bin/clang << 'EOF'
 #!/bin/sh
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
+NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/29.0.14206865
 SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/18/lib/linux
+CLANG_VERSION=$(ls -1 $NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/ | sort -V | tail -n 1)
+CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/$CLANG_VERSION/lib/linux
 
 ARCH=""
 for arg in "$@"; do
@@ -789,9 +791,10 @@ chmod +x $NDK/toolchains/llvm/prebuilt/bin/clang
 # 創建 clang++ wrapper
 cat > $NDK/toolchains/llvm/prebuilt/bin/clang++ << 'EOF'
 #!/bin/sh
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
+NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/29.0.14206865
 SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/18/lib/linux
+CLANG_VERSION=$(ls -1 $NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/ | sort -V | tail -n 1)
+CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/$CLANG_VERSION/lib/linux
 
 ARCH=""
 for arg in "$@"; do
@@ -822,7 +825,7 @@ chmod +x $NDK/toolchains/llvm/prebuilt/bin/clang++
 移除 `-static-libstdc++`，否則會導致 `-lc++_shared` 連結錯誤：
 
 ```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
+NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/29.0.14206865
 TOOLCHAIN=$NDK/build/cmake/android-legacy.toolchain.cmake
 
 # 備份
@@ -835,14 +838,14 @@ sed -i 's/list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/# Disabled for T
 ### 5. 創建 NDK sysroot 符號連結
 
 ```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
+NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/29.0.14206865
 PREBUILT=$NDK/toolchains/llvm/prebuilt
 
 # sysroot 符號連結
 ln -sf linux-x86_64/sysroot $PREBUILT/sysroot 2>/dev/null
 
-# clang lib 版本符號連結
-ln -sf 18 $PREBUILT/linux-x86_64/lib/clang/21 2>/dev/null
+# clang lib 版本由 wrapper 動態偵測（r29 是 clang/21；不要硬編碼 18/21）
+CLANG_VERSION=$(ls -1 $PREBUILT/linux-x86_64/lib/clang/ | sort -V | tail -n 1)
 
 # 目標三元組符號連結
 SYSROOT=$PREBUILT/linux-x86_64/sysroot/usr/lib
@@ -853,8 +856,9 @@ ln -sf aarch64-linux-android/24 $SYSROOT/aarch64-none-linux-android24 2>/dev/nul
 ### 6. 複製運行時庫到 sysroot
 
 ```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/18/lib/linux
+NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/29.0.14206865
+CLANG_VERSION=$(ls -1 $NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/ | sort -V | tail -n 1)
+CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/$CLANG_VERSION/lib/linux
 SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib
 
 # ARM64 庫
@@ -922,14 +926,14 @@ flutter build apk --profile   # ✅ 165MB
 
 ```bash
 # 複製現有 patches 作為起點
-cp -r patches/3.35.0 patches/3.36.0
+cp -r patches/3.44.0 patches/3.45.0
 ```
 
 ### 2. 更新 build.toml
 
 ```toml
 [flutter]
-tag = '3.36.0'  # 更新版本號
+tag = '3.45.0'  # 更新版本號
 ```
 
 ### 3. 同步新版本
@@ -951,7 +955,7 @@ python3 build.py patch_flutter_sdk
 **如果 patch 失敗：**
 
 1. 查看錯誤訊息，找出衝突的位置
-2. 手動修復 `patches/3.36.0/` 中的 patch 檔案
+2. 手動修復 `patches/3.45.0/` 中的 patch 檔案
 3. 重新執行 patch 命令
 
 ### 5. 建置新版本
@@ -968,7 +972,7 @@ python3 build.py debuild --arch=arm64
 
 ```bash
 # 安裝
-dpkg -i flutter_3.36.0_aarch64.deb
+dpkg -i flutter_3.45.0_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh
 
@@ -984,17 +988,17 @@ flutter build linux
 ```bash
 # 提交變更
 git add -A
-git commit -m "feat: Support Flutter 3.36.0"
+git commit -m "feat: Support Flutter 3.45.0"
 
 # 打 tag
-git tag -a v3.36.0-termux -m "Flutter 3.36.0 for Termux ARM64"
+git tag -a v3.45.0-termux -m "Flutter 3.45.0 for Termux ARM64"
 git push origin master --tags
 
 # 建立 GitHub Release
-gh release create v3.36.0-termux \
-  --title "Flutter 3.36.0 for Termux" \
+gh release create v3.45.0-termux \
+  --title "Flutter 3.45.0 for Termux" \
   --notes "See CHANGELOG.md" \
-  flutter_3.36.0_aarch64.deb
+  flutter_3.45.0_aarch64.deb
 ```
 
 ### Patch 維護技巧

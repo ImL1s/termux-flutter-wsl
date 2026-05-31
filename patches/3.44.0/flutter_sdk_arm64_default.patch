@@ -1,0 +1,44 @@
+diff --git a/packages/flutter_tools/lib/src/commands/build_aar.dart b/packages/flutter_tools/lib/src/commands/build_aar.dart
+index e0572a8ea89..1197a6462e3 100644
+--- a/packages/flutter_tools/lib/src/commands/build_aar.dart
++++ b/packages/flutter_tools/lib/src/commands/build_aar.dart
+@@ -52,7 +52,7 @@ class BuildAarCommand extends BuildSubCommand {
+     addAndroidSpecificBuildOptions(hide: !verboseHelp);
+     argParser.addMultiOption(
+       'target-platform',
+-      defaultsTo: <String>['android-arm', 'android-arm64', 'android-x64'],
++      defaultsTo: <String>['android-arm64']  // Modified for Termux ARM64,
+       allowed: <String>['android-arm', 'android-arm64', 'android-x64'],
+       help: 'The target platform for which the project is compiled.',
+     );
+diff --git a/packages/flutter_tools/lib/src/commands/build_apk.dart b/packages/flutter_tools/lib/src/commands/build_apk.dart
+index d3f50300804..62bfecddf8e 100644
+--- a/packages/flutter_tools/lib/src/commands/build_apk.dart
++++ b/packages/flutter_tools/lib/src/commands/build_apk.dart
+@@ -69,8 +69,11 @@ class BuildApkCommand extends BuildSubCommand {
+     return BuildMode.release;
+   }
+
+-  static const _kDefaultJitArchs = <String>['android-arm', 'android-arm64', 'android-x64'];
+-  static const _kDefaultAotArchs = <String>['android-arm', 'android-arm64', 'android-x64'];
++  // Modified for Termux ARM64: default to android-arm64 only
++  // Original: ['android-arm', 'android-arm64', 'android-x64']
++  // Reason: gen_snapshot for android-arm and android-x64 cannot be cross-compiled for ARM64 hosts
++  static const _kDefaultJitArchs = <String>['android-arm64'];
++  static const _kDefaultAotArchs = <String>['android-arm64'];
+   List<String> get _targetArchs => stringsArg('target-platform').isEmpty
+       ? switch (_buildMode) {
+           BuildMode.release || BuildMode.profile => _kDefaultAotArchs,
+diff --git a/packages/flutter_tools/lib/src/commands/build_appbundle.dart b/packages/flutter_tools/lib/src/commands/build_appbundle.dart
+index 85a2ef3c71f..a17b76b8c34 100644
+--- a/packages/flutter_tools/lib/src/commands/build_appbundle.dart
++++ b/packages/flutter_tools/lib/src/commands/build_appbundle.dart
+@@ -40,7 +40,7 @@ class BuildAppBundleCommand extends BuildSubCommand {
+     addIgnoreDeprecationOption();
+     argParser.addMultiOption(
+       'target-platform',
+-      defaultsTo: <String>['android-arm', 'android-arm64', 'android-x64'],
++      defaultsTo: <String>['android-arm64'],  // Modified for Termux ARM64
+       allowed: <String>['android-arm', 'android-arm64', 'android-x64'],
+       help: 'The target platform for which the app is compiled.',
+     );

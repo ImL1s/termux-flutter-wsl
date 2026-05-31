@@ -2,17 +2,85 @@
 
 import os
 import sys
+import io
 import git
 import fire
 import yaml
 import utils
 import shutil
+import tarfile
 import tomllib
 import subprocess
 from loguru import logger
 from pathlib import Path
 from sysroot import Sysroot
 from package import Package
+
+
+REQUIRED_DEB_ARTIFACTS = (
+    'opt/flutter/bin/cache/dart-sdk/bin/dart',
+    'opt/flutter/bin/cache/dart-sdk/bin/dartvm',
+    'opt/flutter/bin/cache/dart-sdk/bin/dartaotruntime',
+)
+
+
+def _ar_members(path):
+    with open(path, 'rb') as f:
+        if f.read(8) != b'!<arch>\n':
+            raise ValueError(f'bad deb archive: "{path}"')
+
+        while header := f.read(60):
+            if len(header) != 60:
+                raise ValueError(f'truncated deb archive header: "{path}"')
+
+            name = header[:16].decode('utf8').strip().rstrip('/')
+            size = int(header[48:58].decode('utf8').strip())
+            data = f.read(size)
+            if len(data) != size:
+                raise ValueError(f'truncated deb archive member: "{name}"')
+            if size % 2:
+                f.read(1)
+            yield name, data
+
+
+def validate_deb_artifacts(path):
+    """Fail packaging if required Termux runtime binaries are missing."""
+    data_member = None
+    for name, data in _ar_members(path):
+        if name.startswith('data.tar'):
+            data_member = data
+            break
+    if data_member is None:
+        raise ValueError(f'data archive not found in deb: "{path}"')
+
+    found = {}
+    with tarfile.open(fileobj=io.BytesIO(data_member), mode='r:*') as data_tar:
+        for member in data_tar:
+            if not member.isfile():
+                continue
+            name = member.name.lstrip('./')
+            for suffix in REQUIRED_DEB_ARTIFACTS:
+                if name.endswith(suffix):
+                    found[suffix] = member
+
+    missing = [it for it in REQUIRED_DEB_ARTIFACTS if it not in found]
+    if missing:
+        raise RuntimeError(
+            'deb missing required Flutter runtime artifact(s): '
+            + ', '.join(missing))
+
+    non_executable = [
+        it for it, member in found.items()
+        if member.mode & 0o111 == 0
+    ]
+    if non_executable:
+        raise RuntimeError(
+            'deb runtime artifact(s) are not executable: '
+            + ', '.join(non_executable))
+
+    logger.info(
+        '✓ Validated deb runtime artifacts: '
+        + ', '.join(Path(it).name for it in REQUIRED_DEB_ARTIFACTS))
 
 
 class GitProgress(git.RemoteProgress):
@@ -134,7 +202,7 @@ class Build:
         subprocess.run(cmd, cwd=src, check=True)
 
         # Fix #5: package_config.json language version too old
-        # 1. Replace prebuilt dart-sdk with matching version (3.11.3)
+        # 1. Replace prebuilt dart-sdk with matching version (3.12.0)
         dart_sdk_dir = Path(src) / 'engine' / 'src' / 'third_party' / 'dart' / 'tools' / 'sdks' / 'dart-sdk'
         if dart_sdk_dir.exists():
             import urllib.request
@@ -142,11 +210,11 @@ class Build:
             import tempfile
             
             version_file = dart_sdk_dir / 'version'
-            if version_file.exists() and version_file.read_text().strip() == '3.11.3':
-                logger.info('Dart SDK already replaced with 3.11.3')
+            if version_file.exists() and version_file.read_text().strip() == '3.12.0':
+                logger.info('Dart SDK already replaced with 3.12.0')
             else:
-                logger.info('Replacing prebuilt dart-sdk with 3.11.3...')
-                url = 'https://storage.googleapis.com/dart-archive/channels/stable/release/3.11.3/sdk/dartsdk-linux-x64-release.zip'
+                logger.info('Replacing prebuilt dart-sdk with 3.12.0...')
+                url = 'https://storage.googleapis.com/dart-archive/channels/stable/release/3.12.0/sdk/dartsdk-linux-x64-release.zip'
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     zip_path = Path(tmp_dir) / 'dartsdk.zip'
                     urllib.request.urlretrieve(url, zip_path)
@@ -155,7 +223,7 @@ class Build:
                     with zipfile.ZipFile(zip_path, 'r') as zf:
                         zf.extractall(dart_sdk_dir.parent)
                 
-                logger.success('Fixed #5: Replaced prebuilt dart-sdk with version 3.11.3')
+                logger.success('Fixed #5: Replaced prebuilt dart-sdk with version 3.12.0')
 
         # 2. Run dart pub get in third_party/dart/
         dart_dir = Path(src) / 'engine' / 'src' / 'third_party' / 'dart'
@@ -524,6 +592,7 @@ class Build:
 
         pkg = Package(root=root, arch=arch, **conf)
         pkg.debuild(output=output)
+        validate_deb_artifacts(output)
 
     def output(self, arch: str):
         if self.release.is_dir():

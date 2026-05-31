@@ -25,7 +25,8 @@ setup_ndk_clang_wrappers() {
 
     local PREBUILT="$NDK_PATH/toolchains/llvm/prebuilt"
     local SYSROOT="$PREBUILT/linux-x86_64/sysroot"
-    local CLANG_LIB="$PREBUILT/linux-x86_64/lib/clang/18/lib/linux"
+    local CLANG_VERSION=$(ls -1 "$PREBUILT/linux-x86_64/lib/clang/" | sort -V | tail -n 1)
+    local CLANG_LIB="$PREBUILT/linux-x86_64/lib/clang/$CLANG_VERSION/lib/linux"
 
     echo "    Setting up clang wrappers for NDK $NDK_NAME..."
 
@@ -159,7 +160,7 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
 }
 
 # Get engine version for downloads
-ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "1e9a811bf8e70466596bcf0ea3a8b5adb5f17f7f")
+ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "4c525dac5ebe5971c5708ef73558ed8edcf4a362")
 
 # 0. 下載官方 Dart SDK snapshots (修復 flutter run hot reload)
 echo "[0/13] Downloading official Dart SDK snapshots (for hot reload)..."
@@ -230,9 +231,9 @@ if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     /data/data/com.termux/files/usr/bin/git config user.name "termux" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git add bin/flutter >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git commit -q -m "Init framework" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git tag "3.41.5" >/dev/null 2>&1 || true
+    /data/data/com.termux/files/usr/bin/git tag "3.44.0" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
-    echo "  ✓ Dummy tag 3.41.5 created"
+    echo "  ✓ Dummy tag 3.44.0 created"
 fi
 
 # 1.5c. Fix CMakeLists.txt (skip compiler test for NDK cmake)
@@ -247,7 +248,7 @@ project(FlutterNDKTrick C CXX)
 CMAKEOF
 echo "  ✓ CMakeLists.txt fixed (compiler test skipped)"
 
-# 1.5d. Install Android SDK Platform 36 (Flutter 3.41.5 requirement)
+# 1.5d. Install Android SDK Platform 36 (Flutter 3.44.0 requirement)
 echo "[1.5d/13] Installing Android SDK Platform 36..."
 if [ ! -d "$ANDROID_SDK/platforms/android-36" ]; then
     mkdir -p $ANDROID_SDK/platforms

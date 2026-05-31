@@ -57,7 +57,7 @@ TOTAL_STEPS=7
 # ========================================
 echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} Installing dependencies..."
 pkg update -y
-pkg install -y openjdk-21 cmake ninja wget unzip
+pkg install -y openjdk-21 cmake ninja wget unzip p7zip
 
 # ========================================
 # Step 2: 下載並安裝 Android SDK
@@ -88,20 +88,23 @@ echo "Android SDK installed at $PREFIX/opt/android-sdk"
 # ========================================
 echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} Checking NDK..."
 
-NDK_VERSION="27.1.12297006"
+NDK_VERSION="29.0.14206865"
 NDK_PATH="$PREFIX/opt/android-sdk/ndk/$NDK_VERSION"
+NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
+NDK_ARCHIVE="$HOME/android-ndk-r29-aarch64.7z"
 
 if [ -d "$NDK_PATH" ]; then
     echo "NDK $NDK_VERSION already installed."
 else
-    echo -e "${YELLOW}NDK not found. Please install ARM64 NDK manually:${NC}"
-    echo ""
-    echo "  wget https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r27b-aarch64.zip"
-    echo "  mkdir -p \$PREFIX/opt/android-sdk/ndk"
-    echo "  unzip android-ndk-r27b-aarch64.zip -d \$PREFIX/opt/android-sdk/ndk/"
-    echo "  mv \$PREFIX/opt/android-sdk/ndk/android-ndk-r27b \$PREFIX/opt/android-sdk/ndk/$NDK_VERSION"
-    echo ""
-    echo "Continuing with setup (NDK can be installed later)..."
+    echo "Downloading ARM64 NDK r29..."
+    if [ ! -f "$NDK_ARCHIVE" ]; then
+        wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE"
+    fi
+    mkdir -p "$PREFIX/opt/android-sdk/ndk"
+    7z x -y "$NDK_ARCHIVE" "-o$PREFIX/opt/android-sdk/ndk" >/dev/null
+    rm -rf "$NDK_PATH"
+    mv "$PREFIX/opt/android-sdk/ndk/android-ndk-r29" "$NDK_PATH"
+    echo "NDK $NDK_VERSION installed."
 fi
 
 # ========================================
