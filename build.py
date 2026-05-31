@@ -353,14 +353,20 @@ class Build:
         logger.info(f'Building dart binary for {arch}...')
         subprocess.run(cmd, check=True)
 
-        # Copy dart to dart-sdk/bin/
+        # Copy dart to dart-sdk/bin/ and dartvm.
+        #
+        # Dart 3.10+ Flutter wrappers may re-exec dartvm next to dart. On
+        # Termux both entries point at the same JIT-capable VM binary.
         dart_src = os.path.join(out_dir, 'exe.unstripped', 'dart')
         dart_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dart')
+        dartvm_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dartvm')
 
         if os.path.exists(dart_src):
             os.makedirs(os.path.dirname(dart_dst), exist_ok=True)
             shutil.copy(dart_src, dart_dst)
             logger.info(f'dart binary copied to {dart_dst}')
+            shutil.copy(dart_src, dartvm_dst)
+            logger.info(f'dartvm binary copied to {dartvm_dst}')
         else:
             logger.warning(f'dart binary not found at {dart_src}')
 
