@@ -378,9 +378,24 @@ object FlutterPluginConstants {
         listOf(
             PLATFORM_ARM64
         )
+
+    // Flutter 3.44 Gradle plugin imports this symbol directly.
+    @JvmStatic val PLATFORM_ABI_LIST: List<String> =
+        DEFAULT_PLATFORMS.map { platform ->
+            PLATFORM_ARCH_MAP[platform] ?: error("Invalid platform: $platform")
+        }
 }
 EOF
 echo "  ✓ FlutterPluginConstants.kt updated"
+
+# Clear stale Gradle included-build outputs after changing the Flutter Gradle plugin.
+# Without this, upgrades can compile FlutterPlugin.kt against an older cached
+# FlutterPluginConstants.kt and fail with unresolved PLATFORM_ABI_LIST.
+echo "  Clearing Flutter Gradle plugin build cache..."
+rm -rf "$FLUTTER_ROOT/packages/flutter_tools/gradle/.gradle" \
+       "$FLUTTER_ROOT/packages/flutter_tools/gradle/build" \
+       "$FLUTTER_ROOT/packages/flutter_tools/gradle/bin" 2>/dev/null || true
+echo "  ✓ Flutter Gradle plugin cache cleared"
 
 # 3b. Patch Flutter CLI to default to android-arm64 only
 # Without this, `flutter build apk` tries to compile for arm, arm64, and x64,

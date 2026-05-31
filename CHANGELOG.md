@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.44.0-termux] - 2026-06-01
+
+### Added
+- Flutter 3.44.0 / Dart 3.12 package refresh for Termux ARM64.
+- Packaged `dartvm` alongside `dart` and `dartaotruntime` so Dart 3.10+ VM/tool split works on Termux.
+- Release artifact metadata in docs: size `666,366,556` bytes and SHA256 `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846`.
+
+### Fixed
+- Flutter Tools Android-host crashes by mapping Termux/Android host lookups to Linux ARM64 artifacts.
+- Flutter 3.44 Gradle plugin failure by adding `PLATFORM_ABI_LIST` to the ARM64-only `FlutterPluginConstants.kt` post-install template.
+- Stale Gradle included-build cache after post-install source rewrites.
+- NDK clang runtime path handling for the 3.44 Android gen_snapshot build.
+
+### Verified
+- `python3 build.py debuild --arch=arm64` with artifact validator for `dart`, `dartvm`, and `dartaotruntime`.
+- On-device smoke on Samsung SM-X716B / Android 16 / Termux: `flutter --version`, `dart --version`, `dartvm --version`, `flutter doctor -v`, `flutter create`, `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons`, and `flutter build linux --release`.
+
+### Known Limitations
+- APK target remains ARM64-only.
+- Per-project Android settings still need API 34 + `android.aapt2FromMavenOverride`.
+- `flutter run` requires ADB pairing/connection inside Termux.
+
+---
+
 ## [3.41.5-termux-2] - 2026-04-13
 
 ### Fixed

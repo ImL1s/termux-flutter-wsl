@@ -1,6 +1,6 @@
 # Flutter 版本升級指南
 
-本文件說明如何將 Termux Flutter 從目前的 3.41.5 升級到新版本。
+本文件說明如何將 Termux Flutter 從目前的 3.44.0 升級到新版本，並列出 3.44.0 之後必須重新檢查的 Dart / Flutter Tools / Gradle plugin 風險點。
 
 ---
 
@@ -21,6 +21,16 @@
 □ Step 12: 更新 post_install.sh（如有必要）
 □ Step 13: 發佈 GitHub Release
 ```
+
+## 3.44.0 之後的必查項目
+
+| 項目 | 為什麼重要 | 檢查方式 |
+|------|------------|----------|
+| `dart` / `dartvm` / `dartaotruntime` | Dart 3.10+ 將 CLI 與 VM runtime 拆得更明顯；只打包 `dart` 會讓 snapshots 或 Flutter CLI 其中一邊壞掉 | `python3 build.py debuild --arch=arm64` 必須通過 artifact validator |
+| Flutter Tools host platform | Termux 會被 Dart 視為 `android` host；官方 Flutter Tools 通常只處理 macOS/Linux/Windows | 在 Termux 跑 `flutter doctor -v`，不能在 cache/artifact/device discovery 階段 crash |
+| Flutter Gradle plugin constants | Flutter 3.44 起 `FlutterPlugin.kt` 直接 import `PLATFORM_ABI_LIST` | `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` 不能出現 Kotlin unresolved reference |
+| Gradle included-build cache | post-install 會改 Kotlin source；升級時舊 cache 可能混用新舊 source | `post_install.sh` 要清掉 `packages/flutter_tools/gradle/.gradle`, `build`, `bin` |
+| Android SDK / aapt2 | 新版模板可能提高 `compileSdk`，Termux aapt2 仍需 API 34 workaround | 新專案固定 `compileSdk = 34`, `targetSdk = 34`, `android.aapt2FromMavenOverride` |
 
 ---
 
@@ -85,7 +95,7 @@ mkdir -p patches/3.XX.Y
 **方法 A：直接複製上版 patch，嘗試套用**
 
 ```bash
-cp patches/3.41.5/*.patch patches/3.XX.Y/
+cp patches/3.44.0/*.patch patches/3.XX.Y/
 python3 build.py patch_engine
 python3 build.py patch_dart
 python3 build.py patch_skia
@@ -98,10 +108,10 @@ python3 build.py patch_skia
 ```bash
 cd flutter/engine/src/flutter
 # 查看原始 patch 改了哪些檔案
-git apply --stat /root/projects/termux-flutter/patches/3.41.5/engine.patch
+git apply --stat /root/projects/termux-flutter/patches/3.44.0/engine.patch
 
 # 嘗試套用，看哪裡衝突
-git apply --check patches/3.41.5/engine.patch
+git apply --check patches/3.44.0/engine.patch
 
 # 手動修改衝突的檔案，然後產生新 patch
 git diff > /root/projects/termux-flutter/patches/3.XX.Y/engine.patch
@@ -391,7 +401,7 @@ termux-flutter-wsl/
 ├── .gclient                  # gclient sync 配置
 │
 ├── patches/
-│   ├── 3.41.5/               # 3.41.5 專用 patch
+│   ├── 3.44.0/               # 3.44.0 專用 patch
 │   │   ├── engine.patch
 │   │   ├── dart.patch
 │   │   ├── skia.patch

@@ -1,121 +1,119 @@
-# Flutter 3.41.5 for Termux (ARM64)
+# Flutter 3.44.0 for Termux ARM64
 
-**世界首個在 Termux ARM64 上運行的完整 Flutter 開發環境**
+**Flutter 3.44.0 / Dart 3.12 for Android-bionic ARM64 hosts.**
 
-## 安裝
+This release updates the Termux Flutter SDK package to Flutter 3.44.0 and fixes the new Dart/Flutter Tools/Gradle assumptions that broke Android-as-host environments.
 
-### 方法 1: 一鍵安裝（推薦）
+## Package
+
+| Item | Value |
+|------|-------|
+| Package | `flutter_3.44.0_aarch64.deb` |
+| Size | 666,366,556 bytes (~636 MiB) |
+| SHA256 | `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846` |
+| Flutter | 3.44.0 |
+| Flutter Tools Dart | 3.12.1 |
+| Engine Dart VM | 3.12.0 |
+| Target host | Termux / Android bionic / ARM64 |
+
+## Install
+
 ```bash
-curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/install_flutter_complete.sh -o ~/install.sh && bash ~/install.sh
-```
-
-### 方法 2: 只安裝 Flutter（不含 Android SDK）
-```bash
-curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
-```
-
-### 方法 3: 手動安裝
-```bash
-# 1. 下載並安裝 deb
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.41.5/flutter_3.41.5_aarch64.deb
-dpkg -i flutter_3.41.5_aarch64.deb
+pkg update -y
+pkg install -y x11-repo wget openjdk-21
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb
+dpkg -i flutter_3.44.0_aarch64.deb
 apt --fix-broken install -y
-
-# 2. 執行 post-install 腳本
 bash $PREFIX/share/flutter/post_install.sh
-
-# 3. 設置環境變數
 source $PREFIX/etc/profile.d/flutter.sh
-
-# 4. 驗證安裝
-flutter doctor
+flutter doctor -v
 ```
 
-## 功能狀態
+## Verified
 
-| 功能 | 狀態 | 備註 |
-|------|------|------|
-| `flutter doctor` | ✅ 已驗證 | |
-| `flutter create` | ✅ 已驗證 | |
-| `flutter build apk --release` | ✅ 已驗證 | 151.6MB |
-| `flutter build apk --debug` | ✅ 已驗證 | |
-| `flutter build linux --release` | ✅ 已驗證 | ARM64 ELF |
-| `flutter run` (Android) | ✅ 已驗證 | Hot Reload 支援 |
+Device smoke on Samsung SM-X716B / Android 16 / ARM64 Termux:
 
-## 系統需求
+| Command | Result |
+|---------|--------|
+| `flutter --version` | ✅ Flutter 3.44.0 |
+| `dart --version` | ✅ Dart 3.12.1 on `android_arm64` |
+| `dartvm --version` | ✅ Dart 3.12.0 on `linux_arm64` |
+| `flutter doctor -v` | ✅ completes; unknown channel / no connected device are expected warnings |
+| `flutter create --platforms=android,linux` | ✅ |
+| `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` | ✅ ARM64 APK produced |
+| `flutter build linux --release` | ✅ ARM64 Linux bundle produced |
+| deb artifact validator | ✅ `dart`, `dartvm`, `dartaotruntime` executable |
 
-- Android 11+ (API 30+)
-- ARM64 (aarch64) 架構
-- Termux 從 [F-Droid](https://f-droid.org/packages/com.termux/) 安裝
-- 約 2GB 儲存空間
+## Highlights
 
-## APK 構建配置
+### Flutter 3.44 / Dart 3.12 update
 
-每個 Flutter 專案需要修改以下配置：
+- Updated package metadata and patches for Flutter 3.44.0.
+- Handles Dart 3.10+ tool split by packaging both CLI `dart` and engine `dartvm`/`dartaotruntime`.
+- Keeps Flutter CLI on Termux JIT Dart while preserving engine VM tools for snapshots.
 
-**android/app/build.gradle.kts:**
+### Android/Termux host fixes
+
+Flutter Tools still assumes host OS is macOS/Linux/Windows. On Termux, Dart reports `Platform.operatingSystem == "android"`. This release maps Android host lookups to Linux ARM64 artifacts for:
+
+- font-subset artifacts
+- engine artifact host platform lookup
+- current host platform detection
+- Chrome/device-discovery lookup paths
+
+### APK build fixes
+
+- ARM64-only APK default remains enforced.
+- `post_install.sh` now provides Flutter 3.44's `PLATFORM_ABI_LIST` in the ARM64-only Gradle plugin template.
+- Stale Flutter Gradle included-build caches are cleared after plugin source changes.
+- NDK wrapper setup detects current clang runtime paths and patches CMake host-tag assumptions.
+
+### Linux desktop build fixes
+
+- `flutter build linux` is allowed on Termux host.
+- `tool_backend.sh` shebang is rewritten for Termux.
+- Projects should add `set(CMAKE_SYSTEM_NAME Linux)` at the top of `linux/CMakeLists.txt`.
+
+## Required per-project Android settings
+
+```properties
+# android/gradle.properties
+android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+```
+
 ```kotlin
+// android/app/build.gradle.kts
 android {
     compileSdk = 34
     defaultConfig {
         targetSdk = 34
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 }
 ```
 
-**android/gradle.properties:**
-```properties
-android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
-```
-
-## Linux Desktop 構建
-
-在 `linux/CMakeLists.txt` 第一行加入：
-```cmake
-set(CMAKE_SYSTEM_NAME Linux)
-```
-
-然後執行：
-```bash
-flutter build linux --release
-```
-
-## flutter run（Hot Reload）
+Build with:
 
 ```bash
-# 1. 啟用無線調試（設定 → 開發者選項 → 無線調試）
-# 2. 配對（首次）
-adb pair 127.0.0.1:<配對端口> <配對碼>
-# 3. 連接
-adb connect 127.0.0.1:<連接端口>
-# 4. 運行
-flutter run
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 ```
 
-## 已知限制
+## Known limitations
 
-- 僅支援 `android-arm64` 目標（不支援 android-arm、android-x64）
-- 需要手動執行 post_install.sh 配置環境
+- Android APK targets are ARM64-only (`android-arm64` / `arm64-v8a`).
+- `flutter run` for Android requires ADB pairing/connection from inside Termux.
+- Some Flutter doctor warnings about unknown channel/source are expected for this repackaged SDK.
+- Termux aapt2 currently requires projects to compile against API 34 even though Android SDK Platform 36 is installed for Flutter metadata compatibility.
 
-## 更新內容
+## Previous releases
 
 ### v3.41.5 (2026-04-13)
-- Flutter SDK 升級至 3.41.5 (Dart 3.11.3)
-- **新增 `flutter build linux` 支援**（post_install.sh 自動 patch）
-- 修復 `post_install.sh` sed 分隔符衝突
-- 修復 `build.py` sync 目錄複製問題
-- 強制刪除 flutter_tools.stamp/snapshot 確保 patch 生效
-- E2E 測試腳本 `gh_e2e_test.sh`
+
+- Flutter SDK upgraded to 3.41.5 (Dart 3.11.3).
+- Added `flutter build linux` support.
+- Fixed post-install sed delimiter and flutter_tools snapshot invalidation.
 
 ### v3.35.0 (2026-01-07)
-- 首次公開發布
-- 完整支援 APK 構建（debug/profile/release）
-- `flutter run` + Hot Reload 支援
 
-## 致謝
-
-- [mumumusuc/termux-flutter](https://github.com/mumumusuc/termux-flutter) - 原始構建工具
-- [lzhiyong/termux-ndk](https://github.com/lzhiyong/termux-ndk) - ARM64 預編譯 Android NDK
+- First public release.
+- APK build and hot reload support for ARM64 Termux.
