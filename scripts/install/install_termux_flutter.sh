@@ -5,12 +5,8 @@
 #
 # Usage: curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
 #
-# 當前狀態 (v3.41.5):
-#   - flutter doctor: ✅ 已驗證
-#   - flutter create: ✅ 已驗證
-#   - flutter build apk: ✅ 已驗證 (release + debug)
-#   - flutter build linux: ✅ 已驗證 (release)
-#   - flutter run: ✅ 已驗證 (需 ADB self-connect)
+# 目標狀態 (v3.44.0):
+#   - flutter doctor / create / build / run: 發布前需在乾淨 Termux 環境重新驗證
 #
 
 set -e
@@ -23,7 +19,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 版本配置
-FLUTTER_VERSION="3.41.5"
+FLUTTER_VERSION="3.44.0"
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/v${FLUTTER_VERSION}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 
 echo -e "${BLUE}"

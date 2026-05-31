@@ -4,7 +4,7 @@
 
 set -e
 
-FLUTTER_VERSION="3.41.5"
+FLUTTER_VERSION="3.44.0"
 DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/v${FLUTTER_VERSION}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 
 echo "========================================"

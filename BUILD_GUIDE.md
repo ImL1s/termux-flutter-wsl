@@ -2,13 +2,33 @@
 
 本文檔說明如何從零開始構建包含 Android gen_snapshot 的 Flutter deb 包。
 
+## 目前版本狀態（3.44.0 / 2026-06-01）
+
+| 項目 | 值 |
+|------|----|
+| Flutter tag | `3.44.0` |
+| Engine revision | `4c525dac5ebe5971c5708ef73558ed8edcf4a362` |
+| Package | `flutter_3.44.0_aarch64.deb` |
+| Package size | 666,366,556 bytes（約 636 MiB） |
+| SHA256 | `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846` |
+| Device smoke | Samsung SM-X716B / Android 16 / Termux |
+
+3.44.0 需要特別注意三個新點：
+
+1. **Dart VM/tool split**：Flutter CLI 使用 Termux JIT `dart`，但 engine snapshots 仍需要配套 `dartvm` / `dartaotruntime`，所以 `build_dart()` 與 deb validator 必須檢查三者。
+2. **Flutter Tools Android host**：Termux 上 Dart 回報 `Platform.operatingSystem == "android"`，必須把 host artifact lookup 映射到 Linux ARM64。
+3. **Flutter Gradle plugin**：3.44 的 `FlutterPlugin.kt` 會直接 import `PLATFORM_ABI_LIST`，post-install 的 ARM64-only `FlutterPluginConstants.kt` 模板必須保留這個 symbol，並清理 Gradle included-build cache。
+
+`debuild` 會重新打包整個 SDK（約 6-8 分鐘），但不會重新編譯 engine；不要把它和 `ninja` build 混在一起判斷耗時。
+
 ## 技術架構總覽
 
 ### 我們編譯的組件（WSL 交叉編譯）
 
 | 組件 | 檔案 | 大小 | 用途 |
 |------|------|------|------|
-| **Dart SDK** | `dart-sdk/bin/dart` | ~50MB | Flutter 命令核心 |
+| **Dart CLI** | `dart-sdk/bin/dart` | ~50MB | Flutter CLI；post-install 會替換成 Termux JIT Dart |
+| **Dart VM** | `dart-sdk/bin/dartvm`, `dartaotruntime` | ~50MB | 執行 engine snapshots / AOT runtime |
 | **Flutter Engine** | `libflutter_linux_gtk.so` | ~106MB | Linux 桌面運行時 |
 | **gen_snapshot (Linux)** | `linux-arm64/gen_snapshot` | ~30MB | `flutter build linux` |
 | **gen_snapshot (Android)** | `android-arm64-release/.../gen_snapshot` | ~30MB | `flutter build apk` |
@@ -27,10 +47,10 @@
 
 | 補丁檔案 | 解決的問題 |
 |----------|-----------|
-| `patches/engine.patch` | Bionic TLS 對齊、`-llog -lm` 連結、dynamic linker 路徑 |
-| `patches/dart.patch` | Dart SDK Termux 適配 |
-| `FlutterPluginConstants.kt` | 預設只編譯 ARM64（其他架構無法交叉編譯） |
-| `post_install.sh` | NDK wrapper、sysroot symlinks、下載官方 snapshots |
+| `patches/3.44.0/engine.patch` | Bionic TLS 對齊、`-llog -lm` 連結、dynamic linker 路徑、NDK clang runtime 偵測 |
+| `patches/3.44.0/dart.patch` | Dart VM / profiler shutdown Termux 適配 |
+| `post_install.sh` → `FlutterPluginConstants.kt` | 預設只編譯 ARM64，且保留 Flutter 3.44 `PLATFORM_ABI_LIST` |
+| `post_install.sh` | NDK wrapper、sysroot symlinks、官方 snapshots、Flutter Tools Android-host patches、cache cleanup |
 
 ### 架構圖
 
@@ -159,7 +179,7 @@ python3 build.py debuild --arch=arm64
 
 構建完成後，deb 包位於：
 ```
-release/flutter_3.35.0_aarch64.deb
+release/flutter_3.44.0_aarch64.deb
 ```
 
 ## deb 包內容
@@ -236,123 +256,57 @@ export PATH="$HOME/depot_tools:$PATH"
 ### 磁碟空間不足
 Flutter Engine 源碼約 30GB，編譯產物約 20GB，至少需要 60GB 空間。
 
-## Termux 使用前設置 (2025-12-28 更新)
+## Termux 使用前設置（3.44.0）
 
-### 額外需要編譯的組件
-
-除了基本構建外，`flutter build apk` 還需要以下組件：
-
-1. **dartaotruntime_product** - 用於運行 AOT snapshots
-2. **impellerc** - 用於編譯 shaders
-3. **const_finder.dart.snapshot** - 用於 icon tree shaking
+deb 安裝後要在 Termux 內執行：
 
 ```bash
-# 在 WSL 中編譯額外組件
-export PATH="$HOME/depot_tools:$PATH"
-cd flutter
-
-# 編譯 impellerc
-ninja -C engine/src/out/linux_debug_arm64 flutter/impeller/compiler:impellerc
-
-# 編譯 const_finder
-ninja -C engine/src/out/linux_debug_arm64 flutter/tools/const_finder:const_finder
-
-# const_finder 輸出在 gen/ 目錄，複製到正確位置
-cp engine/src/out/linux_debug_arm64/gen/const_finder.dart.snapshot engine/src/out/linux_release_arm64/
-
-# 複製 dartaotruntime_product 到 dart-sdk
-cp engine/src/out/linux_debug_arm64/dartaotruntime_product engine/src/out/linux_debug_arm64/dart-sdk/bin/dartaotruntime
-
-# 重新打包 deb
-cd ..
-python3 build.py debuild --arch=arm64
+dpkg -i flutter_3.44.0_aarch64.deb
+apt --fix-broken install -y
+bash $PREFIX/share/flutter/post_install.sh
+source $PREFIX/etc/profile.d/flutter.sh
+flutter doctor -v
 ```
 
-### Termux 環境配置
+`post_install.sh` 會處理舊版文件中需要手動做的大多數事情：Android API 34/36、cmdline-tools、build-tools symlinks、NDK clang wrappers、CMake host tag、Dart snapshots、Flutter Tools Android-host patches、Gradle plugin ARM64-only ABI、ELF cleaner、shebang 修正與 cache cleanup。
 
-安裝 deb 後，還需要做以下設置才能運行 `flutter build apk`：
-
-#### 1. 安裝 ARM64 NDK
-標準 Android NDK 是 x86_64，無法在 Termux 運行。需要使用 lzhiyong 的 ARM64 NDK：
+### 每個 APK 專案仍需手動設定
 
 ```bash
-# 下載 ARM64 NDK（約 550MB）
-cd ~
-wget https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r27b-aarch64.zip
-
-# 解壓到 Android SDK 目錄
-mkdir -p $ANDROID_HOME/ndk
-unzip android-ndk-r27b-aarch64.zip -d $ANDROID_HOME/ndk/
-mv $ANDROID_HOME/ndk/android-ndk-r27b $ANDROID_HOME/ndk/27.1.12297006
+flutter create myapp
+cd myapp
+sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
+cat >> android/gradle.properties <<'EOF'
+android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+EOF
 ```
 
-#### 2. 配置項目使用 ARM64 NDK
-在 Flutter 專案的 `android/local.properties` 中添加：
-
-```properties
-ndk.dir=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-```
-
-在 `android/app/build.gradle.kts` 中設置正確的 NDK 版本：
+`android/app/build.gradle.kts`：
 
 ```kotlin
-ndkVersion = "27.1.12297006"  // 或你的 NDK 版本
+android {
+    compileSdk = 34
+    defaultConfig {
+        targetSdk = 34
+        ndk { abiFilters += listOf("arm64-v8a") }
+    }
+}
 ```
 
-#### 3. 修復 CMake
-Android SDK 的 CMake 是 x86_64，需要用 Termux 的：
+建置：
 
 ```bash
-# 安裝 Termux cmake 和 ninja
-pkg install cmake ninja
-
-# 替換 SDK CMake
-rm -rf $ANDROID_HOME/cmake/3.22.1/bin
-mkdir -p $ANDROID_HOME/cmake/3.22.1/bin
-ln -s /data/data/com.termux/files/usr/bin/cmake $ANDROID_HOME/cmake/3.22.1/bin/cmake
-ln -s /data/data/com.termux/files/usr/bin/ninja $ANDROID_HOME/cmake/3.22.1/bin/ninja
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 ```
 
-#### 4. 修復 AAPT2
-Gradle 下載的 AAPT2 是 x86_64，需要用 SDK build-tools 中的 ARM64 版本：
+### 每個 Linux desktop 專案仍需手動設定
 
 ```bash
-# 找到 Gradle 緩存的 aapt2 位置
-AAPT2_CACHE=~/.gradle/caches/*/transforms/*/transformed/aapt2-*-linux/aapt2
-
-# 替換為 ARM64 版本
-rm -f $AAPT2_CACHE
-ln -s $ANDROID_HOME/build-tools/35.0.0/aapt2 $AAPT2_CACHE
+flutter create mylinux --platforms=linux
+cd mylinux
+sed -i '1i set(CMAKE_SYSTEM_NAME Linux)' linux/CMakeLists.txt
+flutter build linux --release
 ```
-
-#### 5. 複製 flutter_patched_sdk_product
-`flutter build apk --release` 需要 product SDK：
-
-```bash
-mkdir -p $FLUTTER_ROOT/bin/cache/artifacts/engine/common/flutter_patched_sdk_product
-cp -r $FLUTTER_ROOT/bin/cache/artifacts/engine/common/flutter_patched_sdk/* \
-      $FLUTTER_ROOT/bin/cache/artifacts/engine/common/flutter_patched_sdk_product/
-```
-
-### 完整構建命令
-
-```bash
-source /data/data/com.termux/files/usr/etc/profile.d/flutter.sh
-export ANDROID_HOME=/data/data/com.termux/files/usr/opt/android-sdk
-export ANDROID_SDK_ROOT=$ANDROID_HOME
-export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-
-cd your_flutter_project
-flutter build apk --release
-```
-
-### 注意事項
-
-- **無需 `--target-platform` 參數！** Flutter SDK 已修改為預設只編譯 ARM64
-- 首次構建需要下載 Gradle 依賴，約需 5-10 分鐘
-- APK 輸出在 `build/app/outputs/flutter-apk/app-release.apk`
-
----
 
 ## 構建常見問題與解決方案 (坑) 🔥
 
@@ -608,19 +562,20 @@ flutter build linux --debug     # ✅ 已驗證（需要 Termux:X11）
 flutter run                     # ✅ 已驗證（Hot Reload 支援）
 ```
 
-## 當前版本狀態 (v3.35.0)
+## 目標版本狀態 (v3.44.0)
 
-### 功能測試結果 (2025-12-29 更新)
+### 功能測試結果（2026-06-01 更新）
 
 | 功能 | 狀態 | 說明 |
 |------|------|------|
-| `flutter doctor` | ✅ 正常 | Dart, gen_snapshot 版本匹配 |
-| `flutter create` | ✅ 正常 | 可創建新專案 |
-| `flutter build apk --release` | ✅ 正常 | 需執行 post_install.sh，僅支援 android-arm64 |
-| `flutter build apk --debug` | ✅ 正常 | 需執行 post_install.sh |
-| `flutter build linux` | ✅ 正常 | 需要 Termux:X11 來運行 |
-| `flutter run -d linux` | ✅ 正常 | 需要 Termux:X11 |
-| `flutter run` (Android) | ✅ 正常 | **Hot Reload 支援！** 需執行 post_install.sh |
+| `flutter --version` | ✅ 正常 | Flutter 3.44.0 / Tools Dart 3.12.1 |
+| `dart --version` | ✅ 正常 | Termux JIT Dart 3.12.1 (`android_arm64`) |
+| `dartvm --version` | ✅ 正常 | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
+| `flutter doctor -v` | ✅ 正常 | unknown channel / no device 是預期警告 |
+| `flutter create` | ✅ 正常 | 可創建 Android + Linux 專案 |
+| `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` | ✅ 正常 | 需執行 post_install.sh，僅支援 android-arm64 |
+| `flutter build linux --release` | ✅ 正常 | 產出 ARM64 ELF bundle |
+| `flutter run` (Android) | ✅ 支援 | 需要 Termux 內 ADB 連線後才會顯示 device |
 
 ### 已知限制
 
@@ -634,9 +589,9 @@ flutter run                     # ✅ 已驗證（Hot Reload 支援）
 
 **影響：** 構建的 APK 僅能在 ARM64 設備運行，不支援 ARM32 或 x86 模擬器。
 
-**使用方式：** APK 構建預設只產出 ARM64，無需額外參數：
+**使用方式：** 明確指定 ARM64，避免舊 cache 或專案設定誤判：
 ```bash
-flutter build apk --release
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 ```
 
 #### 2. Debug vs Release 模式不匹配 (技術背景)
@@ -680,239 +635,57 @@ error: This system call is not available on Android
 
 ---
 
-## Termux APK 構建完整設置指南 (2025-12-29)
+## Termux APK 構建完整設置指南（3.44.0）
 
-> **📌 重要：以下所有步驟已由 `post_install.sh` 自動完成！**
->
-> 使用一鍵安裝腳本或執行 `bash $PREFIX/share/flutter/post_install.sh` 後，無需手動執行以下步驟。
-> 本節僅供開發者參考或手動排錯使用。
+> **📌 重要：runtime 層級由 `post_install.sh` 自動完成；本節只列每個 Flutter project 必須保留的設定。**
 
-安裝 deb 包後，需要以下額外設置才能使 `flutter build apk` 正常工作。
-
-### 1. 安裝 Android 平台 API 34
-
-Termux 的 aapt2 有 bug，無法處理 API 35/36 的 android.jar（[Issue #22667](https://github.com/termux/termux-packages/issues/22667)）。
-
-```bash
-# 下載並安裝 API 34
-cd /data/data/com.termux/files/usr/opt/android-sdk/platforms
-curl -L -o platform-34.zip 'https://dl.google.com/android/repository/platform-34-ext7_r02.zip'
-unzip -q platform-34.zip
-rm platform-34.zip
-```
-
-### 2. 配置 Flutter 僅構建 ARM64
-
-修改 FlutterPluginConstants.kt 以避免構建 x86_64（Termux 不支援）：
-
-```bash
-cat > /data/data/com.termux/files/usr/opt/flutter/packages/flutter_tools/gradle/src/main/kotlin/FlutterPluginConstants.kt << 'EOF'
-package com.flutter.gradle
-
-object FlutterPluginConstants {
-    private const val PLATFORM_ARM32 = "android-arm"
-    private const val PLATFORM_ARM64 = "android-arm64"
-    private const val PLATFORM_X86_64 = "android-x64"
-
-    private const val ARCH_ARM32 = "armeabi-v7a"
-    private const val ARCH_ARM64 = "arm64-v8a"
-    private const val ARCH_X86_64 = "x86_64"
-
-    const val INTERMEDIATES_DIR = "intermediates"
-    const val FLUTTER_STORAGE_BASE_URL = "FLUTTER_STORAGE_BASE_URL"
-    const val DEFAULT_MAVEN_HOST = "https://storage.googleapis.com"
-
-    @JvmStatic val PLATFORM_ARCH_MAP =
-        mapOf(
-            PLATFORM_ARM32 to ARCH_ARM32,
-            PLATFORM_ARM64 to ARCH_ARM64,
-            PLATFORM_X86_64 to ARCH_X86_64
-        )
-
-    @JvmStatic val ABI_VERSION =
-        mapOf(
-            ARCH_ARM32 to 1,
-            ARCH_ARM64 to 2,
-            ARCH_X86_64 to 4
-        )
-
-    // Modified for Termux: only arm64 supported
-    @JvmStatic val DEFAULT_PLATFORMS =
-        listOf(
-            PLATFORM_ARM64
-        )
-}
-EOF
-```
-
-### 3. 配置 NDK clang wrapper
-
-Termux 的 clang 需要正確的庫路徑，創建 wrapper script：
-
-```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-mkdir -p $NDK/toolchains/llvm/prebuilt/bin
-
-# 備份原始 clang（如果存在）
-mv $NDK/toolchains/llvm/prebuilt/bin/clang $NDK/toolchains/llvm/prebuilt/bin/clang.orig 2>/dev/null
-
-# 創建 clang wrapper
-cat > $NDK/toolchains/llvm/prebuilt/bin/clang << 'EOF'
-#!/bin/sh
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/18/lib/linux
-
-ARCH=""
-for arg in "$@"; do
-    case "$arg" in
-        --target=aarch64*) ARCH="aarch64" ;;
-        --target=arm*) ARCH="arm" ;;
-    esac
-done
-
-if [ "$ARCH" = "aarch64" ]; then
-    LIB_PATH=$SYSROOT/usr/lib/aarch64-linux-android
-    CLANG_LIB_ARCH=$CLANG_LIB/aarch64
-elif [ "$ARCH" = "arm" ]; then
-    LIB_PATH=$SYSROOT/usr/lib/arm-linux-androideabi
-    CLANG_LIB_ARCH=$CLANG_LIB/arm
-else
-    exec /data/data/com.termux/files/usr/bin/clang "$@"
-fi
-
-exec /data/data/com.termux/files/usr/bin/clang -L$LIB_PATH -L$CLANG_LIB_ARCH "$@"
-EOF
-
-chmod +x $NDK/toolchains/llvm/prebuilt/bin/clang
-
-# 創建 clang++ wrapper
-cat > $NDK/toolchains/llvm/prebuilt/bin/clang++ << 'EOF'
-#!/bin/sh
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/18/lib/linux
-
-ARCH=""
-for arg in "$@"; do
-    case "$arg" in
-        --target=aarch64*) ARCH="aarch64" ;;
-        --target=arm*) ARCH="arm" ;;
-    esac
-done
-
-if [ "$ARCH" = "aarch64" ]; then
-    LIB_PATH=$SYSROOT/usr/lib/aarch64-linux-android
-    CLANG_LIB_ARCH=$CLANG_LIB/aarch64
-elif [ "$ARCH" = "arm" ]; then
-    LIB_PATH=$SYSROOT/usr/lib/arm-linux-androideabi
-    CLANG_LIB_ARCH=$CLANG_LIB/arm
-else
-    exec /data/data/com.termux/files/usr/bin/clang++ "$@"
-fi
-
-exec /data/data/com.termux/files/usr/bin/clang++ -L$LIB_PATH -L$CLANG_LIB_ARCH "$@"
-EOF
-
-chmod +x $NDK/toolchains/llvm/prebuilt/bin/clang++
-```
-
-### 4. 修補 NDK toolchain cmake
-
-移除 `-static-libstdc++`，否則會導致 `-lc++_shared` 連結錯誤：
-
-```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-TOOLCHAIN=$NDK/build/cmake/android-legacy.toolchain.cmake
-
-# 備份
-cp $TOOLCHAIN ${TOOLCHAIN}.bak
-
-# 移除 -static-libstdc++
-sed -i 's/list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/# Disabled for Termux: list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/' $TOOLCHAIN
-```
-
-### 5. 創建 NDK sysroot 符號連結
-
-```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-PREBUILT=$NDK/toolchains/llvm/prebuilt
-
-# sysroot 符號連結
-ln -sf linux-x86_64/sysroot $PREBUILT/sysroot 2>/dev/null
-
-# clang lib 版本符號連結
-ln -sf 18 $PREBUILT/linux-x86_64/lib/clang/21 2>/dev/null
-
-# 目標三元組符號連結
-SYSROOT=$PREBUILT/linux-x86_64/sysroot/usr/lib
-ln -sf aarch64-linux-android $SYSROOT/aarch64-none-linux-android 2>/dev/null
-ln -sf aarch64-linux-android/24 $SYSROOT/aarch64-none-linux-android24 2>/dev/null
-```
-
-### 6. 複製運行時庫到 sysroot
-
-```bash
-NDK=/data/data/com.termux/files/usr/opt/android-sdk/ndk/27.1.12297006
-CLANG_LIB=$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/18/lib/linux
-SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib
-
-# ARM64 庫
-for f in libunwind.a libatomic.a; do
-    ln -sf $CLANG_LIB/aarch64/$f $SYSROOT/aarch64-linux-android/$f 2>/dev/null
-    ln -sf $CLANG_LIB/aarch64/$f $SYSROOT/aarch64-linux-android/24/$f 2>/dev/null
-done
-
-# ARM32 庫
-for f in libunwind.a libatomic.a; do
-    ln -sf $CLANG_LIB/arm/$f $SYSROOT/arm-linux-androideabi/$f 2>/dev/null
-    ln -sf $CLANG_LIB/arm/$f $SYSROOT/arm-linux-androideabi/24/$f 2>/dev/null
-done
-```
-
-### 7. 配置 Flutter 專案 (每個專案都需要)
-
-在 `android/app/build.gradle.kts` 中：
+### 1. 固定 Android API / ABI
 
 ```kotlin
 android {
-    compileSdk = 34  // 使用 API 34，不是 flutter.compileSdkVersion
+    compileSdk = 34
 
     defaultConfig {
-        targetSdk = 34  // 使用 API 34
-        ndk {
-            abiFilters += listOf("arm64-v8a")  // 僅 ARM64
-        }
+        targetSdk = 34
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 }
 ```
 
-在 `android/gradle.properties` 中：
+### 2. 指定 Termux aapt2
 
 ```properties
-org.gradle.jvmargs=-Xmx8G -XX:MaxMetaspaceSize=4G -XX:ReservedCodeCacheSize=512m -XX:+HeapDumpOnOutOfMemoryError
-android.useAndroidX=true
-android.enableJetifier=true
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 ```
 
-**注意：** `android.aapt2FromMavenOverride` 是必須的！Gradle 下載的 aapt2 是 x86_64 版本，無法在 ARM64 Termux 運行。
-
-### 8. 完整驗證清單
+### 3. 修正 Gradle wrapper shebang
 
 ```bash
-# 所有模式都應該成功
-flutter build apk --release   # ✅ 151MB
-flutter build apk --debug     # ✅ 591MB
-flutter build apk --profile   # ✅ 165MB
-
-# 安裝 APK（需要從外部 ADB）
-# 在 PC 上執行：
-# scp -P 8022 <device_ip>:~/your_app/build/app/outputs/flutter-apk/app-release.apk .
-# adb install app-release.apk
+sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
 ```
 
----
+### 4. 建置與驗證
+
+```bash
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
+ls -lh build/app/outputs/flutter-apk/app-release.apk
+```
+
+若遇到 Flutter 3.44 Gradle plugin 的 Kotlin 錯誤（例如 `PLATFORM_ABI_LIST` unresolved），表示 post-install 模板或 Gradle cache 是舊的：
+
+```bash
+bash $PREFIX/share/flutter/post_install.sh
+./android/gradlew --stop || true
+rm -rf ~/.gradle/caches .gradle android/.gradle build android/app/build
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
+```
+
+### 5. Linux desktop build
+
+```bash
+sed -i '1i set(CMAKE_SYSTEM_NAME Linux)' linux/CMakeLists.txt
+flutter build linux --release
+```
 
 ## 升級 Flutter 版本
 
@@ -922,14 +695,14 @@ flutter build apk --profile   # ✅ 165MB
 
 ```bash
 # 複製現有 patches 作為起點
-cp -r patches/3.35.0 patches/3.36.0
+cp -r patches/3.44.0 patches/3.45.0
 ```
 
 ### 2. 更新 build.toml
 
 ```toml
 [flutter]
-tag = '3.36.0'  # 更新版本號
+tag = '3.45.0'  # 更新版本號
 ```
 
 ### 3. 同步新版本
@@ -951,7 +724,7 @@ python3 build.py patch_flutter_sdk
 **如果 patch 失敗：**
 
 1. 查看錯誤訊息，找出衝突的位置
-2. 手動修復 `patches/3.36.0/` 中的 patch 檔案
+2. 手動修復 `patches/3.45.0/` 中的 patch 檔案
 3. 重新執行 patch 命令
 
 ### 5. 建置新版本
@@ -968,7 +741,7 @@ python3 build.py debuild --arch=arm64
 
 ```bash
 # 安裝
-dpkg -i flutter_3.36.0_aarch64.deb
+dpkg -i flutter_3.45.0_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh
 
@@ -984,17 +757,17 @@ flutter build linux
 ```bash
 # 提交變更
 git add -A
-git commit -m "feat: Support Flutter 3.36.0"
+git commit -m "feat: Support Flutter 3.45.0"
 
 # 打 tag
-git tag -a v3.36.0-termux -m "Flutter 3.36.0 for Termux ARM64"
+git tag -a v3.45.0-termux -m "Flutter 3.45.0 for Termux ARM64"
 git push origin master --tags
 
 # 建立 GitHub Release
-gh release create v3.36.0-termux \
-  --title "Flutter 3.36.0 for Termux" \
+gh release create v3.45.0-termux \
+  --title "Flutter 3.45.0 for Termux" \
   --notes "See CHANGELOG.md" \
-  flutter_3.36.0_aarch64.deb
+  flutter_3.45.0_aarch64.deb
 ```
 
 ### Patch 維護技巧
@@ -1007,6 +780,12 @@ gh release create v3.36.0-termux \
 ---
 
 ## 更新日誌
+
+### 2026-06-01 v3.44.0
+- ✅ Flutter 3.44.0 / Dart 3.12 deb 打包完成並通過 artifact validator
+- ✅ Termux smoke：doctor / create / build apk / build linux
+- ✅ 補上 Flutter Gradle plugin `PLATFORM_ABI_LIST` 與 cache cleanup
+- 📝 重新整理 README、INSTALL、RELEASE_NOTES、CHANGELOG 的 3.44.0 狀態
 
 ### 2025-12-29 v5
 - ✅ `flutter run` + Hot Reload 完整支援
@@ -1029,7 +808,7 @@ gh release create v3.36.0-termux \
 - ⚠️ 文檔化 sysroot 衝突問題供未來修復參考
 
 ### 2025-12-28 v2
-- ✅ 修復 `flutter build apk --release` 不再需要 `--target-platform android-arm64`
+- ✅ 舊版記錄：曾將 `flutter build apk --release` 預設改為 ARM64；3.44.0 起仍建議顯式加 `--target-platform android-arm64`
 - ✅ 新增 flutter_gtk 構建支援 `flutter build linux`
 - ✅ 新增構建常見問題與解決方案
 - ✅ 更新依賴從 openjdk-17 到 openjdk-21

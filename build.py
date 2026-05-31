@@ -2,17 +2,85 @@
 
 import os
 import sys
+import io
 import git
 import fire
 import yaml
 import utils
 import shutil
+import tarfile
 import tomllib
 import subprocess
 from loguru import logger
 from pathlib import Path
 from sysroot import Sysroot
 from package import Package
+
+
+REQUIRED_DEB_ARTIFACTS = (
+    'opt/flutter/bin/cache/dart-sdk/bin/dart',
+    'opt/flutter/bin/cache/dart-sdk/bin/dartvm',
+    'opt/flutter/bin/cache/dart-sdk/bin/dartaotruntime',
+)
+
+
+def _ar_members(path):
+    with open(path, 'rb') as f:
+        if f.read(8) != b'!<arch>\n':
+            raise ValueError(f'bad deb archive: "{path}"')
+
+        while header := f.read(60):
+            if len(header) != 60:
+                raise ValueError(f'truncated deb archive header: "{path}"')
+
+            name = header[:16].decode('utf8').strip().rstrip('/')
+            size = int(header[48:58].decode('utf8').strip())
+            data = f.read(size)
+            if len(data) != size:
+                raise ValueError(f'truncated deb archive member: "{name}"')
+            if size % 2:
+                f.read(1)
+            yield name, data
+
+
+def validate_deb_artifacts(path):
+    """Fail packaging if required Termux runtime binaries are missing."""
+    data_member = None
+    for name, data in _ar_members(path):
+        if name.startswith('data.tar'):
+            data_member = data
+            break
+    if data_member is None:
+        raise ValueError(f'data archive not found in deb: "{path}"')
+
+    found = {}
+    with tarfile.open(fileobj=io.BytesIO(data_member), mode='r:*') as data_tar:
+        for member in data_tar:
+            if not member.isfile():
+                continue
+            name = member.name.lstrip('./')
+            for suffix in REQUIRED_DEB_ARTIFACTS:
+                if name.endswith(suffix):
+                    found[suffix] = member
+
+    missing = [it for it in REQUIRED_DEB_ARTIFACTS if it not in found]
+    if missing:
+        raise RuntimeError(
+            'deb missing required Flutter runtime artifact(s): '
+            + ', '.join(missing))
+
+    non_executable = [
+        it for it, member in found.items()
+        if member.mode & 0o111 == 0
+    ]
+    if non_executable:
+        raise RuntimeError(
+            'deb runtime artifact(s) are not executable: '
+            + ', '.join(non_executable))
+
+    logger.info(
+        '✓ Validated deb runtime artifacts: '
+        + ', '.join(Path(it).name for it in REQUIRED_DEB_ARTIFACTS))
 
 
 class GitProgress(git.RemoteProgress):
@@ -134,19 +202,25 @@ class Build:
         subprocess.run(cmd, cwd=src, check=True)
 
         # Fix #5: package_config.json language version too old
-        # 1. Replace prebuilt dart-sdk with matching version (3.11.3)
-        dart_sdk_dir = Path(src) / 'engine' / 'src' / 'third_party' / 'dart' / 'tools' / 'sdks' / 'dart-sdk'
+        # 1. Replace prebuilt dart-sdk with matching version (3.12.0)
+        engine_src_dir = Path(src) / 'engine' / 'src'
+        engine_checkout_dir = engine_src_dir / 'flutter'
+        if not engine_checkout_dir.exists():
+            engine_checkout_dir = engine_src_dir
+
+        dart_dir = engine_checkout_dir / 'third_party' / 'dart'
+        dart_sdk_dir = dart_dir / 'tools' / 'sdks' / 'dart-sdk'
         if dart_sdk_dir.exists():
             import urllib.request
             import zipfile
             import tempfile
             
             version_file = dart_sdk_dir / 'version'
-            if version_file.exists() and version_file.read_text().strip() == '3.11.3':
-                logger.info('Dart SDK already replaced with 3.11.3')
+            if version_file.exists() and version_file.read_text().strip() == '3.12.0':
+                logger.info('Dart SDK already replaced with 3.12.0')
             else:
-                logger.info('Replacing prebuilt dart-sdk with 3.11.3...')
-                url = 'https://storage.googleapis.com/dart-archive/channels/stable/release/3.11.3/sdk/dartsdk-linux-x64-release.zip'
+                logger.info('Replacing prebuilt dart-sdk with 3.12.0...')
+                url = 'https://storage.googleapis.com/dart-archive/channels/stable/release/3.12.0/sdk/dartsdk-linux-x64-release.zip'
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     zip_path = Path(tmp_dir) / 'dartsdk.zip'
                     urllib.request.urlretrieve(url, zip_path)
@@ -154,16 +228,20 @@ class Build:
                     shutil.rmtree(dart_sdk_dir)
                     with zipfile.ZipFile(zip_path, 'r') as zf:
                         zf.extractall(dart_sdk_dir.parent)
+                    for bin_path in (dart_sdk_dir / 'bin').iterdir():
+                        if bin_path.is_file():
+                            bin_path.chmod(bin_path.stat().st_mode | 0o111)
                 
-                logger.success('Fixed #5: Replaced prebuilt dart-sdk with version 3.11.3')
+                logger.success('Fixed #5: Replaced prebuilt dart-sdk with version 3.12.0')
 
-        # 2. Run dart pub get in third_party/dart/
-        dart_dir = Path(src) / 'engine' / 'src' / 'third_party' / 'dart'
-        if dart_dir.exists():
-            logger.info('Running dart pub get in third_party/dart/ ...')
-            dart_bin = dart_sdk_dir / 'bin' / 'dart'
-            cmd_pub = [str(dart_bin), 'pub', 'get']
-            subprocess.run(cmd_pub, cwd=dart_dir, check=True)
+        # 2. Run dart pub get for package_config.json files used by GN actions.
+        dart_bin = dart_sdk_dir / 'bin' / 'dart'
+        if dart_bin.exists():
+            for pub_dir in (dart_dir, engine_checkout_dir):
+                if not (pub_dir / 'pubspec.yaml').exists():
+                    continue
+                logger.info(f'Running dart pub get in {pub_dir} ...')
+                subprocess.run([str(dart_bin), 'pub', 'get'], cwd=pub_dir, check=True)
             logger.success('Fixed #5: Finished dart pub get')
 
     def patch(self, *, file, path):
@@ -189,10 +267,16 @@ class Build:
         glib_typeof = sysroot_path / 'usr' / 'include' / 'glib-2.0' / 'glib' / 'glib-typeof.h'
         if glib_typeof.exists():
             content = glib_typeof.read_text(encoding='utf-8')
-            if '<type_traits>' in content and 'extern "C++"' not in content:
+            extern_type_traits = 'extern "C++" {\n#include <type_traits>\n}'
+            literal_newline_wrapper = r'extern "C++" {\n#include <type_traits>\n}'
+            if literal_newline_wrapper in content:
+                content = content.replace(literal_newline_wrapper, extern_type_traits)
+                glib_typeof.write_text(content, encoding='utf-8')
+                logger.success("Fixed #4: Repaired glib-typeof.h extern C++ wrapper newlines")
+            elif '<type_traits>' in content and 'extern "C++"' not in content:
                 content = content.replace(
                     '#include <type_traits>',
-                    'extern "C++" {\\n#include <type_traits>\\n}'
+                    extern_type_traits
                 )
                 glib_typeof.write_text(content, encoding='utf-8')
                 logger.success("Fixed #4: Patched glib-typeof.h with extern C++ wrapper")
@@ -285,26 +369,33 @@ class Build:
         logger.info(f'Building dart binary for {arch}...')
         subprocess.run(cmd, check=True)
 
-        # Copy dart to dart-sdk/bin/
+        def copy_runtime_binary(src, dst, label):
+            if not os.path.exists(src):
+                logger.warning(f'{label} binary not found at {src}')
+                return
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if os.path.exists(dst) and os.path.samefile(src, dst):
+                logger.info(f'{label} already available at {dst}')
+                return
+            shutil.copy(src, dst)
+            logger.info(f'{label} binary copied to {dst}')
+
+        # Copy dart to dart-sdk/bin/ and dartvm.
+        #
+        # Dart 3.10+ Flutter wrappers may re-exec dartvm next to dart. On
+        # Termux both entries point at the same JIT-capable VM binary.
         dart_src = os.path.join(out_dir, 'exe.unstripped', 'dart')
         dart_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dart')
+        dartvm_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dartvm')
 
-        if os.path.exists(dart_src):
-            os.makedirs(os.path.dirname(dart_dst), exist_ok=True)
-            shutil.copy(dart_src, dart_dst)
-            logger.info(f'dart binary copied to {dart_dst}')
-        else:
-            logger.warning(f'dart binary not found at {dart_src}')
+        copy_runtime_binary(dart_src, dart_dst, 'dart')
+        copy_runtime_binary(dart_src, dartvm_dst, 'dartvm')
 
         # Copy dartaotruntime_product to dart-sdk/bin/dartaotruntime
         aotruntime_src = os.path.join(out_dir, 'dartaotruntime_product')
         aotruntime_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dartaotruntime')
 
-        if os.path.exists(aotruntime_src):
-            shutil.copy(aotruntime_src, aotruntime_dst)
-            logger.info(f'dartaotruntime copied to {aotruntime_dst}')
-        else:
-            logger.warning(f'dartaotruntime_product not found at {aotruntime_src}')
+        copy_runtime_binary(aotruntime_src, aotruntime_dst, 'dartaotruntime')
 
     def build_impellerc(self, arch: str, mode: str, root: str = None, jobs: int = None):
         """Build impellerc shader compiler for Termux.
@@ -378,6 +469,17 @@ class Build:
         root = root or self.root
         sysroot = os.path.abspath(sysroot or self._sysroot.path)
         toolchain = os.path.abspath(toolchain or self.toolchain)
+        toolchain_path = Path(toolchain)
+        ndk_root = toolchain_path.parents[3]
+        clang_rt_dir = toolchain_path / 'lib' / 'clang'
+        clang_rt_versions = [
+            p.name for p in clang_rt_dir.iterdir()
+            if p.is_dir() and p.name.split('.')[0].isdigit()
+        ] if clang_rt_dir.is_dir() else []
+        clang_rt_version = max(
+            clang_rt_versions,
+            key=lambda it: tuple(int(part) for part in it.split('.') if part.isdigit()),
+            default='19')
 
         # Output directory for Android build
         out_dir = f'android_{mode}_{arch}'
@@ -398,7 +500,8 @@ class Build:
             # Note: no --target-toolchain for Android (uses default)
             # Termux cross-host settings
             '--gn-args', 'termux_cross_host=true',
-            '--gn-args', f'android_ndk_root="/opt/android-ndk-r27d"',
+            '--gn-args', f'android_ndk_root="{ndk_root}"',
+            '--gn-args', f'android_clang_rt_version="{clang_rt_version}"',
             '--gn-args', f'termux_ndk_path="{toolchain}"',
             '--gn-args', f'target_sysroot="{sysroot}"',
             '--gn-args', 'symbol_level=0',
@@ -524,6 +627,7 @@ class Build:
 
         pkg = Package(root=root, arch=arch, **conf)
         pkg.debuild(output=output)
+        validate_deb_artifacts(output)
 
     def output(self, arch: str):
         if self.release.is_dir():

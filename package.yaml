@@ -59,6 +59,15 @@ resource:
       out: *cache
     mode: 0o755
 
+  # Dart 3.10+ Flutter wrappers expect dartvm next to dart.
+  dartvm_bin:
+    source: $debug/exe.unstripped/dart
+    output: $out/dart-sdk/bin/dartvm
+    define:
+      debug: output.debug
+      out: *cache
+    mode: 0o755
+
   # dart snapshots required for flutter commands
   dart_snapshots:
     source: $debug/dart-sdk/bin/snapshots

@@ -27,8 +27,8 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # 版本配置
-FLUTTER_VERSION="3.41.5"
-NDK_VERSION="27.1.12297006"
+FLUTTER_VERSION="3.44.0"
+NDK_VERSION="29.0.14206865"
 REPO_BASE="https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master"
 
 echo -e "${CYAN}"
@@ -108,7 +108,7 @@ echo -e "${GREEN}[2/${TOTAL_STEPS}]${NC} 安裝 Flutter SDK..."
 # 安裝依賴
 pkg install -y x11-repo
 # 安裝基本工具
-pkg install -y openjdk-21 git wget curl unzip cmake ninja binutils
+pkg install -y openjdk-21 git wget curl unzip p7zip cmake ninja binutils
 
 # 安裝 Android build tools（需要繞過 android-sdk 依賴問題）
 for pkg in d8 dx aidl apksigner googletest android-tools; do
@@ -134,6 +134,11 @@ source $PREFIX/etc/profile.d/flutter.sh 2>/dev/null || true
 # 重新編譯 flutter_tools.snapshot（修復 "Unsupported operating system: android" 問題）
 FLUTTER_ROOT=$PREFIX/opt/flutter
 DART_SDK=$FLUTTER_ROOT/bin/cache/dart-sdk
+if [ ! -x "$DART_SDK/bin/dartvm" ]; then
+    echo -e "${RED}錯誤: Dart VM binary missing: $DART_SDK/bin/dartvm${NC}"
+    echo "Dart 3.10+ requires dartvm next to dart. Re-download the fixed flutter_${FLUTTER_VERSION}_aarch64.deb release."
+    exit 1
+fi
 if [ -f "$DART_SDK/bin/dart" ] && [ -f "$FLUTTER_ROOT/packages/flutter_tools/bin/flutter_tools.dart" ]; then
     echo "重新編譯 flutter_tools.snapshot..."
     rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot" 2>/dev/null || true
@@ -168,8 +173,9 @@ if ls termux-elf-cleaner*.deb 1>/dev/null 2>&1; then
     rm -f termux-elf-cleaner*.deb
 fi
 if command -v termux-elf-cleaner &> /dev/null; then
-    termux-elf-cleaner "$DART_SDK/bin/dart" 2>/dev/null || true
-    termux-elf-cleaner "$DART_SDK/bin/dartaotruntime" 2>/dev/null || true
+    for dart_bin in dart dartvm dartaotruntime; do
+        [ -f "$DART_SDK/bin/$dart_bin" ] && termux-elf-cleaner "$DART_SDK/bin/$dart_bin" 2>/dev/null || true
+    done
     echo "  ✓ ELF binaries 已清理"
 else
     echo "  ⚠ termux-elf-cleaner 未安裝"
@@ -207,18 +213,19 @@ NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
 if [ -d "$NDK_PATH" ]; then
     echo "  ✓ NDK 已安裝"
 else
-    NDK_ZIP_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r27b-aarch64.zip"
-    NDK_ZIP="$HOME/android-ndk-r27b-aarch64.zip"
+    NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
+    NDK_ARCHIVE="$HOME/android-ndk-r29-aarch64.7z"
 
-    if [ ! -f "$NDK_ZIP" ]; then
-        echo "下載 ARM64 NDK (約 550MB)..."
-        wget -q --show-progress "$NDK_ZIP_URL" -O "$NDK_ZIP"
+    if [ ! -f "$NDK_ARCHIVE" ]; then
+        echo "下載 ARM64 NDK (約 350MB)..."
+        wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE"
     fi
 
     echo "解壓 NDK..."
     mkdir -p "$ANDROID_HOME/ndk"
-    unzip -q "$NDK_ZIP" -d "$ANDROID_HOME/ndk/"
-    mv "$ANDROID_HOME/ndk/android-ndk-r27b" "$NDK_PATH"
+    7z x -y "$NDK_ARCHIVE" "-o$ANDROID_HOME/ndk" >/dev/null
+    rm -rf "$NDK_PATH"
+    mv "$ANDROID_HOME/ndk/android-ndk-r29" "$NDK_PATH"
 
     echo "  ✓ NDK 已安裝"
 fi
@@ -407,7 +414,7 @@ plugins {
 android {
     namespace = "com.example.flutter_test_app"
     compileSdk = 34
-    ndkVersion = "27.1.12297006"
+    ndkVersion = "29.0.14206865"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -509,7 +516,7 @@ cd $HOME
 # ========================================
 echo ""
 echo "清理臨時檔案..."
-rm -f "$FLUTTER_DEB" "$ANDROID_SDK_DEB" "$NDK_ZIP" 2>/dev/null || true
+rm -f "$FLUTTER_DEB" "$ANDROID_SDK_DEB" "$NDK_ARCHIVE" 2>/dev/null || true
 
 # ========================================
 # 完成

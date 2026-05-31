@@ -65,7 +65,7 @@ flutter_termux/
 ├── build.toml                  # Build configuration
 ├── install_flutter_complete.sh # Termux installation script
 ├── patches/
-│   └── 3.41.5/                 # Version-specific patches
+│   └── 3.44.0/                 # Version-specific patches
 │       ├── engine.patch
 │       ├── dart.patch
 │       └── skia.patch
@@ -172,9 +172,9 @@ bash $PREFIX/share/flutter/post_install.sh
 
 ```
 Host: Windows + WSL2 Ubuntu
-Build dir: /home/iml1s/projects/termux-flutter/
-Engine src: /home/iml1s/projects/termux-flutter/flutter/engine/src/
-Output: /home/iml1s/projects/termux-flutter/flutter/engine/src/out/
+Build dir: /home/iml1s/projects/termux-flutter-3.44-src/
+Engine src: /home/iml1s/projects/termux-flutter-3.44-src/flutter/engine/src/
+Output: /home/iml1s/projects/termux-flutter-3.44-src/flutter/engine/src/out/
 Recommended jobs: -j24
 ```
 
@@ -203,11 +203,11 @@ chmod +x depot_tools/vpython3
 
 ```powershell
 # Transfer deb to device
-powershell -Command "adb push 'flutter_3.41.5_aarch64.deb' '/data/local/tmp/'"
+powershell -Command "adb push 'flutter_3.44.0_aarch64.deb' '/data/local/tmp/'"
 
 # Install in Termux
 pkg install x11-repo
-dpkg -i /data/local/tmp/flutter_3.41.5_aarch64.deb
+dpkg -i /data/local/tmp/flutter_3.44.0_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh  # Required for APK builds!
 
@@ -219,16 +219,17 @@ flutter doctor -v
 ## Test Device
 
 - Device ID: `R52Y100VWGM`
-- SSH (preferred): `ssh -p 8022 <IP>`
+- Model: Samsung SM-X716B / Android 16
 - ADB: `adb -s R52Y100VWGM shell`
 
 ## Version Info
 
-- Flutter: 3.41.5
-- Dart SDK: 3.11.3
+- Flutter: 3.44.0
+- Flutter Tools Dart: 3.12.1
+- Dart VM: post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`)
 - Target: aarch64 (ARM64)
 
-## Verified Feature Status (2026-03-25)
+## Verified Feature Status (2026-06-01)
 
 | Feature | Status | Requirements |
 |---------|--------|--------------|
@@ -239,7 +240,7 @@ flutter doctor -v
 | `flutter build linux --profile` | ✅ | gtk3, x11-repo |
 | `flutter build apk --debug` | ✅ | post_install.sh + project config |
 | `flutter build apk --profile` | ✅ | post_install.sh + project config |
-| `flutter build apk --release` | ✅ | post_install.sh + project config |
+| `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` | ✅ | post_install.sh + project config |
 | `flutter run -d linux` | ✅ | termux-x11-nightly, DISPLAY=:0 |
 | `flutter run --debug` | ✅ | Wireless debugging enabled |
 | `flutter run --profile` | ✅ | Wireless debugging enabled |

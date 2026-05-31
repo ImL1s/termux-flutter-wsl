@@ -44,7 +44,7 @@ Windows (edit files)
     ├── package.py          ← Reads package.yaml, builds data.tar.xz + control.tar.xz → .deb
     ├── package.yaml        ← Declarative: maps build artifacts → deb install paths
     ├── utils.py            ← Arch mapping, output paths, Termux detection
-    └── patches/3.41.5/     ← Engine/Dart/Skia patches (version-specific)
+    └── patches/3.44.0/     ← Engine/Dart/Skia patches (version-specific)
     │
     ▼ (sync to WSL via [sync] config in build.toml)
 WSL Ubuntu (build)
@@ -86,6 +86,8 @@ Termux (runtime)
 - **NDK clang wrappers**: Replaces x86_64 clang/clang++ with Termux ARM64 native wrappers (dynamic clang lib version)
 - **NDK llvm-objcopy**: Replaces x86_64 `llvm-objcopy`/`llvm-strip` with Termux ARM64 native binaries
 - **Shebang fix**: All generated wrapper scripts use `#!/data/data/com.termux/files/usr/bin/sh`
+- **Flutter Tools Android-host mapping**: maps Termux Android host lookups to Linux ARM64 artifacts
+- **Gradle plugin ABI list**: ARM64-only `FlutterPluginConstants.kt` keeps Flutter 3.44 `PLATFORM_ABI_LIST`
 
 ## Termux Runtime: Per-Project Configuration
 
@@ -118,19 +120,19 @@ android {
 
 - Host: Windows + WSL2 Ubuntu, Ryzen 9950X3D (24 threads allocated)
 - NDK: r27d at `/opt/android-ndk-r27d`
-- WSL build dir: `/home/iml1s/projects/termux-flutter/`
-- Flutter: 3.41.5
+- WSL build dir: `/home/iml1s/projects/termux-flutter-3.44-src/`
+- Flutter: 3.44.0
 - Target: aarch64 (ARM64)
-- Test device: `RFCNC0WNT9H`
+- Test device: `R52Y100VWGM` (Samsung SM-X716B / Android 16)
 
 ## Deployment
 
 ```powershell
 # From Windows (use PowerShell, NOT Git Bash — path mangling)
-adb push flutter_3.41.5_aarch64.deb /data/local/tmp/
+adb push flutter_3.44.0_aarch64.deb /data/local/tmp/
 
 # In Termux
-dpkg -i /data/local/tmp/flutter_3.41.5_aarch64.deb
+dpkg -i /data/local/tmp/flutter_3.44.0_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh  # Required for APK builds
 source $PREFIX/etc/profile.d/flutter.sh

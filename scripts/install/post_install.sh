@@ -25,7 +25,8 @@ setup_ndk_clang_wrappers() {
 
     local PREBUILT="$NDK_PATH/toolchains/llvm/prebuilt"
     local SYSROOT="$PREBUILT/linux-x86_64/sysroot"
-    local CLANG_LIB="$PREBUILT/linux-x86_64/lib/clang/18/lib/linux"
+    local CLANG_VERSION=$(ls -1 "$PREBUILT/linux-x86_64/lib/clang/" | sort -V | tail -n 1)
+    local CLANG_LIB="$PREBUILT/linux-x86_64/lib/clang/$CLANG_VERSION/lib/linux"
 
     echo "    Setting up clang wrappers for NDK $NDK_NAME..."
 
@@ -159,7 +160,7 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
 }
 
 # Get engine version for downloads
-ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "1e9a811bf8e70466596bcf0ea3a8b5adb5f17f7f")
+ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "4c525dac5ebe5971c5708ef73558ed8edcf4a362")
 
 # 0. 下載官方 Dart SDK snapshots (修復 flutter run hot reload)
 echo "[0/13] Downloading official Dart SDK snapshots (for hot reload)..."
@@ -230,9 +231,9 @@ if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     /data/data/com.termux/files/usr/bin/git config user.name "termux" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git add bin/flutter >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git commit -q -m "Init framework" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git tag "3.41.5" >/dev/null 2>&1 || true
+    /data/data/com.termux/files/usr/bin/git tag "3.44.0" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
-    echo "  ✓ Dummy tag 3.41.5 created"
+    echo "  ✓ Dummy tag 3.44.0 created"
 fi
 
 # 1.5c. Fix CMakeLists.txt (skip compiler test for NDK cmake)
@@ -247,7 +248,7 @@ project(FlutterNDKTrick C CXX)
 CMAKEOF
 echo "  ✓ CMakeLists.txt fixed (compiler test skipped)"
 
-# 1.5d. Install Android SDK Platform 36 (Flutter 3.41.5 requirement)
+# 1.5d. Install Android SDK Platform 36 (Flutter 3.44.0 requirement)
 echo "[1.5d/13] Installing Android SDK Platform 36..."
 if [ ! -d "$ANDROID_SDK/platforms/android-36" ]; then
     mkdir -p $ANDROID_SDK/platforms
@@ -377,9 +378,24 @@ object FlutterPluginConstants {
         listOf(
             PLATFORM_ARM64
         )
+
+    // Flutter 3.44 Gradle plugin imports this symbol directly.
+    @JvmStatic val PLATFORM_ABI_LIST: List<String> =
+        DEFAULT_PLATFORMS.map { platform ->
+            PLATFORM_ARCH_MAP[platform] ?: error("Invalid platform: $platform")
+        }
 }
 EOF
 echo "  ✓ FlutterPluginConstants.kt updated"
+
+# Clear stale Gradle included-build outputs after changing the Flutter Gradle plugin.
+# Without this, upgrades can compile FlutterPlugin.kt against an older cached
+# FlutterPluginConstants.kt and fail with unresolved PLATFORM_ABI_LIST.
+echo "  Clearing Flutter Gradle plugin build cache..."
+rm -rf "$FLUTTER_ROOT/packages/flutter_tools/gradle/.gradle" \
+       "$FLUTTER_ROOT/packages/flutter_tools/gradle/build" \
+       "$FLUTTER_ROOT/packages/flutter_tools/gradle/bin" 2>/dev/null || true
+echo "  ✓ Flutter Gradle plugin cache cleared"
 
 # 3b. Patch Flutter CLI to default to android-arm64 only
 # Without this, `flutter build apk` tries to compile for arm, arm64, and x64,
@@ -594,6 +610,65 @@ done
 if [ -d "$ENG_ART/linux-arm64" ] && [ ! -e "$ENG_ART/linux-x64" ]; then
     ln -sf linux-arm64 "$ENG_ART/linux-x64"
     echo "  ✓ linux-x64 -> linux-arm64"
+fi
+
+# 12.6. Patch Flutter Tools Android-host lookups for Termux
+# Dart's Platform.operatingSystem returns 'android' on Termux. Flutter 3.44's
+# FontSubsetArtifacts only recognizes macos/linux/windows, so commands that
+# verify the cache and discover devices can abort before reaching useful
+# diagnostics. Reuse Linux host lookups on Android/Termux hosts.
+echo "[12.6/13] Patching Flutter Tools Android-host lookups for Termux..."
+FLUTTER_CACHE="$FLUTTER_ROOT/packages/flutter_tools/lib/src/flutter_cache.dart"
+if [ -f "$FLUTTER_CACHE" ]; then
+    if ! grep -q 'Termux: map Android host to Linux artifacts' "$FLUTTER_CACHE" 2>/dev/null; then
+        sed -i "s|final List<String>? binaryDirs = artifacts\[_platform.operatingSystem\];|final List<String>? binaryDirs = artifacts[_platform.isAndroid ? 'linux' : _platform.operatingSystem]; // Termux: map Android host to Linux artifacts|" "$FLUTTER_CACHE"
+        echo "  ✓ flutter_cache.dart patched"
+    else
+        echo "  ✓ Already patched"
+    fi
+    # Always rebuild flutter_tools after touching source. A previous package
+    # install may have left a snapshot compiled before this runtime patch.
+    rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.stamp" 2>/dev/null
+    rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot" 2>/dev/null
+    echo "  ✓ Forced flutter_tools rebuild"
+else
+    echo "  ⚠ flutter_cache.dart not found"
+fi
+
+ARTIFACTS_DART="$FLUTTER_ROOT/packages/flutter_tools/lib/src/artifacts.dart"
+if [ -f "$ARTIFACTS_DART" ]; then
+    if ! grep -q 'Termux: map Android host to Linux artifacts' "$ARTIFACTS_DART" 2>/dev/null; then
+        sed -i "s#if (platform.isLinux) {#if (platform.isLinux || platform.isAndroid) { // Termux: map Android host to Linux artifacts.#" "$ARTIFACTS_DART"
+        echo "  ✓ artifacts.dart patched"
+    else
+        echo "  ✓ artifacts.dart already patched"
+    fi
+else
+    echo "  ⚠ artifacts.dart not found"
+fi
+
+BUILD_INFO_DART="$FLUTTER_ROOT/packages/flutter_tools/lib/src/build_info.dart"
+if [ -f "$BUILD_INFO_DART" ]; then
+    if ! grep -q 'Termux: Android host uses Linux artifacts' "$BUILD_INFO_DART" 2>/dev/null; then
+        sed -i "s#if (globals.platform.isLinux) {#if (globals.platform.isLinux || globals.platform.isAndroid) { // Termux: Android host uses Linux artifacts.#" "$BUILD_INFO_DART"
+        echo "  ✓ build_info.dart patched"
+    else
+        echo "  ✓ build_info.dart already patched"
+    fi
+else
+    echo "  ⚠ build_info.dart not found"
+fi
+
+CHROME_DART="$FLUTTER_ROOT/packages/flutter_tools/lib/src/web/chrome.dart"
+if [ -f "$CHROME_DART" ]; then
+    if ! grep -q 'Termux: use Linux Chrome lookup on Android host' "$CHROME_DART" 2>/dev/null; then
+        sed -i "s#if (platform.isLinux) {#if (platform.isLinux || platform.isAndroid) { // Termux: use Linux Chrome lookup on Android host.#" "$CHROME_DART"
+        echo "  ✓ chrome.dart patched"
+    else
+        echo "  ✓ chrome.dart already patched"
+    fi
+else
+    echo "  ⚠ chrome.dart not found"
 fi
 
 # 12.7a. Patch flutter build linux to work on Termux
