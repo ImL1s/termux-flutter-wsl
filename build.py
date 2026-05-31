@@ -257,10 +257,16 @@ class Build:
         glib_typeof = sysroot_path / 'usr' / 'include' / 'glib-2.0' / 'glib' / 'glib-typeof.h'
         if glib_typeof.exists():
             content = glib_typeof.read_text(encoding='utf-8')
-            if '<type_traits>' in content and 'extern "C++"' not in content:
+            extern_type_traits = 'extern "C++" {\n#include <type_traits>\n}'
+            literal_newline_wrapper = r'extern "C++" {\n#include <type_traits>\n}'
+            if literal_newline_wrapper in content:
+                content = content.replace(literal_newline_wrapper, extern_type_traits)
+                glib_typeof.write_text(content, encoding='utf-8')
+                logger.success("Fixed #4: Repaired glib-typeof.h extern C++ wrapper newlines")
+            elif '<type_traits>' in content and 'extern "C++"' not in content:
                 content = content.replace(
                     '#include <type_traits>',
-                    'extern "C++" {\n#include <type_traits>\n}'
+                    extern_type_traits
                 )
                 glib_typeof.write_text(content, encoding='utf-8')
                 logger.success("Fixed #4: Patched glib-typeof.h with extern C++ wrapper")
