@@ -16,12 +16,12 @@ index 2b0d94e1a03..95c08f25c5d 100644
 -  "//build/config/compiler:runtime_library",
 +  "//build/config/termux:runtime_library",
  ]
-
+ 
  if (use_flutter_cxx) {
 @@ -411,7 +411,11 @@ if (is_posix) {
    ]
  }
-
+ 
 -if (is_linux) {
 +import("//build/config/termux/termux.gni")
 +
@@ -43,7 +43,7 @@ index 2b0d94e1a03..95c08f25c5d 100644
 @@ -555,7 +559,10 @@ import("//build/toolchain/custom/custom.gni")
  # shlib_toolchain is a Fuchsia-specific symbol and not used by Flutter.
  shlib_toolchain = false
-
+ 
 -if (custom_toolchain != "") {
 +if (is_termux) {
 +  host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
@@ -59,16 +59,16 @@ index 2b0d94e1a03..95c08f25c5d 100644
 +if (is_termux_host) {
 +  host_toolchain = "//build/toolchain/termux:$host_cpu"
 +}
-
+ 
  # Sets default dependencies for executable and shared_library targets.
  #
 diff --git a/engine/src/build/config/compiler/BUILD.gn b/engine/src/build/config/compiler/BUILD.gn
-index 2d5e0e0ccbc..e75925e1afa 100644
+index e06cf625abe..33ec157159a 100644
 --- a/engine/src/build/config/compiler/BUILD.gn
 +++ b/engine/src/build/config/compiler/BUILD.gn
 @@ -726,7 +726,7 @@ if (is_win) {
        "-Wno-deprecated-literal-operator",
-
+ 
        # Needed by skia, imgui, swiftshader, and angle
 -      "-Wno-nontrivial-memcall",
 +      "-Wno-nontrivial-memaccess",
@@ -77,7 +77,7 @@ index 2d5e0e0ccbc..e75925e1afa 100644
  } else {
 @@ -787,7 +787,7 @@ if (is_win) {
        "-Wno-unqualified-std-cast-call",
-
+ 
        # Needed by skia, imgui, swiftshader, and angle
 -      "-Wno-nontrivial-memcall",
 +      "-Wno-nontrivial-memaccess",
@@ -89,7 +89,7 @@ index 12c8df99f44..5e87f79075c 100644
 --- a/engine/src/build/config/sysroot.gni
 +++ b/engine/src/build/config/sysroot.gni
 @@ -17,6 +17,8 @@ declare_args() {
-
+ 
  if (current_toolchain == default_toolchain && target_sysroot != "") {
    sysroot = target_sysroot
 +} else if (is_termux && custom_sysroot != "") {
@@ -264,7 +264,7 @@ index 00000000000..2503dc32083
 +  }
 +}
 +
-+# Termux SDK config — only apply sysroot/libs to target toolchain
++# Termux SDK config — only apply sysroot/libs to target toolchain    
 +config("sdk") {
 +  if (current_toolchain == "//build/toolchain/termux:${current_cpu}") {
 +    cflags = []
@@ -340,42 +340,32 @@ index 00000000000..564c5829578
 +termux_toolchain("x86"){
 +  toolchain_cpu = "x86"
 +}
-diff --git a/engine/src/flutter/lib/ui/dart_runtime_hooks.cc b/engine/src/flutter/lib/ui/dart_runtime_hooks.cc
-index 00f1f44ac2d..5e23684bb11 100644
---- a/engine/src/flutter/lib/ui/dart_runtime_hooks.cc
-+++ b/engine/src/flutter/lib/ui/dart_runtime_hooks.cc
-@@ -147,12 +147,16 @@ static void InitDartIO(Dart_Handle builtin_library,
-
- #if !FLUTTER_RELEASE
-   // Register dart:io service extensions used for network profiling.
-+  // Note: This may fail on Termux ARM64 profile mode, silently ignore
-   Dart_Handle network_profiling_type =
-       Dart_GetNonNullableType(io_lib, ToDart("_NetworkProfiling"), 0, nullptr);
--  PropagateIfError(network_profiling_type);
--  result = Dart_Invoke(network_profiling_type,
--                       ToDart("_registerServiceExtension"), 0, nullptr);
--  PropagateIfError(result);
-+  if (!Dart_IsError(network_profiling_type)) {
-+    result = Dart_Invoke(network_profiling_type,
-+                         ToDart("_registerServiceExtension"), 0, nullptr);
-+    // Silently ignore errors - network profiling is optional
-+  } else {
-+    FML_LOG(WARNING) << "Network profiling not available: " << Dart_GetError(network_profiling_type);
-+  }
- #endif  // !FLUTTER_RELEASE
- }
-
 diff --git a/engine/src/flutter/shell/testing/BUILD.gn b/engine/src/flutter/shell/testing/BUILD.gn
-index 79dd5084ffe..2f9b26a51d3 100644
+index f97ae91ae83..a760ed12016 100644
 --- a/engine/src/flutter/shell/testing/BUILD.gn
 +++ b/engine/src/flutter/shell/testing/BUILD.gn
-@@ -60,6 +60,10 @@ executable("testing") {
-       "//flutter/impeller",
-       "//flutter/third_party/swiftshader/src/Vulkan:swiftshader_libvulkan_static",
-     ]
-+    if (is_termux) {
+@@ -63,6 +63,9 @@ template("tester") {
+         "shlwapi.lib",
+       ]
+     }
++    if (is_termux && impeller_supports_rendering) {
 +      libs += [ "vk_swiftshader" ]
-+      deps -= [ "//flutter/third_party/swiftshader/src/Vulkan:swiftshader_libvulkan_static" ]
 +    }
-     sources += [ "tester_context_vk_factory.cc" ]
+ 
+     deps = [
+       "$dart_src/runtime:libdart_jit",
+@@ -100,10 +103,10 @@ tester("flutter_tester") {
+     if (shell_enable_metal) {
+       sources += [ "tester_context_mtl_factory.mm" ]
+     }
+-    deps = [
+-      ":tester_gpu_configuration",
+-      "//flutter/third_party/swiftshader/src/Vulkan:swiftshader_libvulkan_static",
+-    ]
++    deps = [ ":tester_gpu_configuration" ]
++    if (!is_termux) {
++      deps += [ "//flutter/third_party/swiftshader/src/Vulkan:swiftshader_libvulkan_static" ]
++    }
    }
+ 
+   metadata = {
