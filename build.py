@@ -369,6 +369,17 @@ class Build:
         logger.info(f'Building dart binary for {arch}...')
         subprocess.run(cmd, check=True)
 
+        def copy_runtime_binary(src, dst, label):
+            if not os.path.exists(src):
+                logger.warning(f'{label} binary not found at {src}')
+                return
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if os.path.exists(dst) and os.path.samefile(src, dst):
+                logger.info(f'{label} already available at {dst}')
+                return
+            shutil.copy(src, dst)
+            logger.info(f'{label} binary copied to {dst}')
+
         # Copy dart to dart-sdk/bin/ and dartvm.
         #
         # Dart 3.10+ Flutter wrappers may re-exec dartvm next to dart. On
@@ -377,24 +388,14 @@ class Build:
         dart_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dart')
         dartvm_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dartvm')
 
-        if os.path.exists(dart_src):
-            os.makedirs(os.path.dirname(dart_dst), exist_ok=True)
-            shutil.copy(dart_src, dart_dst)
-            logger.info(f'dart binary copied to {dart_dst}')
-            shutil.copy(dart_src, dartvm_dst)
-            logger.info(f'dartvm binary copied to {dartvm_dst}')
-        else:
-            logger.warning(f'dart binary not found at {dart_src}')
+        copy_runtime_binary(dart_src, dart_dst, 'dart')
+        copy_runtime_binary(dart_src, dartvm_dst, 'dartvm')
 
         # Copy dartaotruntime_product to dart-sdk/bin/dartaotruntime
         aotruntime_src = os.path.join(out_dir, 'dartaotruntime_product')
         aotruntime_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dartaotruntime')
 
-        if os.path.exists(aotruntime_src):
-            shutil.copy(aotruntime_src, aotruntime_dst)
-            logger.info(f'dartaotruntime copied to {aotruntime_dst}')
-        else:
-            logger.warning(f'dartaotruntime_product not found at {aotruntime_src}')
+        copy_runtime_binary(aotruntime_src, aotruntime_dst, 'dartaotruntime')
 
     def build_impellerc(self, arch: str, mode: str, root: str = None, jobs: int = None):
         """Build impellerc shader compiler for Termux.
