@@ -90,7 +90,8 @@ index 12c8df99f44..5e87f79075c 100644
 +++ b/engine/src/build/config/sysroot.gni
 @@ -17,6 +17,8 @@ declare_args() {
  
- if (current_toolchain == default_toolchain && target_sysroot != "") {
+-if (current_toolchain == default_toolchain && target_sysroot != "") {
++if (!is_android && current_toolchain == default_toolchain && target_sysroot != "") {
    sysroot = target_sysroot
 +} else if (is_termux && custom_sysroot != "") {
 +  sysroot = custom_sysroot
