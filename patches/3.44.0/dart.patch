@@ -11,3 +11,41 @@ index 66c3f273..e0508653 100644
  
  // Check for Android first, to determine its difference from Linux.
  #define DART_HOST_OS_ANDROID 1
+diff --git a/runtime/vm/profiler.cc b/runtime/vm/profiler.cc
+index 38ed9321..dc425ec8 100644
+--- a/runtime/vm/profiler.cc
++++ b/runtime/vm/profiler.cc
+@@ -2333,19 +2333,22 @@ void SampleBlockProcessor::Shutdown() {
+   ASSERT(!thread_running_);
+ }
+ 
++#endif  // defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
++
+ void Profiler::IsolateShutdown(Isolate* isolate) {
+   FlushSampleBlocks(isolate);
+   NOT_IN_PRECOMPILED(Timeline::DrainCompletedSampleBlocksIntoRecorder(isolate));
+ }
+ 
+ void Profiler::IsolateGroupShutdown(IsolateGroup* isolate_group) {
+-#if defined(SUPPORT_TIMELINE)
++#if defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+   if (config_.enabled && config_.stream_to_timeline) {
+     Timeline::NotifyAboutIsolateGroupShutdown(isolate_group);
+   }
+-#endif  // defined(SUPPORT_TIMELINE)
++#endif  // defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+ }
+ 
++#if defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+ void SampleBlockProcessor::ThreadMain(uword parameters) {
+   ASSERT(initialized_);
+   {
+@@ -2405,7 +2408,7 @@ void SampleBlockProcessor::ThreadMain(uword parameters) {
+   // Signal to main thread we are exiting.
+   thread_running_ = false;
+ }
+-#endif
++#endif  // defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+ 
+ #endif  // defined(DART_INCLUDE_PROFILER)
+ 
