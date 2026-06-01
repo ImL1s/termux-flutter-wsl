@@ -7,6 +7,30 @@ This repository uses two classes of GitHub Actions:
 
 The goal is to keep pull requests cheap and safe while still making release builds reproducible.
 
+## GitHub Actions cost and limits
+
+This is a public open-source repository, so standard GitHub-hosted runner
+minutes are free for the lightweight `CI` and `Release check` workflows. The
+self-hosted build/device workflows also do not consume GitHub-hosted runner
+minutes.
+
+That does **not** mean Actions are unlimited:
+
+- GitHub still enforces workflow, queue, API, concurrency, cache, and artifact
+  limits. For example, GitHub-hosted jobs have a 6-hour execution limit, and
+  self-hosted jobs have a 5-day execution limit.
+- Larger GitHub-hosted runners are charged even for public repositories.
+- Artifacts and caches should be kept small and short-lived. Large `.deb`
+  release payloads belong in GitHub Releases, not as long-retained workflow
+  artifacts.
+- Self-hosted runner capacity is limited by the maintainer's own WSL/Windows
+  machine, disk space, tablet availability, and network.
+
+References:
+
+- [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+- [GitHub Actions limits](https://docs.github.com/en/actions/reference/limits)
+
 ## Workflow map
 
 | Workflow | File | Runner | Trigger | Purpose |
@@ -29,6 +53,7 @@ Therefore:
 
 - **PR CI must stay lightweight** and never touch self-hosted device hardware.
 - **Full build and device smoke are manual self-hosted gates** run by a maintainer.
+- **Release publishing is manual**, not automatic on every merge to `master`.
 
 ## PR / push CI
 
@@ -93,6 +118,23 @@ It uploads:
 - `flutter_3.44.0_aarch64.deb.size.txt`
 
 If `publish_release=true`, it creates or updates `release_tag` and uploads the deb with `--clobber`.
+
+## Release policy
+
+Merging to `master` does **not** publish a GitHub Release. The current release
+flow is intentionally maintainer-triggered:
+
+1. Merge only after PR CI passes.
+2. Trigger **Build deb (self-hosted)** manually on the chosen commit/tag.
+3. Leave `publish_release=false` for a dry build, or set
+   `publish_release=true` only when intentionally publishing.
+4. Run device smoke against the produced or published `.deb`.
+5. Let **Release check** verify the release asset metadata after publish/edit.
+
+This avoids accidental multi-hour engine builds and prevents unreviewed merges
+from overwriting a public release asset. A future release pipeline may chain
+build → device smoke → publish, but the current project keeps publish as an
+explicit maintainer action.
 
 ## Device smoke
 
