@@ -20,6 +20,25 @@ except ImportError:  # pragma: no cover - CI installs requirements.txt first.
 ROOT = Path(__file__).resolve().parents[2]
 ERRORS: list[str] = []
 
+ROOT_MARKDOWN_ALLOWLIST = {
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "README_EN.md",
+}
+
+REQUIRED_DOCS = [
+    "docs/README.md",
+    "docs/CI_CD.md",
+    "docs/guides/BUILD_GUIDE.md",
+    "docs/guides/BUILD_PROCESS.md",
+    "docs/guides/INSTALL_GUIDE.md",
+    "docs/guides/UPGRADE_GUIDE.md",
+    "docs/releases/CHANGELOG.md",
+    "docs/releases/RELEASE_NOTES.md",
+]
+
 
 def fail(message: str) -> None:
     ERRORS.append(message)
@@ -43,6 +62,15 @@ def check_markdown_fences() -> None:
             fail(f"unbalanced markdown code fence: {path.relative_to(ROOT)}")
 
 
+def check_doc_layout() -> None:
+    for rel in REQUIRED_DOCS:
+        require_file(rel)
+
+    for path in sorted(ROOT.glob("*.md")):
+        if path.name not in ROOT_MARKDOWN_ALLOWLIST:
+            fail(f"root markdown should live under docs/: {path.name}")
+
+
 def check_no_stale_release_commands() -> None:
     stale_patterns = {
         "flutter_3.41.5_aarch64.deb": "old 3.41.5 deb download/install command",
@@ -52,9 +80,11 @@ def check_no_stale_release_commands() -> None:
     checked = [
         "README.md",
         "README_EN.md",
-        "INSTALL_GUIDE.md",
-        "RELEASE_NOTES.md",
-        "BUILD_GUIDE.md",
+        "docs/guides/BUILD_GUIDE.md",
+        "docs/guides/INSTALL_GUIDE.md",
+        "docs/guides/UPGRADE_GUIDE.md",
+        "docs/releases/CHANGELOG.md",
+        "docs/releases/RELEASE_NOTES.md",
         "CLAUDE.md",
         "GEMINI.md",
         "AGENTS.md",
@@ -127,7 +157,6 @@ def check_ci_layout() -> None:
         "scripts/device/run_termux_smoke.ps1",
         "scripts/device/termux_smoke.sh",
         "scripts/test/gh_e2e_test.sh",
-        "docs/CI_CD.md",
     ]:
         require_file(path)
 
@@ -137,6 +166,7 @@ def check_ci_layout() -> None:
 
 def main() -> int:
     check_ci_layout()
+    check_doc_layout()
     check_markdown_fences()
     check_no_stale_release_commands()
     check_yaml_files()

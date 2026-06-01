@@ -188,7 +188,7 @@ The repository separates cheap PR checks from expensive engine/device validation
 | `Device smoke` | Manual | self-hosted Windows + ADB | Install the deb in Termux, then run doctor/create/APK/Linux smoke tests |
 | `Release check` | Release / manual | GitHub-hosted Ubuntu | Verify release asset name, size, and SHA256 |
 
-See [`docs/CI_CD.md`](docs/CI_CD.md) for workflow details, runner requirements, and local equivalents.
+See [`docs/CI_CD.md`](docs/CI_CD.md) for workflow details, runner requirements, and local equivalents; the full documentation index is [`docs/README.md`](docs/README.md).
 > Device smoke requires the tablet to stay awake and unlocked; secure lock screens block ADB text injection into Termux.
 
 ### ⚠️ System Requirements
@@ -487,7 +487,10 @@ termux-flutter-wsl/
 │   ├── device-smoke.yml      # Manual tablet Termux smoke test
 │   └── release-check.yml     # Release asset metadata verification
 ├── docs/
-│   └── CI_CD.md              # CI/CD, runner, and device-lab guide
+│   ├── README.md             # Documentation index
+│   ├── CI_CD.md              # CI/CD, runner, and device-lab guide
+│   ├── guides/               # Install, build, and upgrade guides
+│   └── releases/             # Changelog and release notes
 ├── scripts/
 │   ├── build/                # WSL/Engine build helper scripts
 │   ├── ci/                   # Lightweight repository contract checks

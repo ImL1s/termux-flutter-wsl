@@ -786,7 +786,7 @@ git push origin master --tags
 # 建立 GitHub Release
 gh release create v3.45.0-termux \
   --title "Flutter 3.45.0 for Termux" \
-  --notes "See CHANGELOG.md" \
+  --notes "See docs/releases/CHANGELOG.md" \
   flutter_3.45.0_aarch64.deb
 ```
 
@@ -795,7 +795,7 @@ gh release create v3.45.0-termux \
 1. **保持 patch 最小化**：只修改必要的部分
 2. **加上註解**：在 patch 中說明為什麼需要這個修改
 3. **版本隔離**：每個 Flutter 版本有獨立的 patch 目錄
-4. **記錄變更**：更新 CHANGELOG.md
+4. **記錄變更**：更新 docs/releases/CHANGELOG.md
 
 ---
 
@@ -807,7 +807,7 @@ gh release create v3.45.0-termux \
 - ✅ 補上 Flutter Gradle plugin `PLATFORM_ABI_LIST` 與 cache cleanup
 - ✅ 補上 GitHub-hosted PR CI、self-hosted full build / tablet smoke workflow、release metadata check
 - 🧹 將 GitHub Release E2E 與裝置 smoke 腳本整理到 `scripts/test/`、`scripts/device/`
-- 📝 重新整理 README、INSTALL、RELEASE_NOTES、CHANGELOG 的 3.44.0 狀態
+- 📝 重新整理 README、docs/guides/INSTALL_GUIDE、docs/releases/RELEASE_NOTES、docs/releases/CHANGELOG 的 3.44.0 狀態
 
 ### 2025-12-29 v5
 - ✅ `flutter run` + Hot Reload 完整支援

@@ -188,7 +188,7 @@ bin/cache/artifacts/engine/
 | `Device smoke` | 手動 | self-hosted Windows + ADB | 平板 Termux 安裝 deb、doctor、create、APK/Linux build smoke |
 | `Release check` | Release / 手動 | GitHub-hosted Ubuntu | 驗證 release asset 名稱、大小與 SHA256 |
 
-詳細流程、runner 需求與本地等效指令請看 [`docs/CI_CD.md`](docs/CI_CD.md)。
+詳細流程、runner 需求與本地等效指令請看 [`docs/CI_CD.md`](docs/CI_CD.md)；完整文件索引在 [`docs/README.md`](docs/README.md)。
 > 裝置 smoke 需要平板保持喚醒且已解鎖；安全鎖定畫面會阻止 ADB 將命令輸入到 Termux。
 
 ### ⚠️ 系統需求
@@ -487,7 +487,10 @@ termux-flutter-wsl/
 │   ├── device-smoke.yml      # 手動平板 Termux smoke test
 │   └── release-check.yml     # Release asset metadata 驗證
 ├── docs/
-│   └── CI_CD.md              # CI/CD、runner 與裝置實驗室說明
+│   ├── README.md             # 文件索引
+│   ├── CI_CD.md              # CI/CD、runner 與裝置實驗室說明
+│   ├── guides/               # 安裝、構建、升級指南
+│   └── releases/             # Changelog 與 release notes
 ├── scripts/
 │   ├── build/                # WSL/Engine build helper scripts
 │   ├── ci/                   # 輕量 repo contract checks

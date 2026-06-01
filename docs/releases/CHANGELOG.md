@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **flutter_tools snapshot not rebuilt**: Added `rm -f flutter_tools.stamp` and `rm -f flutter_tools.snapshot` after patching `build_linux.dart` to force Dart VM to pick up changes
 
 ### Added
-- `UPGRADE_GUIDE.md` — complete step-by-step guide for upgrading to new Flutter versions
+- `docs/guides/UPGRADE_GUIDE.md` — complete step-by-step guide for upgrading to new Flutter versions
 - `.gitignore` patterns for temp scripts (`fix_*.sh`, `test_*.sh`, etc.)
 - E2E test script `gh_e2e_test.sh` for automated clean-install verification from GitHub Release
 
@@ -126,4 +126,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Upgrading
 
-See [UPGRADE_GUIDE.md](UPGRADE_GUIDE.md) for upgrade instructions.
+See [UPGRADE_GUIDE.md](../guides/UPGRADE_GUIDE.md) for upgrade instructions.
