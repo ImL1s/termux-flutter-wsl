@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 try:
     import yaml
@@ -60,6 +61,22 @@ def check_markdown_fences() -> None:
         text = path.read_text(encoding="utf-8", errors="ignore")
         if text.count("```") % 2:
             fail(f"unbalanced markdown code fence: {path.relative_to(ROOT)}")
+
+
+def check_markdown_links() -> None:
+    link_pattern = re.compile(r"\[[^\]]+\]\(([^)\s]+\.md(?:#[^)]+)?)\)")
+    for path in sorted(ROOT.glob("**/*.md")):
+        if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc"} for part in path.parts):
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for match in link_pattern.finditer(text):
+            target = unquote(match.group(1).split("#", 1)[0])
+            if "://" in target or target.startswith("#"):
+                continue
+            resolved = ((ROOT if target.startswith("/") else path.parent) / target.lstrip("/")).resolve()
+            if not resolved.is_file():
+                rel_path = path.relative_to(ROOT)
+                fail(f"{rel_path}: broken markdown link: {match.group(1)}")
 
 
 def check_doc_layout() -> None:
@@ -168,6 +185,7 @@ def main() -> int:
     check_ci_layout()
     check_doc_layout()
     check_markdown_fences()
+    check_markdown_links()
     check_no_stale_release_commands()
     check_yaml_files()
     check_post_install_contract()

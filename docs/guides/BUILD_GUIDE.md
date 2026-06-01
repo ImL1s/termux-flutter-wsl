@@ -39,7 +39,7 @@ GitHub Actions 目前拆成四條線：
 - `.github/workflows/device-smoke.yml`：手動 self-hosted Windows + ADB 平板 smoke test。
 - `.github/workflows/release-check.yml`：Release asset metadata / SHA256 檢查。
 
-細節見 [`docs/CI_CD.md`](docs/CI_CD.md)。
+細節見 [`docs/CI_CD.md`](../CI_CD.md)。
 
 ## 技術架構總覽
 
