@@ -35,6 +35,28 @@ function Invoke-AdbAllowFail {
     & $Adb @AdbArgs @Args
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory=$true)][string]$Path)
+
+    $cmd = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    }
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = $sha256.ComputeHash($stream)
+            return -join ($hash | ForEach-Object { $_.ToString("x2") })
+        } finally {
+            if ($sha256) { $sha256.Dispose() }
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 function Get-DisplayState {
     $display = (& $Adb @AdbArgs shell "dumpsys display 2>/dev/null | grep 'Display State=' | head -1") -join "`n"
     if ($display -match "Display State=([A-Z]+)") { return $Matches[1] }
@@ -87,7 +109,7 @@ if (-not $DebPath) {
 if (-not (Test-Path -LiteralPath $DebPath)) { throw "Deb not found: $DebPath" }
 
 if ($ExpectedSha256) {
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $DebPath).Hash.ToLowerInvariant()
+    $actual = Get-Sha256Hex -Path $DebPath
     if ($actual -ne $ExpectedSha256.ToLowerInvariant()) {
         throw "SHA256 mismatch. Expected $ExpectedSha256, got $actual"
     }
