@@ -59,8 +59,8 @@ python3 build.py debuild --arch=arm64
 | `.github/workflows/` | GitHub-hosted CI and manual self-hosted build/device gates |
 | `docs/CI_CD.md` | CI/CD and device-lab operating guide |
 | `install_flutter_complete.sh` | One-command Termux installation script |
-| `CHANGELOG.md` | Version history and release notes |
-| `BUILD_GUIDE.md` | Detailed build guide and troubleshooting |
+| `docs/releases/CHANGELOG.md` | Version history and release notes |
+| `docs/guides/BUILD_GUIDE.md` | Detailed build guide and troubleshooting |
 
 ## Project Structure
 
@@ -159,7 +159,7 @@ In `build.py` `build()` method:
 
 1. **APK only supports ARM64**: android-arm and android-x64 gen_snapshot cannot be cross-compiled (BoringSSL 32-bit issues, sysroot incompatibility)
 2. **`utils.py __MODE__` must be `('debug', 'release', 'profile')`**: debug first! `Output.any` picks the first existing directory. If release comes first, product mode dart-sdk snapshots break the entire Flutter CLI.
-3. See `BUILD_GUIDE.md` for detailed troubleshooting
+3. See `docs/guides/BUILD_GUIDE.md` for detailed troubleshooting
 
 ## Common Issues
 

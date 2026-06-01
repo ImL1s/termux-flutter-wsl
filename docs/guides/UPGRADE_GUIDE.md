@@ -315,14 +315,14 @@ $VER = "3.XX.Y"
 # 建立 Release
 gh release create "v$VER" `
   --title "Flutter $VER for Termux ARM64" `
-  --notes-file RELEASE_NOTES.md `
+  --notes-file docs/releases/RELEASE_NOTES.md `
   "flutter_${VER}_aarch64.deb"
 ```
 
 記得更新：
 - `README.md` 中的版本號
-- `CHANGELOG.md`
-- `RELEASE_NOTES.md`
+- `docs/releases/CHANGELOG.md`
+- `docs/releases/RELEASE_NOTES.md`
 - `scripts/install/install_termux_flutter.sh` 中的 `FLUTTER_VERSION`
 - `install_flutter_complete.sh` 中的版本號
 
@@ -421,7 +421,7 @@ termux-flutter-wsl/
 │
 ├── README.md                 # 中文文檔
 ├── README_EN.md              # 英文文檔
-├── UPGRADE_GUIDE.md          # ← 本文件
-├── CHANGELOG.md              # 版本變更記錄
-└── RELEASE_NOTES.md          # 發佈說明
+├── docs/guides/UPGRADE_GUIDE.md # ← 本文件
+├── docs/releases/CHANGELOG.md   # 版本變更記錄
+└── docs/releases/RELEASE_NOTES.md # 發佈說明
 ```

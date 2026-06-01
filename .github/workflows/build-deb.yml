@@ -138,7 +138,7 @@ jobs:
           TAG="${{ inputs.release_tag }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$DEB" --clobber
-            gh release edit "$TAG" --title "Flutter ${FLUTTER_VERSION} for Termux ARM64" --notes-file RELEASE_NOTES.md
+            gh release edit "$TAG" --title "Flutter ${FLUTTER_VERSION} for Termux ARM64" --notes-file docs/releases/RELEASE_NOTES.md
           else
-            gh release create "$TAG" "$DEB" --target "$GITHUB_SHA" --title "Flutter ${FLUTTER_VERSION} for Termux ARM64" --notes-file RELEASE_NOTES.md --latest
+            gh release create "$TAG" "$DEB" --target "$GITHUB_SHA" --title "Flutter ${FLUTTER_VERSION} for Termux ARM64" --notes-file docs/releases/RELEASE_NOTES.md --latest
           fi
