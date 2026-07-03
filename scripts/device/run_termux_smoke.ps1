@@ -131,6 +131,8 @@ Invoke-AdbAllowFail -Args @("shell", "rm", "-f", $RemoteLog) | Out-Host
 
 Write-Host "Launching Termux and starting smoke script"
 Wake-Device
+Invoke-AdbAllowFail -Args @("shell", "am", "force-stop", "com.termux") | Out-Host
+Start-Sleep -Seconds 1
 Invoke-Adb -Args @("shell", "am", "start", "-n", "com.termux/.app.TermuxActivity") | Out-Host
 Start-Sleep -Seconds 5
 # Tap near the center of the screen to focus Termux terminal reliably on all screen sizes
