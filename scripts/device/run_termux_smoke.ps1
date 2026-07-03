@@ -135,9 +135,6 @@ Invoke-AdbAllowFail -Args @("shell", "am", "force-stop", "com.termux") | Out-Hos
 Start-Sleep -Seconds 1
 Invoke-Adb -Args @("shell", "am", "start", "-n", "com.termux/.app.TermuxActivity") | Out-Host
 Start-Sleep -Seconds 5
-# Tap near the top-left of the screen to focus Termux terminal safely above the keyboard
-Invoke-AdbAllowFail -Args @("shell", "input", "tap", "200", "200") | Out-Host
-Start-Sleep -Seconds 1
 # Android input text uses %s for spaces.
 Invoke-Adb -Args @("shell", "input", "text", "sh%s$RemoteScript")
 Start-Sleep -Seconds 3
