@@ -572,6 +572,7 @@ class Build:
         but building in WSL with stale copies.
         """
         import platform
+        import posixpath
 
         if not self.sync_cfg:
             logger.debug('No sync config, skipping')
@@ -594,11 +595,12 @@ class Build:
         for p in paths:
             src = f"{wsl_mount}/{p}"
             dst = f"{wsl_root}/{p}"
-            # Ensure dst exists
+            # Ensure dst parent directory exists
+            dst_dir = posixpath.dirname(dst)
             if is_wsl:
-                subprocess.run(['bash', '-c', f"mkdir -p {dst}"], check=False)
+                subprocess.run(['bash', '-c', f'mkdir -p "{dst_dir}"'], check=False)
             else:
-                subprocess.run(['wsl', '-e', 'bash', '-c', f"mkdir -p {dst}"], check=False)
+                subprocess.run(['wsl', '-e', 'bash', '-c', f'mkdir -p "{dst_dir}"'], check=False)
                 
             if '.' in p.split('/')[-1] and not src.endswith('/'):
                  # It's a file
