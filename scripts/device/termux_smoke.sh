@@ -61,7 +61,7 @@ flutter --version
 record_status FLUTTER_VERSION_STATUS $?
 dart --version
 record_status DART_VERSION_STATUS $?
-dartvm --version
+$PREFIX/opt/flutter/bin/cache/dart-sdk/bin/dartvm --version
 record_status DARTVM_VERSION_STATUS $?
 
 echo SECTION=DOCTOR
