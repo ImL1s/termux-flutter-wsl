@@ -1,4 +1,4 @@
-# Force LF line endings for shell scripts (required for Termux/bash)
+# Force LF line endings for shell scripts and patches
 .gitattributes text eol=lf
 .gitignore text eol=lf
 *.sh text eol=lf
@@ -7,6 +7,7 @@ scripts/**/*.sh text eol=lf
 .github/workflows/*.yml text eol=lf
 *.md text eol=lf
 *.py text eol=lf
+*.patch text eol=lf
 
 # Keep Windows line endings for Windows-specific files
 *.bat text eol=crlf
