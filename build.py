@@ -565,7 +565,7 @@ class Build:
         logger.warning('gen_snapshot not found at expected paths')
         return None
 
-    def sync(self):
+    def sync_wsl(self):
         """Sync files from Windows to WSL before debuild.
 
         This prevents the common issue of editing files on Windows
@@ -618,7 +618,7 @@ class Build:
 
     def debuild(self, arch: str, output: str = None, root: str = None, **conf):
         # Sync files from Windows to WSL before building
-        self.sync()
+        self.sync_wsl()
 
         conf = conf or self.package
         # root is Flutter SDK root (flutter/), set from [flutter].path in build.toml
