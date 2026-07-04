@@ -174,8 +174,14 @@ $log = (& $Adb @AdbArgs shell "cat $RemoteLog 2>&1") -join "`n"
 Write-Host "===== Full Termux smoke log ====="
 Write-Host $log
 
-Write-Host "Installing built APK on device via ADB..."
-Invoke-Adb -Args @("shell", "pm", "install", "-r", "/sdcard/Download/app-release.apk")
+Write-Host "Uninstalling previous package if it exists..."
+Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.termux_smoke")
+
+Write-Host "Pulling built APK to host..."
+Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", "$work/app-release.apk")
+
+Write-Host "Installing pulled APK from host..."
+Invoke-Adb -Args @("install", "-r", "$work/app-release.apk")
 
 $required = @(
     "INSTALL_STATUS=0",
