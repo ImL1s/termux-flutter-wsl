@@ -1,17 +1,17 @@
-# Flutter 3.44.0 for Termux ARM64
+# Flutter 3.44.2 for Termux ARM64
 
-**Flutter 3.44.0 / Dart 3.12 for Android-bionic ARM64 hosts.**
+**Flutter 3.44.2 / Dart 3.12 for Android-bionic ARM64 hosts.**
 
-This release updates the Termux Flutter SDK package to Flutter 3.44.0 and fixes the new Dart/Flutter Tools/Gradle assumptions that broke Android-as-host environments.
+This release updates the Termux Flutter SDK package to Flutter 3.44.2. It resolves an NDK resource compilation issue with `aapt2` during release builds and fixes system Dart VM JIT engine mapping logic.
 
 ## Package
 
 | Item | Value |
 |------|-------|
-| Package | `flutter_3.44.0_aarch64.deb` |
-| Size | 666,366,556 bytes (~636 MiB) |
-| SHA256 | `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846` |
-| Flutter | 3.44.0 |
+| Package | `flutter_3.44.2_aarch64.deb` |
+| Size | 669,484,232 bytes (~638 MiB) |
+| SHA256 | `66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000` |
+| Flutter | 3.44.2 |
 | Flutter Tools Dart | 3.12.1 |
 | Dart VM | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | Target host | Termux / Android bionic / ARM64 |
@@ -21,8 +21,8 @@ This release updates the Termux Flutter SDK package to Flutter 3.44.0 and fixes 
 ```bash
 pkg update -y
 pkg install -y x11-repo wget openjdk-21
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb
-dpkg -i flutter_3.44.0_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
+dpkg -i flutter_3.44.2_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source $PREFIX/etc/profile.d/flutter.sh
@@ -35,7 +35,7 @@ Device smoke on Samsung SM-X716B / Android 16 / ARM64 Termux:
 
 | Command | Result |
 |---------|--------|
-| `flutter --version` | ✅ Flutter 3.44.0 |
+| `flutter --version` | ✅ Flutter 3.44.2 |
 | `dart --version` | ✅ Dart 3.12.1 on `android_arm64` |
 | `dartvm --version` | ✅ Dart 3.12.0 on `linux_arm64` |
 | `flutter doctor -v` | ✅ completes; unknown channel / no connected device are expected warnings |
@@ -46,45 +46,34 @@ Device smoke on Samsung SM-X716B / Android 16 / ARM64 Termux:
 
 ## Highlights
 
-### Flutter 3.44 / Dart 3.12 update
+### Flutter 3.44.2 update
 
-- Updated package metadata and patches for Flutter 3.44.0.
-- Handles Dart 3.10+ tool split by packaging both CLI `dart` and engine `dartvm`/`dartaotruntime`.
+- Updated package metadata, NDK configurations, and patches to target Flutter 3.44.2.
 - Keeps Flutter CLI on Termux JIT Dart while preserving engine VM tools for snapshots.
 
-### Android/Termux host fixes
+### APK build resource fixes
 
-Flutter Tools still assumes host OS is macOS/Linux/Windows. On Termux, Dart reports `Platform.operatingSystem == "android"`. This release maps Android host lookups to Linux ARM64 artifacts for:
+Building release APKs on device with native Termux `aapt2` can result in empty resources or a missing `AndroidManifest.xml` due to incompatibilities during the R8 shrinking/resource optimization tasks. This release:
+- Updates the automated `termux_smoke.sh` script to disable resource optimizations and R8 resource shrinking.
+- Updates developer instructions for per-project configurations.
 
-- font-subset artifacts
-- engine artifact host platform lookup
-- current host platform detection
-- Chrome/device-discovery lookup paths
+### Post-install Dart VM detection fix
 
-### APK build fixes
+- Fixed the `post_install.sh` system Dart VM replacement logic to directly inspect the target path (`/data/data/com.termux/files/usr/bin/dart`) rather than using `command -v`, preventing path shadowing issues.
 
-- ARM64-only APK default remains enforced.
-- `post_install.sh` now provides Flutter 3.44's `PLATFORM_ABI_LIST` in the ARM64-only Gradle plugin template.
-- Stale Flutter Gradle included-build caches are cleared after plugin source changes.
-- NDK wrapper setup detects current clang runtime paths and patches CMake host-tag assumptions.
+### Technical Details
 
-### Linux desktop build fixes
-
-- `flutter build linux` is allowed on Termux host.
-- `tool_backend.sh` shebang is rewritten for Termux.
-- Projects should add `set(CMAKE_SYSTEM_NAME Linux)` at the top of `linux/CMakeLists.txt`.
-
-### Maintainer automation
-
-- GitHub-hosted PR CI now runs lightweight repository sanity checks without touching self-hosted hardware.
-- Manual self-hosted workflows cover the full `.deb` build and Windows+ADB Termux tablet smoke test.
-- `scripts/ci/check_repo.py`, `scripts/device/run_termux_smoke.ps1`, and `docs/CI_CD.md` document and enforce the release/device validation contract.
+- Build output directories: `linux_debug_arm64/`, `linux_release_arm64/`, `linux_profile_arm64/`, `android_release_arm64/`, `android_profile_arm64/`
+- Deb package size is ~638MB.
 
 ## Required per-project Android settings
+
+To build APKs successfully on Termux, you must configure the following project properties:
 
 ```properties
 # android/gradle.properties
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+android.enableResourceOptimizations=false
 ```
 
 ```kotlin
@@ -94,6 +83,12 @@ android {
     defaultConfig {
         targetSdk = 34
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
     }
 }
 ```
