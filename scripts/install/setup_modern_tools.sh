@@ -19,6 +19,7 @@ rm -f sdk_temp.zip
 
 AAPT2_BIN="$TARGET_DIR/build-tools/$BUILD_TOOLS_VER/aapt2"
 SPLIT_SELECT_BIN="$TARGET_DIR/build-tools/$BUILD_TOOLS_VER/split-select"
+chmod +x "$AAPT2_BIN" "$SPLIT_SELECT_BIN"
 
 # Invoke Task 3 health check script
 echo "=== Running toolchain health checks ==="
