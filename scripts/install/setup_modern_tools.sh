@@ -18,7 +18,7 @@ mkdir -p "$TARGET_DIR"
 cd "$TARGET_DIR"
 
 # Register cleanup trap for sdk_temp.7z
-trap 'rm -f sdk_temp.7z 2>/dev/null' EXIT
+trap 'rm -f "$TARGET_DIR/sdk_temp.7z" 2>/dev/null' EXIT
 
 echo "Downloading SDK package..."
 wget -q --show-progress "$SDK_TOOLS_URL" -O sdk_temp.7z
