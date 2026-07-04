@@ -25,18 +25,26 @@ Decompressing the corrupted APK reveals:
 
 ## 2. Root Cause Analysis
 
-The bug is triggered when the Android Gradle Plugin (AGP) runs R8 resource shrinking (`isShrinkResources = true`) and resource optimization (`android.enableResourceOptimizations = true`) in the release pipeline. These tasks invoke `aapt2 optimize` to rebuild the resource package (`.ap_`).
+The bug is triggered when building a release APK natively inside Termux. During release builds, the Android Gradle Plugin (AGP) runs R8 resource shrinking (`isShrinkResources = true`) and resource optimization (`android.enableResourceOptimizations = true`) to rebuild the resource package (`.ap_`).
 
-In the Termux build environment, we override AGP's bundled `aapt2` (which is a `glibc` Linux x86_64 binary) with the native Termux `aapt2` package (`/data/data/com.termux/files/usr/bin/aapt2`). This override exposes three critical compatibility limitations:
+In the Termux environment, we override AGP's bundled `aapt2` with the native Termux package (`/data/data/com.termux/files/usr/bin/aapt2`). This configuration triggers critical toolchain compatibility issues:
 
-### A. Missing `split-select` Toolchain
-During resource optimization, AGP invokes the SDK `build-tools` binary `split-select` to generate configuration split APKs. Since Google does not publish an ARM64 version of `split-select`, and Termux does not provide it, this step either fails silently or outputs a corrupted zip stream that native `aapt2` fails to link correctly.
+### A. AGP's Architecture-Agnostic Classifier Resolution
+Google does not publish an ARM64 host binary of `aapt2` on Google Maven (see [Google Issue 227219818](https://issuetracker.google.com/issues/227219818)). Furthermore, AGP maps host platforms solely by OS (`SdkConstants.currentPlatform()`), ignoring the CPU architecture. On any Linux host, AGP unconditionally requests:
+`com.android.tools.build:aapt2:<version>:linux` (which resolves strictly to the `x86_64` glibc ELF binary). Running this binary on ARM64 Bionic libc inside Termux immediately fails.
 
-### B. Rolling-Release Protobuf Instability
-The native Termux `aapt2` binary is dynamically linked to the system's `libprotobuf.so`. As Termux is a rolling-release environment, system package updates (`pkg upgrade`) regularly change the `libprotobuf.so.XX` version. When this happens, `aapt2` crashes instantly at runtime with linker errors, causing resource-linking tasks to output empty/truncated asset files silently.
+### B. Toolchain Packaging Bug (Modern R8 Shrinking)
+In AGP 8.0+, R8 performs **Optimized Resource Shrinking** where code and resource shrinking are unified. The missing `AndroidManifest.xml` and corrupted resource tables are **not** caused by static analysis pruning (R8 labeling active resources as unused). Instead, it is a **low-level toolchain packaging bug** where the overridden, mismatched native `aapt2` crashes or fails to process command-line arguments and ZIP stream formats during the re-zipping/linking phases.
+*Note: Because this is a toolchain packaging crash rather than a pruning issue, custom keep rules (`keep.xml` or Proguard rules) have **no effect**.*
 
-### C. Android 15+ Binary Format Incompatibility
-Android 15+ (API 35/36) introduced a new binary format for the `resources.arsc` resource tables. The native Termux `aapt2` package (built on older Build-Tools sources) throws validation errors (`RES_TABLE_TYPE_TYPE entry offsets overlap actual entry data`) when linking against newer `android-35.jar` structures, stripping resources it cannot parse.
+### C. Missing `split-select` Toolchain
+During resource optimization, AGP invokes `split-select` to generate configuration split APKs. Google does not publish an ARM64 version of `split-select`, and Termux does not package it. This step fails silently or corrupts the intermediate `.ap_` archive which `aapt2` is then unable to parse.
+
+### D. Rolling-Release Protobuf Instability
+The native Termux `aapt2` is dynamically linked to the system's `libprotobuf.so`. Because Termux is a rolling-release environment, `pkg upgrade` often bumps the `libprotobuf.so.XX` version. When this occurs, `aapt2` immediately crashes with dynamic linker errors, causing resource compile/link steps to silently exit and write truncated/empty assets.
+
+### E. Android 15/16+ Binary Format Incompatibility
+Android 15 (API 35) and 16 (API 36) updated the binary structure of `resources.arsc` resource tables. Native Termux `aapt2` packages (often based on older AOSP Build-Tools sources) throw validation errors (`RES_TABLE_TYPE_TYPE entry offsets overlap actual entry data`) when parsing updated structures, stripping out resources they cannot parse.
 
 ---
 
@@ -44,45 +52,54 @@ Android 15+ (API 35/36) introduced a new binary format for the `resources.arsc` 
 
 | Solution Strategy | Implementation Details | Pros | Cons / Risks |
 |:---|:---|:---|:---|
-| **Strategy 1: Disable Resource Optimizations (Current Workaround)** | Add `android.enableResourceOptimizations=false` to `gradle.properties` and set `isMinifyEnabled=false`/`isShrinkResources=false` in `build.gradle.kts`. | *   **100% stable and reliable.**<br>*   Avoids dynamic library crashes.<br>*   Reduces JVM memory usage during Termux compilation (prevents JVM OOM crashes on mobile devices). | *   Slightly larger release APK size (adds ~3-5MB of unused layout definitions).<br>*   Uses deprecated AGP optimization flags. |
-| **Strategy 2: Stub `split-select` & Allocate Swap** | Write a mock `split-select` script that exits with `0` in `build-tools/` and allocate a swapfile on device for JVM memory. | *   Allows R8 shrinking to complete. | *   **Highly fragile.**<br>*   Does not solve protobuf dynamic linker crashes.<br>*   Prone to random OOM compilation crashes on lower-end devices. |
-| **Strategy 3: Bundle Static ARM64 AAPT2 in `.deb` (Long-Term Solution)** | Cross-compile a **statically linked** native ARM64 `aapt2` binary from AOSP, include it in our `.deb` package, and let `post_install.sh` automatically map Gradle to use it. | *   **No dynamic library dependencies** (immune to protobuf updates).<br>*   Version-matched with AGP, allowing full optimization and shrinking to run safely.<br>*   Out-of-the-box support for API 35/36. | *   High maintenance and compilation overhead to package and rebuild the static binary for new Flutter releases. |
+| **Strategy 1: Disable Optimizations via properties (Current Workaround)** | Add `android.enableResourceOptimizations=false` and `shrink=false` to `gradle.properties`. | *   **100% stable and reliable**.<br>*   Avoids dynamic library crashes.<br>*   **No build script edits**: FGP's property check skips enabling R8/shrinking automatically. | *   Larger release APK size (adds ~3-5MB of unused classes/layouts).<br>*   Uses deprecated AGP optimization flags. |
+| **Strategy 2: Stub `split-select` & Allocate Swap** | Write a mock `split-select` script that exits with `0` in `build-tools/` and allocate a swapfile on device for JVM memory. | *   Allows R8 shrinking to compile. | *   **Highly fragile**.<br>*   Does not solve protobuf dynamic linker crashes.<br>*   Prone to JVM OOM crashes on lower-end devices. |
+| **Strategy 3: Bundle Static ARM64 AAPT2 in `.deb` (Long-Term Solution)** | Cross-compile a **statically linked** native ARM64 `aapt2` from AOSP, bundle it, and automate injection via a global Gradle init script. | *   **No dynamic dependencies** (immune to protobuf updates).<br>*   Version-matched with AGP, enabling full shrinking safely.<br>*   Out-of-the-box support for API 35/36. | *   High maintenance overhead to compile and match new AGP/AOSP releases. |
+
+### Note on Emulation & Container Workarounds (Box64 / PRoot)
+*   **Box64 / QEMU User-Mode:** Ruled out. Android's kernel blocks user-space configuration of `/proc/sys/fs/binfmt_misc` (set as read-only), preventing the JVM from transparently wrapping and executing x86_64 binaries through the emulator without root access.
+*   **PRoot Distro (Ubuntu Container):** Ruled out as a general workflow. While it stabilizes dynamic library dependencies, it does not bypass the CPU architecture gap (requires manual `aapt2` overrides/emulators). It introduces a **2x to 5x compile slowdown** due to `ptrace` system call interception, consumes massive storage (5GB+), and complicates ADB wireless port forwarding for on-device execution.
 
 ---
 
 ## 4. Current Developer Workaround
 
-For projects built inside Termux, apply the following project configurations to ensure release APKs compile, install, and run correctly:
+For projects built inside Termux, apply the following configurations to ensure release APKs compile, install, and run successfully:
 
 ### 1. `android/gradle.properties`
 ```properties
 # Force Gradle to use native Termux AAPT2
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 
+# Disable R8 code & resource shrinking automatically via Flutter Gradle Plugin check
+shrink=false
+
 # Turn off R8 resource optimizations to bypass AAPT2 repackaging failures
 android.enableResourceOptimizations=false
+
+# Optimize JVM heap to prevent OOM compilation crashes in Termux
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
 ```
 
 ### 2. `android/app/build.gradle.kts`
+No modifications to the `buildTypes` block are required as the `shrink=false` property handles it. Simply configure SDK constraints and target architectures:
 ```kotlin
 android {
-    compileSdk = 34 // Pin to API 34 to match Termux AAPT2 compiler limitations
+    compileSdk = 34 // Pin to API 34 to match Termux AAPT2 version support
 
     defaultConfig {
         targetSdk = 34
         ndk {
-            abiFilters += listOf("arm64-v8a") // Keep ARM64 target only
-        }
-    }
-
-    buildTypes {
-        release {
-            // Disable code minification and resource shrinking to avoid AAPT2 linking failures and OOM
-            isMinifyEnabled = false
-            isShrinkResources = false
+            abiFilters += listOf("arm64-v8a") // Pin to ARM64 target only
         }
     }
 }
+```
+
+### 3. Flutter Release Compile Command
+Because the Termux Dart VM runs strictly in JIT mode, it is unable to execute Flutter's AOT icon tree-shaker snapshot (`const_finder.dart.snapshot`). Release builds must bypass icon tree shaking:
+```bash
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 ```
 
 ---
@@ -95,6 +112,17 @@ To completely remove the manual configuration burden from developers, we plan to
 1.  **Set up AOSP Build Host:** Set up a Linux host capable of cross-compiling AOSP tools.
 2.  **Cross-Compile Static `aapt2`:** 
     *   Build `aapt2` statically (`-static` / `-static-libstdc++`) for the `aarch64-linux-android` target.
-    *   Ensure the binary includes no dynamic linkages to `libprotobuf.so` or `libc++_shared.so`.
+    *   Ensure the binary includes no dynamic linkages to `libprotobuf.so` or `libc++_shared.so`, preventing rolling-release breakages.
 3.  **Bundle in Package:** Add the compiled binary to `package.yaml` to install at `$PREFIX/opt/flutter/bin/cache/termux/aapt2`.
-4.  **Auto-Configuration in `post_install.sh`:** Update the post-install script to automatically rewrite or inject the `aapt2` path into gradle configurations, removing the need for manual developer overrides.
+4.  **Auto-Configuration via Global Init Script:** Update the post-install script (`post_install.sh`) to automatically generate a global Gradle initialization script at `~/.gradle/init.d/aapt2.gradle` during installation:
+    ```groovy
+    // init.gradle automatic injection
+    settingsEvaluated { settings ->
+        settings.gradle.projectsLoaded { gradle ->
+            gradle.rootProject {
+                ext["android.aapt2FromMavenOverride"] = "${System.getenv('PREFIX')}/opt/flutter/bin/cache/termux/aapt2"
+            }
+        }
+    }
+    ```
+    This removes the need for project-level `gradle.properties` overrides entirely, enabling a zero-configuration developer experience.
