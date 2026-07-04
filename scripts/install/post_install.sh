@@ -274,7 +274,7 @@ echo "[1.5e/13] Replacing dart with Termux JIT-capable dart..."
 SYSTEM_DART=/data/data/com.termux/files/usr/bin/dart
 DEB_DART=$DART_SDK/bin/dart
 
-if ! command -v dart &> /dev/null; then
+if [ ! -f "$SYSTEM_DART" ]; then
     echo "  ! Termux dart not found. Installing dart via apt..."
     apt update >/dev/null 2>&1 || true
     apt install -y dart >/dev/null 2>&1 || true

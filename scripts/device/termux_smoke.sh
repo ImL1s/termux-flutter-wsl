@@ -61,7 +61,7 @@ flutter --version
 record_status FLUTTER_VERSION_STATUS $?
 dart --version
 record_status DART_VERSION_STATUS $?
-dartvm --version
+$PREFIX/opt/flutter/bin/cache/dart-sdk/bin/dartvm --version
 record_status DARTVM_VERSION_STATUS $?
 
 echo SECTION=DOCTOR
@@ -80,6 +80,9 @@ sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' andr
 if ! grep -q '^android.aapt2FromMavenOverride=' android/gradle.properties; then
     printf '\nandroid.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2\n' >> android/gradle.properties
 fi
+if ! grep -q '^android.enableResourceOptimizations=' android/gradle.properties; then
+    printf '\nandroid.enableResourceOptimizations=false\n' >> android/gradle.properties
+fi
 python - <<'PY'
 from pathlib import Path
 p = Path('android/app/build.gradle.kts')
@@ -90,13 +93,18 @@ s = s.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
 s = s.replace('targetSdk = flutter.targetSdkVersion.toInteger()', 'targetSdk = 34')
 if 'abiFilters += listOf("arm64-v8a")' not in s:
     s = s.replace('targetSdk = 34\n', 'targetSdk = 34\n        ndk { abiFilters += listOf("arm64-v8a") }\n')
+if 'isMinifyEnabled = false' not in s:
+    if 'getByName("release") {' in s:
+        s = s.replace('getByName("release") {', 'getByName("release") {\n            isMinifyEnabled = false\n            isShrinkResources = false')
+    elif 'release {' in s:
+        s = s.replace('release {', 'release {\n            isMinifyEnabled = false\n            isShrinkResources = false')
 p.write_text(s)
 p = Path('linux/CMakeLists.txt')
 s = p.read_text()
 if not s.startswith('set(CMAKE_SYSTEM_NAME Linux)'):
     p.write_text('set(CMAKE_SYSTEM_NAME Linux)\n' + s)
 PY
-grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride' android/app/build.gradle.kts android/gradle.properties || true
+grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride\|enableResourceOptimizations\|isMinifyEnabled\|isShrinkResources' android/app/build.gradle.kts android/gradle.properties || true
 head -3 linux/CMakeLists.txt
 
 echo SECTION=BUILD_APK_RELEASE

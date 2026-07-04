@@ -1,5 +1,5 @@
 [flutter]
-tag = '3.44.0'
+tag = '3.44.2'
 repo = 'https://github.com/flutter/flutter'
 path = './flutter'
 
@@ -17,9 +17,9 @@ jobs = 24  # Ryzen 9950X3D: 32 threads, leave 8 for system
 
 # Windows to WSL sync paths (for debuild)
 [sync]
-windows_root = 'D:/SideProject/termux-flutter-wsl'
-wsl_root = '/root/projects/termux-flutter'
-paths = ['scripts', 'patches', 'package.yaml', 'build.toml']
+windows_root = 'D:/OtherProject/mine/flutter_termux'
+wsl_root = '/home/iml1s/projects/termux-flutter-3.44-src'
+paths = ['scripts', 'patches', 'package.yaml', 'build.toml', 'build.py', 'sysroot.py', 'package.py', 'utils.py', '.gclient', 'install_flutter_complete.sh']
 
 # Patches are now version-based: patches/{version}/*.patch
 # build.py will automatically look for patches in patches/{flutter.tag}/

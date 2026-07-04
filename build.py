@@ -565,13 +565,14 @@ class Build:
         logger.warning('gen_snapshot not found at expected paths')
         return None
 
-    def sync(self):
+    def sync_wsl(self):
         """Sync files from Windows to WSL before debuild.
 
         This prevents the common issue of editing files on Windows
         but building in WSL with stale copies.
         """
         import platform
+        import posixpath
 
         if not self.sync_cfg:
             logger.debug('No sync config, skipping')
@@ -594,11 +595,12 @@ class Build:
         for p in paths:
             src = f"{wsl_mount}/{p}"
             dst = f"{wsl_root}/{p}"
-            # Ensure dst exists
+            # Ensure dst parent directory exists
+            dst_dir = posixpath.dirname(dst)
             if is_wsl:
-                subprocess.run(['bash', '-c', f"mkdir -p {dst}"], check=False)
+                subprocess.run(['bash', '-c', f'mkdir -p "{dst_dir}"'], check=False)
             else:
-                subprocess.run(['wsl', '-e', 'bash', '-c', f"mkdir -p {dst}"], check=False)
+                subprocess.run(['wsl', '-e', 'bash', '-c', f'mkdir -p "{dst_dir}"'], check=False)
                 
             if '.' in p.split('/')[-1] and not src.endswith('/'):
                  # It's a file
@@ -618,7 +620,7 @@ class Build:
 
     def debuild(self, arch: str, output: str = None, root: str = None, **conf):
         # Sync files from Windows to WSL before building
-        self.sync()
+        self.sync_wsl()
 
         conf = conf or self.package
         # root is Flutter SDK root (flutter/), set from [flutter].path in build.toml

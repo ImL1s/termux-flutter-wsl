@@ -131,11 +131,15 @@ Invoke-AdbAllowFail -Args @("shell", "rm", "-f", $RemoteLog) | Out-Host
 
 Write-Host "Launching Termux and starting smoke script"
 Wake-Device
+Invoke-AdbAllowFail -Args @("shell", "am", "force-stop", "com.termux") | Out-Host
+Start-Sleep -Seconds 1
 Invoke-Adb -Args @("shell", "am", "start", "-n", "com.termux/.app.TermuxActivity") | Out-Host
-Start-Sleep -Seconds 3
-Invoke-AdbAllowFail -Args @("shell", "input", "tap", "180", "2360") | Out-Host
+Start-Sleep -Seconds 5
 # Android input text uses %s for spaces.
 Invoke-Adb -Args @("shell", "input", "text", "sh%s$RemoteScript")
+Start-Sleep -Seconds 3
+Invoke-Adb -Args @("shell", "input", "keyevent", "66")
+Start-Sleep -Seconds 1
 Invoke-Adb -Args @("shell", "input", "keyevent", "66")
 
 $startDeadline = (Get-Date).AddMinutes(2)

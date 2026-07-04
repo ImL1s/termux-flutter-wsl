@@ -27,7 +27,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # 版本配置
-FLUTTER_VERSION="3.44.0"
+FLUTTER_VERSION="3.44.2"
 NDK_VERSION="29.0.14206865"
 REPO_BASE="https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master"
 

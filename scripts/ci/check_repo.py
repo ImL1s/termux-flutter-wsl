@@ -157,8 +157,8 @@ def check_post_install_contract() -> None:
 
 def check_installer_contract() -> None:
     text = read("install_flutter_complete.sh")
-    if 'FLUTTER_VERSION="3.44.0"' not in text:
-        fail("install_flutter_complete.sh default Flutter version is not 3.44.0")
+    if 'FLUTTER_VERSION="3.44.2"' not in text:
+        fail("install_flutter_complete.sh default Flutter version is not 3.44.2")
     if 'NDK_VERSION="29.0.14206865"' not in text:
         fail("install_flutter_complete.sh default NDK version is not r29")
     if "android-ndk-r27" in text:

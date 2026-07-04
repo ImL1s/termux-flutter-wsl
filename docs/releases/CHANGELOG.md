@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.44.2-termux] - 2026-07-04
+
+### Added
+- Upgraded Flutter SDK cross-compilation target to `3.44.2`.
+- Added support for disabling resource optimizations and shrinking during APK builds in smoke tests due to compatibility issues with Termux's native `aapt2`.
+
+### Fixed
+- Fixed Dart detection in `post_install.sh` to check for `$SYSTEM_DART` directly, avoiding path shadowing by the SDK's local CLI wrapper.
+- Fixed a resource packaging failure (missing `AndroidManifest.xml`) during Termux release APK builds by updating the `termux_smoke.sh` configuration and documentation.
+
+
 ### Added
 - GitHub-hosted `CI` workflow for lightweight PR/push checks: Python compile, shell syntax, PowerShell parse, workflow/package/docs sanity, and whitespace guard.
 - Manual self-hosted workflows for full `.deb` builds, Windows+ADB tablet smoke tests, and release asset metadata verification.
