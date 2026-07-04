@@ -2,20 +2,24 @@
 set -euo pipefail
 
 # Pinned releases of lzhiyong's build-tools
-SDK_TOOLS_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-sdk/android-sdk-aarch64.zip"
+SDK_TOOLS_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-sdk/android-sdk-aarch64.7z"
 TARGET_DIR="$HOME/Android/Sdk"
 BUILD_TOOLS_VER="35.0.0"
+EXPECTED_SHA="5b3535d4533fbd788ef976a4ce4c3050f19150fe9d0bb092263045317c46f463"
 
 echo "=== Installing Pinned ARM64 Build-Tools (v$BUILD_TOOLS_VER) ==="
 mkdir -p "$TARGET_DIR"
 cd "$TARGET_DIR"
 
 echo "Downloading SDK package..."
-wget -q --show-progress "$SDK_TOOLS_URL" -O sdk_temp.zip
+wget -q --show-progress "$SDK_TOOLS_URL" -O sdk_temp.7z
 
-echo "Extracting..."
-unzip -o sdk_temp.zip
-rm -f sdk_temp.zip
+echo "Verifying SHA256 checksum..."
+echo "$EXPECTED_SHA  sdk_temp.7z" | sha256sum -c -
+
+echo "Extracting 7z archive..."
+7z x -y sdk_temp.7z
+rm -f sdk_temp.7z
 
 AAPT2_BIN="$TARGET_DIR/build-tools/$BUILD_TOOLS_VER/aapt2"
 SPLIT_SELECT_BIN="$TARGET_DIR/build-tools/$BUILD_TOOLS_VER/split-select"
