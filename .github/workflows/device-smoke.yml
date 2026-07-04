@@ -16,9 +16,9 @@ on:
         required: false
         default: ''
       deb_url:
-        description: Deb URL to test. Leave default for latest v3.44.2 release asset.
+        description: Deb URL to test. Leave default for latest v3.44.2-termux release asset.
         required: true
-        default: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
+        default: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb
       expected_sha256:
         description: Expected SHA256 for the deb under test
         required: true

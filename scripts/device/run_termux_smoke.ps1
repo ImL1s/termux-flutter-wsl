@@ -2,7 +2,7 @@ param(
     [string]$AdbPath = "adb",
     [string]$DeviceSerial = "",
     [string]$DebPath = "",
-    [string]$DebUrl = "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb",
+    [string]$DebUrl = "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb",
     [string]$ExpectedSha256 = "66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000",
     [int]$TimeoutMinutes = 45,
     [string]$RemoteDeb = "/sdcard/Download/flutter_ci_input.deb",

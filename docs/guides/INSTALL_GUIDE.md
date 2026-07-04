@@ -45,7 +45,7 @@ pkg update -y
 pkg install -y x11-repo git wget curl unzip openjdk-21 aapt2 android-tools cmake ninja clang
 
 cd ~
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb
 sha256sum flutter_3.44.2_aarch64.deb
 # 確認輸出為：66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
 
