@@ -128,6 +128,7 @@ Copy-Item -LiteralPath (Join-Path (Get-Location) "scripts/device/termux_smoke.sh
 Invoke-Adb -Args @("push", $DebPath, $RemoteDeb)
 Invoke-Adb -Args @("push", $scriptLocal, $RemoteScript)
 Invoke-AdbAllowFail -Args @("shell", "rm", "-f", $RemoteLog) | Out-Host
+Invoke-AdbAllowFail -Args @("shell", "rm", "-f", "/sdcard/Download/app-release.apk") | Out-Host
 
 Write-Host "Launching Termux and starting smoke script"
 Wake-Device
@@ -174,21 +175,6 @@ $log = (& $Adb @AdbArgs shell "cat $RemoteLog 2>&1") -join "`n"
 Write-Host "===== Full Termux smoke log ====="
 Write-Host $log
 
-Write-Host "Uninstalling previous package if it exists..."
-Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke")
-
-$localApk = "$work/app-release.apk"
-if (Test-Path $localApk) {
-    Write-Host "Cleaning up stale host-side APK: $localApk"
-    Remove-Item $localApk -Force
-}
-
-Write-Host "Pulling built APK to host..."
-Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
-
-Write-Host "Installing pulled APK from host..."
-Invoke-Adb -Args @("install", "-r", $localApk)
-
 $required = @(
     "INSTALL_STATUS=0",
     "POST_INSTALL_STATUS=0",
@@ -209,6 +195,21 @@ foreach ($marker in $required) {
         throw "Missing smoke marker: $marker"
     }
 }
+
+Write-Host "Uninstalling previous package if it exists..."
+Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke")
+
+$localApk = "$work/app-release.apk"
+if (Test-Path $localApk) {
+    Write-Host "Cleaning up stale host-side APK: $localApk"
+    Remove-Item $localApk -Force
+}
+
+Write-Host "Pulling built APK to host..."
+Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
+
+Write-Host "Installing pulled APK from host..."
+Invoke-Adb -Args @("install", "-r", $localApk)
 
 Write-Host "Termux Flutter smoke passed."
 } finally {
