@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Flutter-3.44.0-02569B?logo=flutter" alt="Flutter Version"/>
+  <img src="https://img.shields.io/badge/Flutter-3.44.2-02569B?logo=flutter" alt="Flutter Version"/>
   <img src="https://img.shields.io/badge/Dart-3.12.1-0175C2?logo=dart" alt="Dart Version"/>
   <img src="https://img.shields.io/badge/Target-aarch64-green" alt="Target"/>
   <a href="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml"><img src="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
@@ -53,7 +53,7 @@ Flutter's ARM64 target support does not mean the official SDK can be used as an 
 This repository packages a Flutter SDK for Termux ARM64:
 
 - Cross-compiles Flutter Engine, Dart runtime, and required host tools from WSL/Linux.
-- Assembles an installable `flutter_3.44.0_aarch64.deb` package for Termux.
+- Assembles an installable `flutter_3.44.2_aarch64.deb` package for Termux.
 - Runs `post_install.sh` to patch Flutter Tools, the Gradle plugin, NDK/build-tools wrappers, Android SDK constraints, and Termux shebangs.
 - Enables `flutter doctor`, `flutter create`, `flutter build apk`, `flutter build linux`, and hot reload through Termux:X11.
 
@@ -61,16 +61,16 @@ This repository packages a Flutter SDK for Termux ARM64:
 
 | Item | Value |
 | --- | --- |
-| Flutter | `3.44.0` |
+| Flutter | `3.44.2` |
 | Dart | `3.12.1` |
 | Architecture | `aarch64` / `arm64-v8a` |
-| Release asset | [`flutter_3.44.0_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.0) |
-| Size | `666,366,556` bytes |
-| SHA256 | `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846` |
+| Release asset | [`flutter_3.44.2_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.2-termux) |
+| Size | `669,484,232` bytes |
+| SHA256 | `66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000` |
 
 ### Device smoke test
 
-Last full device validation: **2026-06-01**, Samsung SM-X716B / Android 16 / Termux.
+Last full device validation: **2026-07-04**, Samsung SM-X716B / Android 16 / Termux.
 
 | Check | Result |
 | --- | --- |
@@ -105,7 +105,7 @@ bash install_flutter_complete.sh
 
 ```bash
 pkg update && pkg install -y wget
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
 sha256sum flutter_3.44.0_aarch64.deb
 
 dpkg -i flutter_3.44.0_aarch64.deb
@@ -129,6 +129,7 @@ Android builds inside Termux should explicitly use Termux native `aapt2` and res
 ```properties
 # android/gradle.properties
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+android.enableResourceOptimizations=false
 ```
 
 ```kotlin
@@ -139,6 +140,13 @@ android {
     defaultConfig {
         targetSdk = 34
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
     }
 }
 ```
@@ -220,7 +228,7 @@ termux-flutter-wsl/
 │   ├── device/               # ADB → Termux smoke automation
 │   ├── install/              # Termux install and post-install patches
 │   └── test/                 # Release / Termux E2E smoke scripts
-├── patches/3.44.0/           # Flutter Engine / Dart / Skia patches
+├── patches/3.44.2/           # Flutter Engine / Dart / Skia patches
 ├── build.py                  # Main build CLI
 ├── build.toml                # Version, NDK, sysroot, and patch configuration
 ├── package.yaml              # .deb artifact mapping

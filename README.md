@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Flutter-3.44.0-02569B?logo=flutter" alt="Flutter Version"/>
+  <img src="https://img.shields.io/badge/Flutter-3.44.2-02569B?logo=flutter" alt="Flutter Version"/>
   <img src="https://img.shields.io/badge/Dart-3.12.1-0175C2?logo=dart" alt="Dart Version"/>
   <img src="https://img.shields.io/badge/Target-aarch64-green" alt="Target"/>
   <a href="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml"><img src="https://github.com/ImL1s/termux-flutter-wsl/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
@@ -53,7 +53,7 @@ Flutter 官方 SDK 支援 ARM64 target，不代表可以直接把 Flutter SDK �
 本專案提供一套針對 Termux ARM64 的 Flutter SDK 打包流程：
 
 - 從 WSL/Linux 交叉編譯 Flutter Engine、Dart runtime 與必要工具。
-- 將產物整理成 Termux 可安裝的 `flutter_3.44.0_aarch64.deb`。
+- 將產物整理成 Termux 可安裝的 `flutter_3.44.2_aarch64.deb`。
 - 安裝後透過 `post_install.sh` 修補 Flutter Tools、Gradle plugin、NDK/build-tools wrappers、Android SDK 限制與 Termux shebang。
 - 讓 Termux 內可以執行 `flutter doctor`、`flutter create`、`flutter build apk`、`flutter build linux`，並可搭配 Termux:X11 進行 hot reload。
 
@@ -61,16 +61,16 @@ Flutter 官方 SDK 支援 ARM64 target，不代表可以直接把 Flutter SDK �
 
 | 項目 | 狀態 |
 | --- | --- |
-| Flutter | `3.44.0` |
+| Flutter | `3.44.2` |
 | Dart | `3.12.1` |
 | 架構 | `aarch64` / `arm64-v8a` |
-| Release asset | [`flutter_3.44.0_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.0) |
-| Size | `666,366,556` bytes |
-| SHA256 | `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846` |
+| Release asset | [`flutter_3.44.2_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.2-termux) |
+| Size | `669,484,232` bytes |
+| SHA256 | `66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000` |
 
 ### 實機 smoke test
 
-最後一次完整實機驗證：**2026-06-01**，Samsung SM-X716B / Android 16 / Termux。
+最後一次完整實機驗證：**2026-07-04**，Samsung SM-X716B / Android 16 / Termux。
 
 | 驗證項目 | 結果 |
 | --- | --- |
@@ -105,7 +105,7 @@ bash install_flutter_complete.sh
 
 ```bash
 pkg update && pkg install -y wget
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
 sha256sum flutter_3.44.0_aarch64.deb
 
 dpkg -i flutter_3.44.0_aarch64.deb
@@ -129,6 +129,7 @@ Termux 內的 Android build 需要明確使用 Termux 原生 `aapt2`，並限制
 ```properties
 # android/gradle.properties
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+android.enableResourceOptimizations=false
 ```
 
 ```kotlin
@@ -139,6 +140,13 @@ android {
     defaultConfig {
         targetSdk = 34
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
     }
 }
 ```
@@ -220,7 +228,7 @@ termux-flutter-wsl/
 │   ├── device/               # ADB → Termux smoke automation
 │   ├── install/              # Termux 安裝與 post-install 修補
 │   └── test/                 # Release / Termux E2E smoke scripts
-├── patches/3.44.0/           # Flutter Engine / Dart / Skia patches
+├── patches/3.44.2/           # Flutter Engine / Dart / Skia patches
 ├── build.py                  # 主構建 CLI
 ├── build.toml                # 版本、NDK、sysroot、patch 設定
 ├── package.yaml              # .deb artifact mapping
