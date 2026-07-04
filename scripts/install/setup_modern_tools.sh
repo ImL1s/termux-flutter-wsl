@@ -13,6 +13,17 @@ if ! command -v 7z &>/dev/null; then
     exit 1
 fi
 
+# Path discovery for check_toolchain.sh (Pre-run check)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [ -f "$SCRIPT_DIR/check_toolchain.sh" ]; then
+    CHECK_TOOLCHAIN_PATH="$SCRIPT_DIR/check_toolchain.sh"
+elif [ -f "$SCRIPT_DIR/../ci/check_toolchain.sh" ]; then
+    CHECK_TOOLCHAIN_PATH="$SCRIPT_DIR/../ci/check_toolchain.sh"
+else
+    echo "Error: check_toolchain.sh helper script not found. Please run within the standard Termux Flutter install tree." >&2
+    exit 1
+fi
+
 echo "=== Installing Pinned ARM64 Build-Tools (v$BUILD_TOOLS_VER) ==="
 mkdir -p "$TARGET_DIR"
 cd "$TARGET_DIR"
@@ -36,12 +47,6 @@ chmod +x "$AAPT2_BIN" "$SPLIT_SELECT_BIN"
 
 # Invoke Task 3 health check script
 echo "=== Running toolchain health checks ==="
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-if [ -f "$SCRIPT_DIR/check_toolchain.sh" ]; then
-    CHECK_TOOLCHAIN_PATH="$SCRIPT_DIR/check_toolchain.sh"
-else
-    CHECK_TOOLCHAIN_PATH="$SCRIPT_DIR/../ci/check_toolchain.sh"
-fi
 bash "$CHECK_TOOLCHAIN_PATH" "$AAPT2_BIN" "$SPLIT_SELECT_BIN"
 
 # Calculate target directory
