@@ -527,14 +527,27 @@ for bt in "$BT_DIR"/*/; do
     fi
 done
 
-if [ -n "$BT_REAL" ] && [ ! -f "$BT_DIR/35.0.0/package.xml" ]; then
-    echo "  Cloning $(basename $BT_REAL) -> 35.0.0 (for AGP validation)..."
-    rm -rf "$BT_DIR/35.0.0"
-    cp -a "$BT_REAL" "$BT_DIR/35.0.0"
-    # Fix version strings in metadata
-    BT_REAL_NAME=$(basename "$BT_REAL")
-    sed -i "s/$BT_REAL_NAME/35.0.0/g" "$BT_DIR/35.0.0/source.properties" 2>/dev/null || true
-    sed -i "s/$BT_REAL_NAME/35.0.0/g" "$BT_DIR/35.0.0/package.xml" 2>/dev/null || true
+is_mode_b=false
+if [ -L "$BT_DIR/35.0.0/aapt2" ] && readlink "$BT_DIR/35.0.0/aapt2" | grep -q "Android/Sdk"; then
+    is_mode_b=true
+fi
+
+if [ -n "$BT_REAL" ]; then
+    if [ "$is_mode_b" = "false" ] && [ ! -f "$BT_DIR/35.0.0/package.xml" ]; then
+        echo "  Cloning $(basename $BT_REAL) -> 35.0.0 (for AGP validation)..."
+        rm -rf "$BT_DIR/35.0.0"
+        cp -a "$BT_REAL" "$BT_DIR/35.0.0"
+        BT_REAL_NAME=$(basename "$BT_REAL")
+        sed -i "s/$BT_REAL_NAME/35.0.0/g" "$BT_DIR/35.0.0/source.properties" 2>/dev/null || true
+        sed -i "s/$BT_REAL_NAME/35.0.0/g" "$BT_DIR/35.0.0/package.xml" 2>/dev/null || true
+    elif [ "$is_mode_b" = "true" ] && [ ! -f "$BT_DIR/35.0.0/package.xml" ]; then
+        echo "  Re-aligning package metadata for Mode B build-tools..."
+        cp "$BT_REAL/package.xml" "$BT_DIR/35.0.0/" 2>/dev/null || true
+        cp "$BT_REAL/source.properties" "$BT_DIR/35.0.0/" 2>/dev/null || true
+        BT_REAL_NAME=$(basename "$BT_REAL")
+        sed -i "s/$BT_REAL_NAME/35.0.0/g" "$BT_DIR/35.0.0/source.properties" 2>/dev/null || true
+        sed -i "s/$BT_REAL_NAME/35.0.0/g" "$BT_DIR/35.0.0/package.xml" 2>/dev/null || true
+    fi
 fi
 
 # Setup default version
