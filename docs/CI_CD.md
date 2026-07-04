@@ -73,7 +73,7 @@ git diff --check
 - self-hosted workflows are not triggered by `pull_request`
 - `package.yaml` still packages `dart`, `dartvm`, `dartaotruntime`, and `post_install`
 - `post_install.sh` still contains the Flutter 3.44 `PLATFORM_ABI_LIST` and Android-host patches
-- installer defaults remain on Flutter 3.44.0 and NDK r29 for Termux installs
+- installer defaults remain on Flutter 3.44.2 and NDK r29 for Termux installs
 - release/download docs do not regress to stale 3.41.5 commands
 
 ## Full deb build
@@ -83,11 +83,11 @@ Manual workflow: **Build deb (self-hosted)**
 Default inputs:
 
 ```text
-flutter_version: 3.44.0
+flutter_version: 3.44.2
 arch: arm64
 runner_labels_json: ["self-hosted","linux"]
 publish_release: false
-release_tag: v3.44.0
+release_tag: v3.44.2
 ```
 
 Required self-hosted environment:
@@ -113,9 +113,9 @@ python3 build.py debuild --arch=arm64
 
 It uploads:
 
-- `flutter_3.44.0_aarch64.deb`
-- `flutter_3.44.0_aarch64.deb.sha256`
-- `flutter_3.44.0_aarch64.deb.size.txt`
+- `flutter_3.44.2_aarch64.deb`
+- `flutter_3.44.2_aarch64.deb.sha256`
+- `flutter_3.44.2_aarch64.deb.size.txt`
 
 If `publish_release=true`, it creates or updates `release_tag` and uploads the deb with `--clobber`.
 
@@ -140,11 +140,11 @@ explicit maintainer action.
 
 Manual workflow: **Device smoke (self-hosted)**
 
-Default input tests the published v3.44.0 release asset:
+Default input tests the published v3.44.2 release asset:
 
 ```text
-deb_url: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb
-expected_sha256: b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846
+deb_url: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
+expected_sha256: 66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
 ```
 
 Required self-hosted environment:
@@ -228,5 +228,5 @@ Manual Windows-to-tablet smoke:
 ```powershell
 scripts/device/run_termux_smoke.ps1 `
   -AdbPath "C:\Users\aa223\AppData\Local\Android\Sdk\platform-tools\adb.exe" `
-  -DebUrl "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb"
+  -DebUrl "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb"
 ```
