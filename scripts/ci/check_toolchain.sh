@@ -13,15 +13,19 @@ fi
 # Check static linkage or dynamic library dependencies
 echo "Checking linkage dependencies..."
 if command -v readelf >/dev/null 2>&1; then
-    if readelf -d "$AAPT2_PATH" 2>/dev/null | grep -q 'NEEDED' && readelf -d "$AAPT2_PATH" 2>/dev/null | grep -q -F 'libprotobuf'; then
-        if [ "${ALLOW_DYNAMIC_AAPT2:-0}" != "1" ]; then
-            echo "❌ Error: AAPT2 is dynamically linked to libprotobuf. Linkage validation failed." >&2
-            echo "   Rolling-release updates might break this binary. Set ALLOW_DYNAMIC_AAPT2=1 to bypass." >&2
-            exit 1
-        fi
-        echo "⚠️ Warning: AAPT2 is dynamically linked to libprotobuf (allowed via ALLOW_DYNAMIC_AAPT2=1)." >&2
+    if ! readelf -h "$AAPT2_PATH" >/dev/null 2>&1; then
+        echo "⚠️ Warning: $AAPT2_PATH is not a valid ELF binary (might be a wrapper script). Skipping linkage check." >&2
     else
-        echo "✅ AAPT2 is statically linked or protobuf-independent."
+        if readelf -d "$AAPT2_PATH" 2>/dev/null | grep -q -F 'libprotobuf'; then
+            if [ "${ALLOW_DYNAMIC_AAPT2:-0}" != "1" ]; then
+                echo "❌ Error: AAPT2 is dynamically linked to libprotobuf. Linkage validation failed." >&2
+                echo "   Rolling-release updates might break this binary. Set ALLOW_DYNAMIC_AAPT2=1 to bypass." >&2
+                exit 1
+            fi
+            echo "⚠️ Warning: AAPT2 is dynamically linked to libprotobuf (allowed via ALLOW_DYNAMIC_AAPT2=1)." >&2
+        else
+            echo "✅ AAPT2 is statically linked or protobuf-independent."
+        fi
     fi
 else
     echo "⚠️ Warning: readelf is not installed. Skipping linkage dependency check." >&2

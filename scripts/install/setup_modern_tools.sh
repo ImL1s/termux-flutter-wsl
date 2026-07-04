@@ -68,7 +68,7 @@ mkdir -p "$GRADLE_PROP_DIR"
 GRADLE_PROP_FILE="$GRADLE_PROP_DIR/gradle.properties"
 
 # Safely append/replace global property
-AAPT2_OVERRIDE="$HOME/Android/Sdk/build-tools/35.0.0/aapt2"
+AAPT2_OVERRIDE="$HOME/Android/Sdk/build-tools/$BUILD_TOOLS_VER/aapt2"
 
 if grep -q "android.aapt2FromMavenOverride" "$GRADLE_PROP_FILE" 2>/dev/null; then
     sed -i "s|android.aapt2FromMavenOverride=.*|android.aapt2FromMavenOverride=$AAPT2_OVERRIDE|g" "$GRADLE_PROP_FILE"
