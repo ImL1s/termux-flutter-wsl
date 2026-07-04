@@ -46,6 +46,8 @@ jobs:
           bash -n scripts/install/post_install.sh
           bash -n scripts/test/gh_e2e_test.sh
           bash -n scripts/device/termux_smoke.sh
+          bash -n scripts/install/setup_modern_tools.sh
+          bash -n scripts/ci/check_toolchain.sh
 
       - name: PowerShell syntax check
         shell: pwsh
