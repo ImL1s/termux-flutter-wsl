@@ -297,12 +297,13 @@ new file mode 100644
 index 00000000000..0d97976c4ac
 --- /dev/null
 +++ b/engine/src/build/config/termux/termux.gni
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,7 @@
 +declare_args() {
 +  termux_api_level = 26
 +
 +  is_termux = false
 +  is_termux_host = false
++  termux_cross_host = false
 +}
 diff --git a/engine/src/build/toolchain/termux/BUILD.gn b/engine/src/build/toolchain/termux/BUILD.gn
 new file mode 100644
