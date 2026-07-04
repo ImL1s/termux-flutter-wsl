@@ -44,6 +44,24 @@ else
 fi
 bash "$CHECK_TOOLCHAIN_PATH" "$AAPT2_BIN" "$SPLIT_SELECT_BIN"
 
+# Calculate target directory
+SYSTEM_BT_DIR="${PREFIX:-/data/data/com.termux/files/usr}/opt/android-sdk/build-tools/$BUILD_TOOLS_VER"
+echo "=== Overwriting System SDK build-tools stubs with symlinks ==="
+mkdir -p "$SYSTEM_BT_DIR"
+
+for tool in aapt2 split-select; do
+    TARGET_TOOL="$SYSTEM_BT_DIR/$tool"
+    # Backup existing dynamic binaries or stubs if they are regular files and not symlinks
+    if [ -f "$TARGET_TOOL" ] && [ ! -L "$TARGET_TOOL" ]; then
+        echo "Backing up existing $tool to ${tool}.bak"
+        mv "$TARGET_TOOL" "${TARGET_TOOL}.bak"
+    fi
+done
+
+ln -sf "$AAPT2_BIN" "$SYSTEM_BT_DIR/aapt2"
+ln -sf "$SPLIT_SELECT_BIN" "$SYSTEM_BT_DIR/split-select"
+echo "✅ Symlinks successfully registered in $SYSTEM_BT_DIR"
+
 echo "=== Registering Global Gradle Overrides ==="
 GRADLE_PROP_DIR="$HOME/.gradle"
 mkdir -p "$GRADLE_PROP_DIR"
