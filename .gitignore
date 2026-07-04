@@ -123,3 +123,4 @@ temp_*.*
 # ----- 臨時 PowerShell 腳本 -----
 *.ps1
 !scripts/**/*.ps1
+!scripts/**/*.sh
