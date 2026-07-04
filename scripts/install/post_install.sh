@@ -473,7 +473,11 @@ setup_build_tools_symlinks() {
 
     # Basic tools
     for tool in aapt aapt2 apksigner d8 dx zipalign aidl; do
-        ln -sf /data/data/com.termux/files/usr/bin/$tool "$BUILD_TOOLS/$tool" 2>/dev/null || true
+        if [ "$tool" = "aapt2" ] && [ -L "$BUILD_TOOLS/aapt2" ] && readlink "$BUILD_TOOLS/aapt2" | grep -q "Android/Sdk"; then
+            echo "    ✓ Retaining Mode B custom static aapt2 symlink"
+        else
+            ln -sf /data/data/com.termux/files/usr/bin/$tool "$BUILD_TOOLS/$tool" 2>/dev/null || true
+        fi
     done
 
     # dexdump (from ART)
@@ -482,12 +486,16 @@ setup_build_tools_symlinks() {
     fi
 
     # split-select stub
-    cat > "$BUILD_TOOLS/split-select" << 'SPLITEOF'
+    if [ -L "$BUILD_TOOLS/split-select" ] && readlink "$BUILD_TOOLS/split-select" | grep -q "Android/Sdk"; then
+        echo "    ✓ Retaining Mode B custom static split-select symlink"
+    else
+        cat > "$BUILD_TOOLS/split-select" << 'SPLITEOF'
 #!/bin/sh
 echo "split-select is not available on Termux ARM64"
 exit 0
 SPLITEOF
-    chmod +x "$BUILD_TOOLS/split-select"
+        chmod +x "$BUILD_TOOLS/split-select"
+    fi
 
     # core-lambda-stubs.jar
     if [ ! -f "$BUILD_TOOLS/core-lambda-stubs.jar" ]; then
