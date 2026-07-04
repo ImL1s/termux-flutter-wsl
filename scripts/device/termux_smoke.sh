@@ -118,6 +118,15 @@ flutter build apk --release --target-platform android-arm64 --no-tree-shake-icon
 record_status BUILD_APK_STATUS $?
 ls -lh build/app/outputs/flutter-apk/*.apk 2>/dev/null || true
 
+# Task 2: APK ZIP Layout & Copy checks
+unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -q 'AndroidManifest.xml'
+record_status APK_MANIFEST_STATUS $?
+unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -q 'resources.arsc'
+record_status APK_RESOURCES_STATUS $?
+
+cp build/app/outputs/flutter-apk/app-release.apk /sdcard/Download/app-release.apk
+record_status APK_COPY_STATUS $?
+
 echo SECTION=BUILD_LINUX_RELEASE
 flutter build linux --release
 record_status BUILD_LINUX_STATUS $?
