@@ -44,7 +44,7 @@ if [ -n "$SPLIT_SELECT_PATH" ]; then
     echo "Testing split-select runtime execution..."
     exit_code=0
     "$SPLIT_SELECT_PATH" >/dev/null 2>&1 || exit_code=$?
-    if [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || [ "$exit_code" -eq 2 ] || [ "$exit_code" -eq 137 ]; then
+    if [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || [ "$exit_code" -eq 2 ]; then
         echo "✅ split-select runtime execution passed."
     else
         echo "❌ split-select runtime execution failed (exit code: $exit_code)."
