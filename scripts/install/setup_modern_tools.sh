@@ -21,7 +21,7 @@ cd "$TARGET_DIR"
 trap 'rm -f "$TARGET_DIR/sdk_temp.7z" 2>/dev/null' EXIT
 
 echo "Downloading SDK package..."
-wget -q --show-progress "$SDK_TOOLS_URL" -O sdk_temp.7z
+wget -q --tries=3 --show-progress "$SDK_TOOLS_URL" -O sdk_temp.7z
 
 echo "Verifying SHA256 checksum..."
 echo "$EXPECTED_SHA  sdk_temp.7z" | sha256sum -c -
