@@ -83,6 +83,12 @@ fi
 if ! grep -q '^android.enableResourceOptimizations=' android/gradle.properties; then
     printf '\nandroid.enableResourceOptimizations=false\n' >> android/gradle.properties
 fi
+if ! grep -q '^shrink=' android/gradle.properties; then
+    printf '\nshrink=false\n' >> android/gradle.properties
+fi
+if ! grep -q '^org.gradle.jvmargs=' android/gradle.properties; then
+    printf '\norg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8\n' >> android/gradle.properties
+fi
 python - <<'PY'
 from pathlib import Path
 p = Path('android/app/build.gradle.kts')
@@ -104,7 +110,7 @@ s = p.read_text()
 if not s.startswith('set(CMAKE_SYSTEM_NAME Linux)'):
     p.write_text('set(CMAKE_SYSTEM_NAME Linux)\n' + s)
 PY
-grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride\|enableResourceOptimizations\|isMinifyEnabled\|isShrinkResources' android/app/build.gradle.kts android/gradle.properties || true
+grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride\|enableResourceOptimizations\|shrink\|org.gradle.jvmargs\|isMinifyEnabled\|isShrinkResources' android/app/build.gradle.kts android/gradle.properties || true
 head -3 linux/CMakeLists.txt
 
 echo SECTION=BUILD_APK_RELEASE
