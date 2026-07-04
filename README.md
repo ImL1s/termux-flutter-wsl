@@ -106,9 +106,9 @@ bash install_flutter_complete.sh
 ```bash
 pkg update && pkg install -y wget
 wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
-sha256sum flutter_3.44.0_aarch64.deb
+sha256sum flutter_3.44.2_aarch64.deb
 
-dpkg -i flutter_3.44.0_aarch64.deb
+dpkg -i flutter_3.44.2_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source ~/.bashrc
@@ -119,19 +119,20 @@ flutter --version
 
 ## 建立專案與 build APK
 
-```bash
-flutter create my_app
-cd my_app
-```
+本專案支援兩種不同的建置模式：
 
-Termux 內的 Android build 需要明確使用 Termux 原生 `aapt2`，並限制 APK target 為 ARM64：
+### 模式 A：已驗證的 Termux 本地編譯與 sideload（推薦預設）
+這是目前經過實機測試、最穩定的本地開發路徑。適用於 sideload 測試。
 
+1. 在專案中設定使用 Termux 本地 `aapt2`、關閉混淆縮減（避免 JVM 記憶體崩潰）及關閉資源優化：
 ```properties
 # android/gradle.properties
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 android.enableResourceOptimizations=false
+shrink=false
 ```
 
+2. 限制專案的 SDK 為 API 34 並明確關閉混淆：
 ```kotlin
 // android/app/build.gradle.kts
 android {
@@ -151,11 +152,15 @@ android {
 }
 ```
 
-Build APK：
-
+3. 執行 Release 編譯（注意：必須繞過 JIT Dart 限制的 icon tree shaking）：
 ```bash
-flutter build apk --release --target-platform android-arm64
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 ```
+
+---
+
+### 模式 B：實驗性 Google Play 發版編譯（API 35+ / AAB）
+此模式目前為 **實驗性**。由於 Google Play 規定新 App 必須 target API 35+，本地舊版 `aapt2` 會因此崩潰。此模式需手動接入原生靜態 ARM64 Android Build-Tools（詳情請參閱 [AAPT2_RELEASE_BUILD_BUG_ANALYSIS.md](docs/guides/AAPT2_RELEASE_BUILD_BUG_ANALYSIS.md)）。
 
 > `post_install.sh` 已經會盡量把 Flutter Tools 預設值修成 Termux 友善，但專案層級仍建議保留上面的 Gradle 設定，讓不同 template / plugin 組合更穩。
 

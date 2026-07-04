@@ -1,6 +1,6 @@
-# Termux Flutter 3.44.0 安裝指南
+# Termux Flutter 3.44.2 安裝指南
 
-本指南適用於 `flutter_3.44.0_aarch64.deb`，目標是在 ARM64 Termux 上執行：
+本指南適用於 `flutter_3.44.2_aarch64.deb`，目標是在 ARM64 Termux 上執行：
 
 - `flutter doctor -v`
 - `flutter create`
@@ -12,12 +12,12 @@
 
 | 項目 | 值 |
 |------|----|
-| Flutter | 3.44.0 |
+| Flutter | 3.44.2 |
 | Flutter Tools Dart | 3.12.1 |
 | Dart VM (`dartvm`) | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | 測試設備 | Samsung SM-X716B / Android 16 / ARM64 |
-| deb size | 666,366,556 bytes（約 636 MiB） |
-| SHA256 | `b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846` |
+| deb size | 669,484,232 bytes（約 638 MiB） |
+| SHA256 | `66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000` |
 
 ## 系統需求
 
@@ -45,11 +45,11 @@ pkg update -y
 pkg install -y x11-repo git wget curl unzip openjdk-21 aapt2 android-tools cmake ninja clang
 
 cd ~
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.0/flutter_3.44.0_aarch64.deb
-sha256sum flutter_3.44.0_aarch64.deb
-# 確認輸出為：b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
+sha256sum flutter_3.44.2_aarch64.deb
+# 確認輸出為：66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
 
-dpkg -i flutter_3.44.0_aarch64.deb
+dpkg -i flutter_3.44.2_aarch64.deb
 apt --fix-broken install -y
 
 # 必跑：dpkg 只安裝檔案；這一步才會修補 Termux runtime。
@@ -93,24 +93,30 @@ flutter doctor -v
 
 預期重點：
 
-- `flutter --version` 顯示 Flutter 3.44.0。
+- `flutter --version` 顯示 Flutter 3.44.2。
 - `dart --version` 顯示 `android_arm64`（Termux JIT Dart）。
 - `dartvm --version` 顯示 `linux_arm64`（engine VM）。
 
-## 建立 Android APK 專案
+## 建立 Android APK 專案 (以模式 A：本地編譯為例)
+
+建立專案並補上 shebang：
 
 ```bash
 flutter create myapp
 cd myapp
-
 sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
-
-cat >> android/gradle.properties <<'EOF'
-android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
-EOF
 ```
 
-修改 `android/app/build.gradle.kts`：
+1. 設定專案 Gradle 屬性（在 `android/gradle.properties`）：
+
+```properties
+android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+android.enableResourceOptimizations=false
+shrink=false
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
+```
+
+2. 修改 `android/app/build.gradle.kts`（設定 SDK 與關閉混淆縮減）：
 
 ```kotlin
 android {
@@ -120,10 +126,17 @@ android {
         targetSdk = 34
         ndk { abiFilters += listOf("arm64-v8a") }
     }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
+    }
 }
 ```
 
-建置：
+3. 建置（注意：必須繞過 JIT Dart 限制的 icon tree shaking）：
 
 ```bash
 flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons

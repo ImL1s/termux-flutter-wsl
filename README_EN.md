@@ -106,9 +106,9 @@ bash install_flutter_complete.sh
 ```bash
 pkg update && pkg install -y wget
 wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
-sha256sum flutter_3.44.0_aarch64.deb
+sha256sum flutter_3.44.2_aarch64.deb
 
-dpkg -i flutter_3.44.0_aarch64.deb
+dpkg -i flutter_3.44.2_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source ~/.bashrc
@@ -119,19 +119,20 @@ Do not install the file if its SHA256 differs from the value in the release tabl
 
 ## Create a project and build an APK
 
-```bash
-flutter create my_app
-cd my_app
-```
+This project supports two different compilation modes:
 
-Android builds inside Termux should explicitly use Termux native `aapt2` and restrict the APK target to ARM64:
+### Mode A: Verified Termux Local APK Build (Recommended Default)
+This is the most stable path for local developer testing, side-loading, and fast iterations.
 
+1. Configure the project to override AAPT2, disable resource optimizations, and disable shrinking:
 ```properties
 # android/gradle.properties
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 android.enableResourceOptimizations=false
+shrink=false
 ```
 
+2. Pin the compilation SDK target to API 34 and explicitly disable code shrinking:
 ```kotlin
 // android/app/build.gradle.kts
 android {
@@ -151,11 +152,15 @@ android {
 }
 ```
 
-Build the APK:
-
+3. Run the release build command (bypassing JIT Dart icon tree-shaking limits):
 ```bash
-flutter build apk --release --target-platform android-arm64
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 ```
+
+---
+
+### Mode B: Experimental Google Play Publish Toolchain (API 35+ / AAB)
+This mode is **experimental**. Google Play requires new uploads to target Android 15 (API 35) or newer, which causes the default Termux `aapt2` package to crash. This mode requires installing native static ARM64 Android Build-Tools (see [AAPT2_RELEASE_BUILD_BUG_ANALYSIS.md](docs/guides/AAPT2_RELEASE_BUILD_BUG_ANALYSIS.md) for details).
 
 > `post_install.sh` patches Flutter Tools defaults for Termux, but keeping the project-level Gradle settings above makes different templates and plugins more predictable.
 

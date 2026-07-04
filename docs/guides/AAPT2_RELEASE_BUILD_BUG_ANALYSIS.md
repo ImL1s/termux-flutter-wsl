@@ -48,49 +48,75 @@ Android 15 (API 35) and 16 (API 36) updated the binary structure of `resources.a
 
 ---
 
-## 3. Comparison of Solutions
+## 3. Deployment Modes & Solution Strategies
 
-| Solution Strategy | Implementation Details | Pros | Cons / Risks |
-|:---|:---|:---|:---|
-| **Strategy 1: Disable Optimizations via properties (Current Workaround)** | Add `android.enableResourceOptimizations=false` and `shrink=false` to `gradle.properties`. | *   **100% stable and reliable**.<br>*   Avoids dynamic library crashes.<br>*   **No build script edits**: FGP's property check skips enabling R8/shrinking automatically. | *   Larger release APK size (adds ~3-5MB of unused classes/layouts).<br>*   Uses deprecated AGP optimization flags. |
-| **Strategy 2: Stub `split-select` & Allocate Swap** | Write a mock `split-select` script that exits with `0` in `build-tools/` and allocate a swapfile on device for JVM memory. | *   Allows R8 shrinking to compile. | *   **Highly fragile**.<br>*   Does not solve protobuf dynamic linker crashes.<br>*   Prone to JVM OOM crashes on lower-end devices. |
-| **Strategy 3: Bundle Static ARM64 AAPT2 in `.deb` (Long-Term Solution)** | Cross-compile a **statically linked** native ARM64 `aapt2` from AOSP, bundle it, and automate injection via a global Gradle init script. | *   **No dynamic dependencies** (immune to protobuf updates).<br>*   Version-matched with AGP, enabling full shrinking safely.<br>*   Out-of-the-box support for API 35/36. | *   High maintenance overhead to compile and match new AGP/AOSP releases. |
+To resolve these toolchain limitations, the project establishes two distinct support tracks:
 
-### Note on Emulation & Container Workarounds (Box64 / PRoot)
-*   **Box64 / QEMU User-Mode:** Ruled out. Android's kernel blocks user-space configuration of `/proc/sys/fs/binfmt_misc` (set as read-only), preventing the JVM from transparently wrapping and executing x86_64 binaries through the emulator without root access.
-*   **PRoot Distro (Ubuntu Container):** Ruled out as a general workflow. While it stabilizes dynamic library dependencies, it does not bypass the CPU architecture gap (requires manual `aapt2` overrides/emulators). It introduces a **2x to 5x compile slowdown** due to `ptrace` system call interception, consumes massive storage (5GB+), and complicates ADB wireless port forwarding for on-device execution.
+### Mode A: Verified Termux Local APK Build (Default)
+*   **Target:** Native local execution, side-loading, and fast debug/test compiles on Termux.
+*   **SDK constraints:** Forced `compileSdk = 34`, `targetSdk = 34` (compatible with Termux system `aapt2`).
+*   **Optimization status:** R8 code/resource shrinking and resource optimizations are **completely disabled** to bypass packaging crashes and prevent Out-Of-Memory (OOM) compilation crashes under mobile JVM heap constraints.
+*   **Status:** **100% verified and stable** (tested on Android 16 Samsung SM-X716B).
+
+### Mode B: Experimental Publish Toolchain (Future / CI Target)
+*   **Target:** Google Play Store compliance, App Bundle (`.aab`) generation, and full code/resource optimization.
+*   **SDK constraints:** Targets API 35+ (Android 15 target SDK mandatory for Play Console uploads starting August 2025).
+*   **Optimization status:** Enables full R8 minification and resource optimization.
+*   **Toolchain requirements:** Replaces the dynamic system `aapt2` with an architecture-matched, statically linked ARM64 Android Build-Tools environment (e.g. from upstream projects like `lzhiyong/termux-ndk`).
+*   **Status:** **Experimental**. Must pass automated matrix checks before being promoted to default.
 
 ---
 
-## 4. Current Developer Workaround
+## 4. Comparison of Solutions
 
-For projects built inside Termux, apply the following configurations to ensure release APKs compile, install, and run successfully:
+| Solution Strategy | Implementation Details | Pros | Cons / Risks |
+|:---|:---|:---|:---|
+| **Strategy 1: Disable Optimizations (Mode A Workaround)** | Set properties (`shrink=false`, `android.enableResourceOptimizations=false`) and modify project `buildTypes` to disable shrinking. | *   **100% stable and reliable**.<br>*   Avoids dynamic library crashes.<br>*   Reduces JVM heap usage on device. | *   Larger release APK size (+3-5MB of dead code).<br>*   Pinning `targetSdk=34` is incompatible with Play Store upload policies. |
+| **Strategy 2: Stub `split-select` & Swap** | Inject a dummy `split-select` script that exits `0` in `build-tools/` to pass validation. | *   Bypasses simple verification tasks. | *   **Fragile placeholder only.**<br>*   Does not support R8 resource shrinking (links corrupt layouts without proper asset-split mappings). |
+| **Strategy 3: Bundle Static ARM64 Build-Tools (Mode B Target)** | Integrate statically compiled native ARM64 Build-Tools (v35+) and automate path overrides via global Gradle properties. | *   **No dynamic dependencies** (protobuf-immune).<br>*   Matches Play Store API 35/36 requirements.<br>*   Enables full R8 shrinking. | *   High maintainer overhead to track and verify upstream packages (`lzhiyong/termux-ndk`). |
+
+### Note on Emulation & Container Workarounds (Box64 / PRoot)
+*   **Box64 / QEMU User-Mode:** Ruled out. Android's kernel blocks user-space configuration of `/proc/sys/fs/binfmt_misc` (read-only), preventing the JVM from transparently wrapping and executing x86_64 binaries through the emulator without root access.
+*   **PRoot Distro (Ubuntu Container):** Ruled out as a general workflow. While it stabilizes dynamic library dependencies, it does not bypass the CPU architecture gap (requires manual `aapt2` overrides). It introduces a **2x to 5x compile slowdown** due to `ptrace` system call interception and consumes massive storage (5GB+).
+
+---
+
+## 5. Current Developer Workaround (Mode A)
+
+For stable on-device builds in Termux, apply the following project configurations. Both Gradle properties and `buildTypes` overrides are required for maximum safety until matrix smoke tests verify properties alone are sufficient.
 
 ### 1. `android/gradle.properties`
 ```properties
 # Force Gradle to use native Termux AAPT2
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 
-# Disable R8 code & resource shrinking automatically via Flutter Gradle Plugin check
-shrink=false
-
 # Turn off R8 resource optimizations to bypass AAPT2 repackaging failures
 android.enableResourceOptimizations=false
+
+# Disable R8 shrinking in Flutter Gradle Plugin
+shrink=false
 
 # Optimize JVM heap to prevent OOM compilation crashes in Termux
 org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
 ```
 
 ### 2. `android/app/build.gradle.kts`
-No modifications to the `buildTypes` block are required as the `shrink=false` property handles it. Simply configure SDK constraints and target architectures:
 ```kotlin
 android {
-    compileSdk = 34 // Pin to API 34 to match Termux AAPT2 version support
+    compileSdk = 34 // Pin to API 34 to match Termux AAPT2 compiler limitations
 
     defaultConfig {
         targetSdk = 34
         ndk {
             abiFilters += listOf("arm64-v8a") // Pin to ARM64 target only
+        }
+    }
+
+    buildTypes {
+        release {
+            // Explicitly disable minification and shrinking
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -104,25 +130,21 @@ flutter build apk --release --target-platform android-arm64 --no-tree-shake-icon
 
 ---
 
-## 5. Follow-Up Plan: Static AAPT2 Packaging
+## 6. Follow-Up Plan: Static Toolchain Packaging (Mode B)
 
-To completely remove the manual configuration burden from developers, we plan to package our own static ARM64 `aapt2` binary with the Flutter SDK.
+To enable Play Store compliant (API 35+) Optimized builds without manual project modifications, the project will implement a decoupled, optional toolchain installer.
 
 ### Task List
-1.  **Set up AOSP Build Host:** Set up a Linux host capable of cross-compiling AOSP tools.
-2.  **Cross-Compile Static `aapt2`:** 
-    *   Build `aapt2` statically (`-static` / `-static-libstdc++`) for the `aarch64-linux-android` target.
-    *   Ensure the binary includes no dynamic linkages to `libprotobuf.so` or `libc++_shared.so`, preventing rolling-release breakages.
-3.  **Bundle in Package:** Add the compiled binary to `package.yaml` to install at `$PREFIX/opt/flutter/bin/cache/termux/aapt2`.
-4.  **Auto-Configuration via Global Init Script:** Update the post-install script (`post_install.sh`) to automatically generate a global Gradle initialization script at `~/.gradle/init.d/aapt2.gradle` during installation:
-    ```groovy
-    // init.gradle automatic injection
-    settingsEvaluated { settings ->
-        settings.gradle.projectsLoaded { gradle ->
-            gradle.rootProject {
-                ext["android.aapt2FromMavenOverride"] = "${System.getenv('PREFIX')}/opt/flutter/bin/cache/termux/aapt2"
-            }
-        }
-    }
-    ```
-    This removes the need for project-level `gradle.properties` overrides entirely, enabling a zero-configuration developer experience.
+1.  **Select & Verify Candidate Upstream:**
+    *   Target `lzhiyong/termux-ndk` release assets (e.g. native `aarch64` Android SDK build-tools).
+    *   Verify the candidate binaries locally using `readelf -d`, `aapt2 version`, and minimal API 35 smoke compilation before committing.
+2.  **Decoupled Installation Hook:**
+    *   Provide an optional setup flag (e.g. `post_install.sh --enable-modern-android-tools`) or a standalone installation script.
+    *   This script will download, extract, and verify the pinned Build-Tools package, keeping the main Flutter `.deb` package lightweight (~630MB).
+3.  **Global User Override Injection:**
+    *   Rather than hacking project-level directories, the post-install setup will write the global override path into the Termux user's personal Gradle properties file at `~/.gradle/gradle.properties`:
+        ```properties
+        android.aapt2FromMavenOverride=/data/data/com.termux/files/home/Android/Sdk/build-tools/35.0.0/aapt2
+        ```
+    *   This ensures build portability (local repositories remain clean and can be compiled on PCs or CI/CD servers unchanged) while automatically enabling Mode B capability globally for the Termux user.
+
