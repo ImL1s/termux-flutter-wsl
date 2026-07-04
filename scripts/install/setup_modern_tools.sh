@@ -7,9 +7,18 @@ TARGET_DIR="$HOME/Android/Sdk"
 BUILD_TOOLS_VER="35.0.0"
 EXPECTED_SHA="5b3535d4533fbd788ef976a4ce4c3050f19150fe9d0bb092263045317c46f463"
 
+# Check if 7z command is available
+if ! command -v 7z &>/dev/null; then
+    echo "Error: '7z' command is required but not found. Please install 'p7zip' first." >&2
+    exit 1
+fi
+
 echo "=== Installing Pinned ARM64 Build-Tools (v$BUILD_TOOLS_VER) ==="
 mkdir -p "$TARGET_DIR"
 cd "$TARGET_DIR"
+
+# Register cleanup trap for sdk_temp.7z
+trap 'rm -f sdk_temp.7z 2>/dev/null' EXIT
 
 echo "Downloading SDK package..."
 wget -q --show-progress "$SDK_TOOLS_URL" -O sdk_temp.7z
