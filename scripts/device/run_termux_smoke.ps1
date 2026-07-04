@@ -175,13 +175,19 @@ Write-Host "===== Full Termux smoke log ====="
 Write-Host $log
 
 Write-Host "Uninstalling previous package if it exists..."
-Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.termux_smoke")
+Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke")
+
+$localApk = "$work/app-release.apk"
+if (Test-Path $localApk) {
+    Write-Host "Cleaning up stale host-side APK: $localApk"
+    Remove-Item $localApk -Force
+}
 
 Write-Host "Pulling built APK to host..."
-Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", "$work/app-release.apk")
+Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
 
 Write-Host "Installing pulled APK from host..."
-Invoke-Adb -Args @("install", "-r", "$work/app-release.apk")
+Invoke-Adb -Args @("install", "-r", $localApk)
 
 $required = @(
     "INSTALL_STATUS=0",
