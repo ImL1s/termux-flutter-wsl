@@ -13,7 +13,7 @@ control:
   Architecture: $architecture
   Maintainer: mumumusuc <mumumusuc@gmail.com>
   Pre-Depends: x11-repo
-  Depends: git, which, gtk3, xorgproto, ninja, cmake, clang, pkg-config, openjdk-21
+  Depends: git, which, gtk3, xorgproto, ninja, cmake, clang, pkg-config, openjdk-21, wget, unzip
   Homepage: https://www.github.com/flutter/flutter
   Description: Flutter makes it easy and fast to build beautiful apps for mobile and beyond
 
@@ -285,3 +285,14 @@ resource:
     source: $root/../scripts/install/post_install.sh
     output: $prefix/share/flutter/post_install.sh
     mode: 0o755
+
+  check_toolchain:
+    source: $root/../scripts/ci/check_toolchain.sh
+    output: $prefix/share/flutter/check_toolchain.sh
+    mode: 0o755
+
+  setup_modern_tools:
+    source: $root/../scripts/install/setup_modern_tools.sh
+    output: $prefix/share/flutter/setup_modern_tools.sh
+    mode: 0o755
+

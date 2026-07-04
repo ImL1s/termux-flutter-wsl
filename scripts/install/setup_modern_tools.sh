@@ -23,7 +23,11 @@ SPLIT_SELECT_BIN="$TARGET_DIR/build-tools/$BUILD_TOOLS_VER/split-select"
 # Invoke Task 3 health check script
 echo "=== Running toolchain health checks ==="
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-CHECK_TOOLCHAIN_PATH="$SCRIPT_DIR/../ci/check_toolchain.sh"
+if [ -f "$SCRIPT_DIR/check_toolchain.sh" ]; then
+    CHECK_TOOLCHAIN_PATH="$SCRIPT_DIR/check_toolchain.sh"
+else
+    CHECK_TOOLCHAIN_PATH="$SCRIPT_DIR/../ci/check_toolchain.sh"
+fi
 bash "$CHECK_TOOLCHAIN_PATH" "$AAPT2_BIN" "$SPLIT_SELECT_BIN"
 
 echo "=== Registering Global Gradle Overrides ==="
@@ -32,7 +36,7 @@ mkdir -p "$GRADLE_PROP_DIR"
 GRADLE_PROP_FILE="$GRADLE_PROP_DIR/gradle.properties"
 
 # Safely append/replace global property
-AAPT2_OVERRIDE="~/Android/Sdk/build-tools/35.0.0/aapt2"
+AAPT2_OVERRIDE="$HOME/Android/Sdk/build-tools/35.0.0/aapt2"
 
 if grep -q "android.aapt2FromMavenOverride" "$GRADLE_PROP_FILE" 2>/dev/null; then
     sed -i "s|android.aapt2FromMavenOverride=.*|android.aapt2FromMavenOverride=$AAPT2_OVERRIDE|g" "$GRADLE_PROP_FILE"
@@ -42,3 +46,4 @@ else
 fi
 
 echo "🎉 Modern toolchain setup successfully. Mode B activated globally for Termux user."
+
