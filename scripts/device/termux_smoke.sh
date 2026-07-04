@@ -119,20 +119,22 @@ record_status BUILD_APK_STATUS $?
 ls -lh build/app/outputs/flutter-apk/*.apk 2>/dev/null || true
 
 # Task 2: APK ZIP Layout & Copy checks
-unzip -l build/app/outputs/flutter-apk/app-release.apk > build/apk_contents.txt
+APK=build/app/outputs/flutter-apk/app-release.apk
+APK_LIST="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/apk_contents.txt"
+rm -f "$APK_LIST"
+unzip -l "$APK" > "$APK_LIST"
 UNZIP_STATUS=$?
-if [ $UNZIP_STATUS -eq 0 ] && grep -q 'AndroidManifest.xml' build/apk_contents.txt; then
+if [ "$UNZIP_STATUS" -eq 0 ] && grep -q 'AndroidManifest.xml' "$APK_LIST"; then
     record_status APK_MANIFEST_STATUS 0
 else
     record_status APK_MANIFEST_STATUS 1
 fi
-
-if [ $UNZIP_STATUS -eq 0 ] && grep -q 'resources.arsc' build/apk_contents.txt; then
+if [ "$UNZIP_STATUS" -eq 0 ] && grep -q 'resources.arsc' "$APK_LIST"; then
     record_status APK_RESOURCES_STATUS 0
 else
     record_status APK_RESOURCES_STATUS 1
 fi
-rm -f build/apk_contents.txt
+rm -f "$APK_LIST"
 
 cp build/app/outputs/flutter-apk/app-release.apk /sdcard/Download/app-release.apk
 record_status APK_COPY_STATUS $?
