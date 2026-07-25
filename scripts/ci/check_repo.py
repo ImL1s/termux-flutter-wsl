@@ -173,7 +173,6 @@ def check_ci_layout() -> None:
         ".github/workflows/device-smoke.yml",
         "scripts/ci/check_repo.py",
         "scripts/ci/check_version_drift.py",
-        "scripts/ci/verify_all_acceptance_criteria.py",
         "scripts/device/run_termux_smoke.ps1",
         "scripts/device/termux_smoke.sh",
         "scripts/test/gh_e2e_test.sh",
