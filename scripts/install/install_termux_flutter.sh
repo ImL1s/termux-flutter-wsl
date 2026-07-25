@@ -19,8 +19,10 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 版本配置
-FLUTTER_VERSION="3.44.0"
-FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/v${FLUTTER_VERSION}/flutter_${FLUTTER_VERSION}_aarch64.deb"
+FLUTTER_VERSION="3.44.2"
+RELEASE_TAG="v3.44.2-termux"
+EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}"
+FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 
 echo -e "${BLUE}"
 echo "╔═══════════════════════════════════════════════════════════╗"
@@ -56,14 +58,34 @@ pkg install -y openjdk-21 git wget curl unzip android-tools
 
 echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} Downloading Flutter SDK..."
 cd ~
-if [ -f "flutter_${FLUTTER_VERSION}_aarch64.deb" ]; then
-    echo "Flutter deb already exists, skipping download."
+FLUTTER_DEB="flutter_${FLUTTER_VERSION}_aarch64.deb"
+if [ ! -f "$FLUTTER_DEB" ]; then
+    wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB"
+fi
+
+# Verify SHA256 checksum
+echo "Verifying SHA256 checksum..."
+if command -v sha256sum &> /dev/null; then
+    ACTUAL_SHA256=$(sha256sum "$FLUTTER_DEB" | awk '{print $1}')
+    if [ -n "$EXPECTED_SHA256" ] && [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+        echo -e "${RED}"
+        echo "==========================================================="
+        echo " ERROR: SHA256 checksum mismatch!"
+        echo " Expected: $EXPECTED_SHA256"
+        echo " Actual  : $ACTUAL_SHA256"
+        echo " Security Alert: Downloaded file may be corrupted or tampered!"
+        echo "==========================================================="
+        echo -e "${NC}"
+        rm -f "$FLUTTER_DEB"
+        exit 1
+    fi
+    echo "  ✓ SHA256 verified ($ACTUAL_SHA256)"
 else
-    wget -q --show-progress "$FLUTTER_DEB_URL" -O "flutter_${FLUTTER_VERSION}_aarch64.deb"
+    echo -e "${YELLOW}  ⚠ sha256sum not found, skipping checksum verification${NC}"
 fi
 
 echo -e "${GREEN}[4/${TOTAL_STEPS}]${NC} Installing Flutter..."
-dpkg -i "flutter_${FLUTTER_VERSION}_aarch64.deb" || true
+dpkg -i "$FLUTTER_DEB" || true
 apt --fix-broken install -y
 
 echo -e "${GREEN}[5/${TOTAL_STEPS}]${NC} Running post-install configuration..."

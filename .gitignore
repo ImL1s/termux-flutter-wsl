@@ -51,13 +51,15 @@ desktop.ini
 # ----- Node.js (如果有) -----
 node_modules/
 
-# ----- 構建工具緩存 -----
+# ----- 構建工具緩存與本地配置 -----
 .cache/
 .ninja_log
 .ninja_deps
 .gclient
 .omx/
 .omc/
+build.local.toml
+*.local.toml
 
 # ----- 中間產物 -----
 *.o
