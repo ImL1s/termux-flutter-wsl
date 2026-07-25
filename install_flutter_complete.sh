@@ -28,6 +28,8 @@ NC='\033[0m'
 
 # 版本配置
 FLUTTER_VERSION="3.44.2"
+RELEASE_TAG="v3.44.2-termux"
+EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}"
 NDK_VERSION="29.0.14206865"
 REPO_BASE="https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master"
 
@@ -116,12 +118,33 @@ for pkg in d8 dx aidl apksigner googletest android-tools; do
 done
 
 # 下載 Flutter deb
-FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/v${FLUTTER_VERSION}/flutter_${FLUTTER_VERSION}_aarch64.deb"
+FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 FLUTTER_DEB="$HOME/flutter_${FLUTTER_VERSION}_aarch64.deb"
 
 if [ ! -f "$FLUTTER_DEB" ]; then
     echo "下載 Flutter SDK..."
     wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB"
+fi
+
+# 驗證 SHA256 校驗碼
+echo "驗證 SHA256 校驗碼..."
+if command -v sha256sum &> /dev/null; then
+    ACTUAL_SHA256=$(sha256sum "$FLUTTER_DEB" | awk '{print $1}')
+    if [ -n "$EXPECTED_SHA256" ] && [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+        echo -e "${RED}"
+        echo "==========================================================="
+        echo " 錯誤: SHA256 校驗碼不符！(Security Alert / Checksum Mismatch)"
+        echo " 預期 (Expected): $EXPECTED_SHA256"
+        echo " 實際 (Actual)  : $ACTUAL_SHA256"
+        echo " 警告: 下載檔案可能已損壞或被篡改！已自動刪除損壞檔案。"
+        echo "==========================================================="
+        echo -e "${NC}"
+        rm -f "$FLUTTER_DEB"
+        exit 1
+    fi
+    echo "  ✓ SHA256 驗證成功 ($ACTUAL_SHA256)"
+else
+    echo -e "${YELLOW}  ⚠ 未找到 sha256sum 工具，跳過 SHA256 驗證${NC}"
 fi
 
 # 安裝

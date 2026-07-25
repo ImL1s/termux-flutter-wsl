@@ -34,7 +34,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Python compile check
-        run: python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py
+        run: python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py scripts/ci/check_version_drift.py
 
       - name: Shell syntax check
         shell: bash
@@ -54,6 +54,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $null = [scriptblock]::Create((Get-Content scripts/device/run_termux_smoke.ps1 -Raw))
+
+      - name: Version drift check
+        run: python scripts/ci/check_version_drift.py
 
       - name: Repository contract checks
         run: python scripts/ci/check_repo.py

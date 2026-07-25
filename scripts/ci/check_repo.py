@@ -25,6 +25,7 @@ ROOT_MARKDOWN_ALLOWLIST = {
     "AGENTS.md",
     "CLAUDE.md",
     "GEMINI.md",
+    "ORIGINAL_REQUEST.md",
     "README.md",
     "README_EN.md",
 }
@@ -171,6 +172,8 @@ def check_ci_layout() -> None:
         ".github/workflows/build-deb.yml",
         ".github/workflows/device-smoke.yml",
         "scripts/ci/check_repo.py",
+        "scripts/ci/check_version_drift.py",
+        "scripts/ci/verify_all_acceptance_criteria.py",
         "scripts/device/run_termux_smoke.ps1",
         "scripts/device/termux_smoke.sh",
         "scripts/test/gh_e2e_test.sh",
@@ -179,6 +182,16 @@ def check_ci_layout() -> None:
 
     if (ROOT / "gh_e2e_test.sh").exists():
         fail("gh_e2e_test.sh should live under scripts/test/, not repository root")
+
+
+def check_version_drift_contract() -> None:
+    try:
+        import check_version_drift
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import check_version_drift
+    if check_version_drift.main() != 0:
+        fail("check_version_drift.py detected version drift errors")
 
 
 def main() -> int:
@@ -190,6 +203,7 @@ def main() -> int:
     check_yaml_files()
     check_post_install_contract()
     check_installer_contract()
+    check_version_drift_contract()
 
     if ERRORS:
         print("Repository sanity check failed:", file=sys.stderr)

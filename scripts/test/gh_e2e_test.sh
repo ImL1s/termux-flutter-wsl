@@ -10,10 +10,11 @@ export PREFIX=/data/data/com.termux/files/usr
 export PATH=$PREFIX/bin:$PREFIX/opt/flutter/bin:$PATH
 export HOME=/data/data/com.termux/files/home
 export TMPDIR=$PREFIX/tmp
-export FLUTTER_VERSION=${FLUTTER_VERSION:-3.44.0}
-export EXPECTED_SHA256=${EXPECTED_SHA256:-b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846}
+export RELEASE_TAG=${RELEASE_TAG:-v3.44.2-termux}
+export FLUTTER_VERSION=${FLUTTER_VERSION:-3.44.2}
+export EXPECTED_SHA256=${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}
 export DEB_NAME="flutter_${FLUTTER_VERSION}_aarch64.deb"
-export DEB_URL=${DEB_URL:-"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v${FLUTTER_VERSION}/${DEB_NAME}"}
+export DEB_URL=${DEB_URL:-"https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/${DEB_NAME}"}
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -73,7 +74,13 @@ rm -f "$DEB_NAME"
 wget -q --show-progress "$DEB_URL" -O "$DEB_NAME"
 if [ -n "$EXPECTED_SHA256" ]; then
     actual=$(sha256sum "$DEB_NAME" | awk '{print $1}')
-    if [ "$actual" = "$EXPECTED_SHA256" ]; then pass "SHA256 $actual"; else fail "SHA256 mismatch: $actual"; fi
+    if [ "$actual" = "$EXPECTED_SHA256" ]; then
+        pass "SHA256 $actual"
+    else
+        fail "SHA256 mismatch: actual $actual != expected $EXPECTED_SHA256"
+        rm -f "$DEB_NAME"
+        exit 1
+    fi
 fi
 ls -lh "$DEB_NAME"
 

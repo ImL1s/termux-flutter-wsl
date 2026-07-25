@@ -105,7 +105,7 @@ bash install_flutter_complete.sh
 
 ```bash
 pkg update && pkg install -y wget
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2/flutter_3.44.2_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb
 sha256sum flutter_3.44.2_aarch64.deb
 
 dpkg -i flutter_3.44.2_aarch64.deb

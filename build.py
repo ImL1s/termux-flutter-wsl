@@ -10,6 +10,7 @@ import utils
 import shutil
 import tarfile
 import tomllib
+import platform
 import subprocess
 from loguru import logger
 from pathlib import Path
@@ -83,6 +84,17 @@ def validate_deb_artifacts(path):
         + ', '.join(Path(it).name for it in REQUIRED_DEB_ARTIFACTS))
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override dict into base dict."""
+    result = dict(base)
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
 class GitProgress(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=''):
         logger.trace(f"cloning {cur_count}/{max_count} {message}")
@@ -93,52 +105,87 @@ class Build:
     @utils.recordm
     def __init__(self, conf='build.toml'):
         path = Path(__file__).parent
-        conf = path/conf
-        
+        conf_path = path / conf
+
         # Explicitly add depot_tools to PATH
         depot_tools_path = path / 'depot_tools'
         if depot_tools_path.is_dir():
-             os.environ['PATH'] = str(depot_tools_path) + os.pathsep + os.environ['PATH']
-             logger.info(f"Added {depot_tools_path} to PATH")
+            os.environ['PATH'] = str(depot_tools_path) + os.pathsep + os.environ['PATH']
+            logger.info(f"Added {depot_tools_path} to PATH")
 
-        with open(conf, 'rb') as f:
-            cfg = tomllib.load(f)
+        # 1. Load base configuration
+        cfg = {}
+        if conf_path.is_file():
+            with open(conf_path, 'rb') as f:
+                cfg = tomllib.load(f)
 
-        ndk = cfg['ndk'].get('path') or os.environ.get('ANDROID_NDK')
-        api = cfg['ndk'].get('api')
-        tag = cfg['flutter'].get('tag')
-        repo = cfg['flutter'].get('repo')
-        root = cfg['flutter'].get('path')
-        arch = cfg['build'].get('arch')
-        mode = cfg['build'].get('runtime')
-        gclient = cfg['build'].get('gclient')
-        jobs = cfg['build'].get('jobs')
+        # 2. Deep-merge local configuration override (build.local.toml)
+        local_conf = conf_path.parent / 'build.local.toml'
+        if local_conf.is_file():
+            logger.info(f"Loading local configuration override from {local_conf}")
+            with open(local_conf, 'rb') as f:
+                local_cfg = tomllib.load(f)
+            cfg = _deep_merge(cfg, local_cfg)
+
+        # 3. Resolve NDK path (Env priority: NDK_PATH -> ANDROID_NDK -> ANDROID_NDK_HOME -> ANDROID_NDK_ROOT -> config)
+        ndk = (
+            os.environ.get('NDK_PATH')
+            or os.environ.get('ANDROID_NDK')
+            or os.environ.get('ANDROID_NDK_HOME')
+            or os.environ.get('ANDROID_NDK_ROOT')
+            or cfg.get('ndk', {}).get('path')
+        )
+
+        api = cfg.get('ndk', {}).get('api', 35)
+        tag = cfg.get('flutter', {}).get('tag')
+        release_tag = cfg.get('flutter', {}).get('release_tag', f'v{tag}-termux' if tag else None)
+        dart_version = cfg.get('flutter', {}).get('dart_version', '3.12.0')
+        sha256 = cfg.get('flutter', {}).get('sha256')
+        asset_name = cfg.get('flutter', {}).get('asset_name', f'flutter_{tag}_aarch64.deb' if tag else None)
+        repo = cfg.get('flutter', {}).get('repo')
+        root = cfg.get('flutter', {}).get('path', './flutter')
+        arch = cfg.get('build', {}).get('arch', ['arm64'])
+        mode = cfg.get('build', {}).get('runtime', ['debug'])
+        gclient = cfg.get('build', {}).get('gclient', './.gclient')
+
+        # 4. Resolve build jobs (Env NINJA_JOBS / JOBS -> config -> dynamic cpu_count)
+        env_jobs = os.environ.get('NINJA_JOBS') or os.environ.get('JOBS')
+        if env_jobs and env_jobs.isdigit() and int(env_jobs) > 0:
+            jobs = int(env_jobs)
+        else:
+            cfg_jobs = cfg.get('build', {}).get('jobs')
+            if cfg_jobs and isinstance(cfg_jobs, int) and cfg_jobs > 0:
+                jobs = cfg_jobs
+            else:
+                jobs = os.cpu_count() or 4
+
         sync_cfg = cfg.get('sync', {})
-        sysroot = cfg['sysroot']
-        syspath = sysroot.pop('path')
-        package = cfg['package'].get('conf')
-        release = cfg['package'].get('path')
+        sysroot = cfg.get('sysroot', {})
+        syspath = sysroot.pop('path', './sysroot') if isinstance(sysroot, dict) and 'path' in sysroot else './sysroot'
+        package = cfg.get('package', {}).get('conf', './package.yaml')
+        release = cfg.get('package', {}).get('path', '.')
         patches = cfg.get('patch')
 
-        if not ndk:
-            raise ValueError('neither ndk path nor ANDROID_NDK is set')
         if not tag:
-            raise ValueError('require flutter tag')
+            raise ValueError('require flutter tag in config')
 
-        # TODO: check parameters
+        self.ndk = ndk
         self.tag = tag
-        self.api = api or 26
-        self.conf = conf
-        # TODO: detect host
+        self.release_tag = release_tag
+        self.dart_version = dart_version
+        self.sha256 = sha256
+        self.asset_name = asset_name
+        self.api = api or 35
+        self.conf = conf_path
         self.host = 'linux-x86_64'
         self.repo = repo or 'https://github.com/flutter/flutter'
-        self.arch = arch or 'arm64'
-        self.mode = mode or 'debug'
+        self.arch = arch if isinstance(arch, list) else [arch]
+        self.mode = mode if isinstance(mode, list) else [mode]
         self._sysroot = Sysroot(path=path/syspath, **sysroot)
         self.root = path/root
         self.gclient = path/gclient
         self.release = path/release
-        self.toolchain = Path(ndk, f'toolchains/llvm/prebuilt/{self.host}')
+        self.toolchain = Path(ndk, f'toolchains/llvm/prebuilt/{self.host}') if ndk else None
         self.jobs = jobs
         self.sync_cfg = sync_cfg
 
@@ -150,16 +197,13 @@ class Build:
 
         if isinstance(patches, dict):
             self.patches = {}
-            # Version-based patches: patches/{version}/*.patch
             patch_base = path / patches.get('dir', './patches') / self.tag
 
             def patch(key):
                 return lambda: self.patch(**self.patches[key])
 
             for k, v in patches.items():
-                if k == 'dir':  # Skip base directory config
-                    continue
-                if not isinstance(v, dict):  # Skip non-dict entries
+                if k == 'dir' or not isinstance(v, dict):
                     continue
                 self.patches[k] = {
                     'file': patch_base / v['file'],
@@ -170,28 +214,178 @@ class Build:
         info = (f'{k}\t: {v}' for k, v in self.__dict__.items() if k != 'package')
         logger.info('\n'+'\n'.join(info))
 
+    def preflight(self) -> bool:
+        """Run preflight environment and dependency checks for Flutter Termux build."""
+        logger.info("=== Running Preflight Verification Checks ===")
+        results = []
+
+        # 1. Host OS Check
+        system = platform.system()
+        if system == 'Linux':
+            results.append(('PASS', 'Host OS', f'Linux ({platform.release()})', None))
+        else:
+            results.append((
+                'WARN' if system == 'Windows' else 'FAIL',
+                'Host OS',
+                f'{system} ({platform.release()})',
+                'Flutter Engine cross-compilation requires Linux or WSL2.'
+            ))
+
+        # 2. Android NDK Check
+        ndk_path = self.ndk
+        if ndk_path and os.path.exists(ndk_path):
+            toolchain_dir = Path(ndk_path) / 'toolchains' / 'llvm' / 'prebuilt' / self.host
+            clang_bin = toolchain_dir / 'bin' / 'clang'
+            if clang_bin.exists():
+                results.append(('PASS', 'Android NDK', f'{ndk_path} (API {self.api} toolchain valid)', None))
+            else:
+                results.append((
+                    'FAIL',
+                    'Android NDK',
+                    f'{ndk_path} exists but toolchain at {toolchain_dir} is invalid or missing clang',
+                    'Ensure NDK r27d or compatible NDK is installed for host linux-x86_64.'
+                ))
+        else:
+            results.append((
+                'FAIL',
+                'Android NDK',
+                f'NDK path "{ndk_path}" not set or directory not found',
+                'Export NDK_PATH=/path/to/ndk or set path = "/path/to/ndk" in build.local.toml.'
+            ))
+
+        # 3. Build Tools Check (git, ninja, gclient)
+        missing_tools = []
+        for tool in ['git', 'ninja']:
+            if not shutil.which(tool):
+                missing_tools.append(tool)
+        gclient_found = bool(shutil.which('gclient')) or (Path(__file__).parent / 'depot_tools' / 'gclient').exists()
+        if not gclient_found:
+            missing_tools.append('gclient (depot_tools)')
+
+        if not missing_tools:
+            results.append(('PASS', 'Build Tools', 'git, ninja, gclient found', None))
+        else:
+            results.append((
+                'FAIL',
+                'Build Tools',
+                f'Missing tool(s): {", ".join(missing_tools)}',
+                'Install build dependencies and ensure depot_tools is installed/cloned.'
+            ))
+
+        # 4. Python Dependencies
+        missing_pkgs = []
+        for pkg_name in ['yaml', 'git', 'fire', 'loguru', 'aiohttp']:
+            try:
+                __import__(pkg_name)
+            except ImportError:
+                missing_pkgs.append(pkg_name)
+        if not missing_pkgs:
+            results.append(('PASS', 'Python Dependencies', 'all required packages installed', None))
+        else:
+            results.append((
+                'FAIL',
+                'Python Dependencies',
+                f'Missing package(s): {", ".join(missing_pkgs)}',
+                'Run: pip install pyyaml gitpython fire loguru aiohttp'
+            ))
+
+        # 5. Disk Space Check
+        try:
+            usage = shutil.disk_usage(Path(__file__).parent)
+            free_gb = usage.free / (1024 ** 3)
+            if free_gb >= 30.0:
+                results.append(('PASS', 'Disk Space', f'{free_gb:.1f} GB free', None))
+            elif free_gb >= 10.0:
+                results.append((
+                    'WARN',
+                    'Disk Space',
+                    f'{free_gb:.1f} GB free (30GB+ recommended for full engine sync)',
+                    'Consider freeing up disk space.'
+                ))
+            else:
+                results.append((
+                    'FAIL',
+                    'Disk Space',
+                    f'{free_gb:.1f} GB free (<10GB critically low)',
+                    'Free up at least 30-50GB space.'
+                ))
+        except Exception as e:
+            results.append(('WARN', 'Disk Space', f'Unable to check: {e}', None))
+
+        # Output Summary
+        passes = sum(1 for status, *_ in results if status == 'PASS')
+        warns = sum(1 for status, *_ in results if status == 'WARN')
+        fails = sum(1 for status, *_ in results if status == 'FAIL')
+
+        logger.info("============================================================")
+        logger.info("              Preflight Check Results                       ")
+        logger.info("============================================================")
+        for status, name, msg, suggestion in results:
+            if status == 'PASS':
+                logger.info(f"[PASS] {name}: {msg}")
+            elif status == 'WARN':
+                logger.warning(f"[WARN] {name}: {msg}")
+                if suggestion:
+                    logger.warning(f"  -> Suggestion: {suggestion}")
+            else:
+                logger.error(f"[FAIL] {name}: {msg}")
+                if suggestion:
+                    logger.error(f"  -> Suggestion: {suggestion}")
+        logger.info("============================================================")
+
+        if fails == 0:
+            logger.success(f"Preflight verification PASSED ({passes} pass, {warns} warn)")
+            return True
+        else:
+            logger.error(f"Preflight verification FAILED ({fails} fail, {warns} warn, {passes} pass)")
+            return False
+
     def clone(self, *, url: str = None, tag: str = None, out: str = None):
         url = url or self.repo
-        out = out or self.root
+        out_path = Path(out or self.root)
         tag = tag or self.tag
         progress = GitProgress()
 
-        if utils.flutter_tag(out) == tag:
-            logger.info('flutter exists, skip.')
-            return
-        elif os.path.isdir(out):
-            logger.info(f'moving {out} to {out}.old ...')
-            os.rename(out, f'{out}.old')
-            return
+        if out_path.is_dir():
+            current_tag = utils.flutter_tag(str(out_path))
+            if current_tag == tag:
+                logger.info(f'flutter exists at {out_path} with tag {tag}, skipping clone.')
+                return
 
+            # Attempt checkout of target tag inside existing repository
+            try:
+                repo = git.Repo(out_path)
+                logger.info(f'Existing flutter checkout tag "{current_tag}" != target "{tag}". Attempting git checkout {tag}...')
+                repo.git.fetch('origin', '--tags')
+                repo.git.checkout(tag)
+                if utils.flutter_tag(str(out_path)) == tag:
+                    logger.success(f'Successfully checked out tag {tag} in {out_path}.')
+                    return
+            except Exception as e:
+                logger.warning(f'Failed to checkout tag {tag} in existing directory {out_path}: {e}')
+
+            # Backup existing directory if checkout failed or invalid repo
+            backup_path = out_path.parent / f'{out_path.name}.old'
+            if backup_path.exists():
+                logger.info(f'Removing existing backup directory {backup_path}...')
+                if backup_path.is_dir():
+                    shutil.rmtree(backup_path)
+                else:
+                    backup_path.unlink()
+
+            logger.info(f'Moving existing directory {out_path} to {backup_path}...')
+            os.rename(out_path, backup_path)
+
+        logger.info(f'Cloning flutter {tag} from {url} to {out_path}...')
         try:
             git.Repo.clone_from(
                 url=url,
-                to_path=out,
+                to_path=str(out_path),
                 progress=progress,
                 branch=tag)
-        except git.exc.GitCommandError:
-            raise RuntimeError('\n'.join(progress.error_lines))
+            logger.success(f'Successfully cloned flutter {tag} to {out_path}')
+        except git.exc.GitCommandError as e:
+            raise RuntimeError(f'Failed to clone flutter repo:\n' + '\n'.join(progress.error_lines)) from e
 
     def sync(self, *, cfg: str = None, root: str = None):
         cfg = cfg or self.gclient
@@ -202,7 +396,7 @@ class Build:
         subprocess.run(cmd, cwd=src, check=True)
 
         # Fix #5: package_config.json language version too old
-        # 1. Replace prebuilt dart-sdk with matching version (3.12.0)
+        # 1. Replace prebuilt dart-sdk with matching version from build.toml
         engine_src_dir = Path(src) / 'engine' / 'src'
         engine_checkout_dir = engine_src_dir / 'flutter'
         if not engine_checkout_dir.exists():
@@ -216,11 +410,11 @@ class Build:
             import tempfile
             
             version_file = dart_sdk_dir / 'version'
-            if version_file.exists() and version_file.read_text().strip() == '3.12.0':
-                logger.info('Dart SDK already replaced with 3.12.0')
+            if version_file.exists() and version_file.read_text().strip() == self.dart_version:
+                logger.info(f'Dart SDK already replaced with {self.dart_version}')
             else:
-                logger.info('Replacing prebuilt dart-sdk with 3.12.0...')
-                url = 'https://storage.googleapis.com/dart-archive/channels/stable/release/3.12.0/sdk/dartsdk-linux-x64-release.zip'
+                logger.info(f'Replacing prebuilt dart-sdk with {self.dart_version}...')
+                url = f'https://storage.googleapis.com/dart-archive/channels/stable/release/{self.dart_version}/sdk/dartsdk-linux-x64-release.zip'
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     zip_path = Path(tmp_dir) / 'dartsdk.zip'
                     urllib.request.urlretrieve(url, zip_path)
@@ -232,7 +426,7 @@ class Build:
                         if bin_path.is_file():
                             bin_path.chmod(bin_path.stat().st_mode | 0o111)
                 
-                logger.success('Fixed #5: Replaced prebuilt dart-sdk with version 3.12.0')
+                logger.success(f'Fixed #5: Replaced prebuilt dart-sdk with version {self.dart_version}')
 
         # 2. Run dart pub get for package_config.json files used by GN actions.
         dart_bin = dart_sdk_dir / 'bin' / 'dart'
@@ -281,6 +475,15 @@ class Build:
                 glib_typeof.write_text(content, encoding='utf-8')
                 logger.success("Fixed #4: Patched glib-typeof.h with extern C++ wrapper")
 
+    def _validate_ndk(self, toolchain=None):
+        tc = toolchain or self.toolchain
+        if not self.ndk or not tc or not Path(tc).is_dir():
+            raise ValueError(
+                f"Android NDK path is not set or toolchain path is invalid (ndk='{self.ndk}', toolchain='{tc}'). "
+                "Set environment variable NDK_PATH, ANDROID_NDK, ANDROID_NDK_HOME, or ANDROID_NDK_ROOT, "
+                "or specify path = '/path/to/ndk' in build.local.toml."
+            )
+
     def configure(
         self,
         arch: str,
@@ -290,6 +493,7 @@ class Build:
         sysroot: str = None,
         toolchain: str = None,
     ):
+        self._validate_ndk(toolchain)
         root = root or self.root
         sysroot = os.path.abspath(sysroot or self._sysroot.path)
         toolchain = os.path.abspath(toolchain or self.toolchain)
@@ -466,6 +670,7 @@ class Build:
         - Runs on ARM64 Termux (cross-compiled from x86-64)
         - Produces Android ARM64 AOT code
         """
+        self._validate_ndk(toolchain)
         root = root or self.root
         sysroot = os.path.abspath(sysroot or self._sysroot.path)
         toolchain = os.path.abspath(toolchain or self.toolchain)

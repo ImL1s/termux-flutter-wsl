@@ -4,8 +4,10 @@
 
 set -e
 
-FLUTTER_VERSION="3.44.0"
-DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/v${FLUTTER_VERSION}/flutter_${FLUTTER_VERSION}_aarch64.deb"
+FLUTTER_VERSION="3.44.2"
+RELEASE_TAG="v3.44.2-termux"
+EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}"
+DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 
 echo "========================================"
 echo "Flutter ${FLUTTER_VERSION} for Termux ARM64"
@@ -35,11 +37,30 @@ echo "[2/5] Downloading flutter_${FLUTTER_VERSION}_aarch64.deb..."
 cd ~
 curl -L -o flutter.deb "$DEB_URL"
 
+# Verify SHA256 checksum
+echo "Verifying SHA256 checksum..."
+if command -v sha256sum &> /dev/null; then
+    ACTUAL_SHA256=$(sha256sum flutter.deb | awk '{print $1}')
+    if [ -n "$EXPECTED_SHA256" ] && [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+        echo "==========================================================="
+        echo " ERROR: SHA256 checksum mismatch!"
+        echo " Expected: $EXPECTED_SHA256"
+        echo " Actual  : $ACTUAL_SHA256"
+        echo " Security Alert: Downloaded file may be corrupted or tampered!"
+        echo "==========================================================="
+        rm -f flutter.deb
+        exit 1
+    fi
+    echo "  ✓ SHA256 verified ($ACTUAL_SHA256)"
+else
+    echo "  Warning: sha256sum not found, skipping checksum verification"
+fi
+
 # Install deb
 echo "[3/5] Installing deb package..."
 dpkg -i flutter.deb || true
 apt --fix-broken install -y
-rm flutter.deb
+rm -f flutter.deb
 
 # Run post-install script
 echo "[4/5] Running post-install configuration..."
