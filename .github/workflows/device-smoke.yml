@@ -15,14 +15,23 @@ on:
         description: Optional adb serial
         required: false
         default: ''
-      deb_url:
-        description: Deb URL to test. Leave default for latest v3.44.2-termux release asset.
+      artifact_run_id:
+        description: "Run ID of the build-deb workflow"
         required: true
-        default: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb
+      artifact_name:
+        description: "Name of the artifact to download"
+        required: true
       expected_sha256:
         description: Expected SHA256 for the deb under test
         required: true
-        default: 66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
+      promote_release:
+        description: "Promote to GitHub Release after successful smoke test"
+        type: boolean
+        required: false
+        default: false
+      release_tag:
+        description: "Tag for the release (e.g. v3.44.2-termux)"
+        required: false
       timeout_minutes:
         description: Device smoke timeout in minutes. Keep the tablet awake/unlocked before starting.
         required: true
@@ -45,13 +54,64 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ inputs.artifact_run_id }} -n ${{ inputs.artifact_name }} -D ./candidate
+          ls -la ./candidate
+
       - name: Run Termux smoke through ADB
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # Find the deb in the candidate dir
+          $deb_path = Get-ChildItem -Path ./candidate -Filter *.deb | Select-Object -First 1 | Select-Object -ExpandProperty FullName
           scripts/device/run_termux_smoke.ps1 `
             -AdbPath '${{ inputs.adb_path }}' `
             -DeviceSerial '${{ inputs.device_serial }}' `
-            -DebUrl '${{ inputs.deb_url }}' `
+            -DebPath $deb_path `
             -ExpectedSha256 '${{ inputs.expected_sha256 }}' `
             -TimeoutMinutes ${{ inputs.timeout_minutes }}
+
+      - name: Promote Release
+        if: inputs.promote_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          command -v gh >/dev/null 2>&1 || { echo "gh CLI is required" >&2; exit 1; }
+
+          DEB=$(ls ./candidate/*.deb | head -n 1)
+          SHA_FILE=$(ls ./candidate/*.sha256 | head -n 1)
+          SIZE_FILE=$(ls ./candidate/*.size.txt | head -n 1)
+          METADATA=$(ls ./candidate/build_metadata.json | head -n 1)
+          INVENTORY=$(ls ./candidate/inventory.txt | head -n 1)
+
+          TAG="${{ inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            echo "release_tag is required for promotion" >&2
+            exit 1
+          fi
+
+          # Anti-clobber check: don't overwrite if release already exists without explicit check or maybe just allow create
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Cannot clobber existing published assets." >&2
+            exit 1
+          fi
+
+          # Parse version from metadata if needed, but we can just use the provided tag
+          # Use docs/releases/RELEASE_NOTES.md if it exists, else just a string
+          NOTES_FILE="docs/releases/RELEASE_NOTES.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            NOTES_FILE=""
+          fi
+
+          CMD="gh release create \"$TAG\" \"$DEB\" \"$SHA_FILE\" \"$SIZE_FILE\" \"$METADATA\" \"$INVENTORY\" --target \"$GITHUB_SHA\" --title \"Flutter Termux $TAG\""
+          if [ -n "$NOTES_FILE" ]; then
+            CMD="$CMD --notes-file \"$NOTES_FILE\""
+          fi
+
+          eval "$CMD"

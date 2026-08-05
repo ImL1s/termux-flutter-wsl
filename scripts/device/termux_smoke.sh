@@ -16,6 +16,8 @@ record_status() {
     local name="$1"
     local code="$2"
     echo "${name}=${code}"
+    # Dynamically set a variable like status_BUILD_APK_STATUS
+    eval "status_${name}=\"${code}\""
     if [ "$code" != "0" ]; then
         status=1
     fi
@@ -69,7 +71,7 @@ flutter doctor -v
 record_status DOCTOR_STATUS $?
 
 echo SECTION=CREATE_PROJECT
-cd "$HOME" || exit 3
+cd "$TMPDIR" || exit 3
 rm -rf "$PROJECT"
 flutter create --platforms=android,linux "$PROJECT"
 record_status CREATE_STATUS $?
@@ -143,6 +145,36 @@ echo SECTION=BUILD_LINUX_RELEASE
 flutter build linux --release
 record_status BUILD_LINUX_STATUS $?
 ls -lh "build/linux/arm64/release/bundle/$PROJECT" build/linux/arm64/release/bundle/lib/libflutter_linux_gtk.so 2>/dev/null || true
+
+echo SECTION=BUILD_AAB_MODE_B
+flutter build appbundle --release --target-platform android-arm64 --no-tree-shake-icons 2>/dev/null
+record_status BUILD_AAB_STATUS $?
+
+# Generate JSON evidence
+EVIDENCE_DIR="$HOME/.termux_smoke"
+mkdir -p "$EVIDENCE_DIR"
+EVIDENCE_JSON="$EVIDENCE_DIR/evidence.json"
+
+MODE_A_STATUS="failed"
+if [ "${status_BUILD_APK_STATUS:-1}" = "0" ] && [ "${status_APK_MANIFEST_STATUS:-1}" = "0" ] && [ "${status_APK_RESOURCES_STATUS:-1}" = "0" ]; then
+    MODE_A_STATUS="passed"
+fi
+
+MODE_B_STATUS="failed"
+if [ "${status_BUILD_AAB_STATUS:-1}" = "0" ]; then
+    MODE_B_STATUS="passed"
+fi
+
+cat > "$EVIDENCE_JSON" <<EOF
+{
+  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+  "device_serial": "$(getprop ro.serialno 2>/dev/null || echo 'unknown')",
+  "mode_a_status": "$MODE_A_STATUS",
+  "mode_b_status": "$MODE_B_STATUS"
+}
+EOF
+echo "Wrote evidence to $EVIDENCE_JSON"
+cat "$EVIDENCE_JSON"
 
 date
 echo DONE
