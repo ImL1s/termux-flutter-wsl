@@ -11,10 +11,11 @@ control:
   Package: flutter
   Version: $tag
   Architecture: $architecture
-  Maintainer: mumumusuc <mumumusuc@gmail.com>
+  Maintainer: Termux Flutter WSL <termux-flutter-wsl@github.com>
   Pre-Depends: x11-repo
-  Depends: git, which, gtk3, xorgproto, ninja, cmake, clang, pkg-config, openjdk-21, wget, unzip, p7zip, binutils
-  Homepage: https://www.github.com/flutter/flutter
+  Depends: git, which, openjdk-21, wget, unzip, p7zip, binutils
+  Recommends: gtk3, xorgproto, ninja, cmake, clang, pkg-config
+  Homepage: https://github.com/ImL1s/termux-flutter-wsl
   Description: Flutter makes it easy and fast to build beautiful apps for mobile and beyond
 
 resource:
