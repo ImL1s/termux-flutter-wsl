@@ -11,26 +11,13 @@ for arg in "$@"; do
     fi
 done
 
-declare -A STAGE_STATUS
-record_stage() {
-    STAGE_STATUS[$1]=$2
+source "$(dirname "$0")/lib_common.sh" || {
+    echo "Fetching lib_common.sh..."
+    curl -sLO https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/lib_common.sh
+    source ./lib_common.sh
 }
-print_summary() {
-    echo "{"
-    local first=1
-    for stage in "${!STAGE_STATUS[@]}"; do
-        if [ $first -eq 0 ]; then echo ","; fi
-        echo -n "  \"$stage\": \"${STAGE_STATUS[$stage]}\""
-        first=0
-    done
-    echo ""
-    echo "}"
-}
-trap print_summary EXIT
 
-FLUTTER_VERSION="3.44.2"
-RELEASE_TAG="v3.44.2-termux"
-EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}"
+trap print_summary EXIT
 DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 
 echo "========================================"
@@ -38,27 +25,7 @@ echo "Flutter ${FLUTTER_VERSION} for Termux ARM64"
 echo "========================================"
 echo ""
 
-# Check architecture
-ARCH=$(uname -m)
-if [ "$ARCH" != "aarch64" ]; then
-    echo "Error: This package only supports ARM64 (aarch64)"
-    echo "Your architecture: $ARCH"
-    record_stage preflight failed; exit 10
-fi
-
-# Check if running in Termux
-if [ ! -d "/data/data/com.termux" ]; then
-    echo "Error: This script must be run in Termux"
-    record_stage preflight failed; exit 10
-fi
-
-FREE_SPACE=$(df -k /data | awk \'NR==2 {print $4}\')
-if [ "$FREE_SPACE" -lt 1000000 ]; then
-    echo "Error: Not enough disk space. Need at least 1GB."
-    record_stage preflight failed
-    exit 10
-fi
-record_stage preflight success
+preflight_check 1000000
 
 # Install x11-repo first (pre-dependency)
 echo "[1/5] Installing x11-repo..."
@@ -73,25 +40,9 @@ cd "$WORK_DIR"
 curl -L -o flutter.deb "$DEB_URL" || { record_stage download failed; exit 20; }
 record_stage download success
 
-# Verify SHA256 checksum
 echo "Verifying SHA256 checksum..."
-if command -v sha256sum &> /dev/null; then
-    ACTUAL_SHA256=$(sha256sum flutter.deb | awk '{print $1}')
-    if [ -n "$EXPECTED_SHA256" ] && [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-        echo "==========================================================="
-        echo " ERROR: SHA256 checksum mismatch!"
-        echo " Expected: $EXPECTED_SHA256"
-        echo " Actual  : $ACTUAL_SHA256"
-        echo " Security Alert: Downloaded file may be corrupted or tampered!"
-        echo "==========================================================="
-        rm -f flutter.deb
-        record_stage integrity failed; exit 30
-    fi
-    echo "  ✓ SHA256 verified ($ACTUAL_SHA256)"
-    record_stage integrity success
-else
-    echo "  Warning: sha256sum not found, skipping checksum verification"
-fi
+verify_sha256 flutter.deb "$EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
+record_stage integrity success
 
 # Install deb
 echo "[3/5] Installing deb package..."

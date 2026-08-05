@@ -25,37 +25,27 @@ for arg in "$@"; do
     fi
 done
 
-declare -A STAGE_STATUS
-record_stage() {
-    STAGE_STATUS[$1]=$2
+source "$(dirname "$0")/scripts/install/lib_common.sh" || {
+    echo "Fetching lib_common.sh..."
+    mkdir -p scripts/install
+    curl -sLO https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/lib_common.sh
+    mv lib_common.sh scripts/install/
+    source scripts/install/lib_common.sh
 }
-print_summary() {
-    echo "{"
-    local first=1
-    for stage in "${!STAGE_STATUS[@]}"; do
-        if [ $first -eq 0 ]; then echo ","; fi
-        echo -n "  \"$stage\": \"${STAGE_STATUS[$stage]}\""
-        first=0
-    done
-    echo ""
-    echo "}"
-}
-trap print_summary EXIT
 
-# 顏色定義
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+trap print_summary EXIT
 
 # 版本配置
 FLUTTER_VERSION="3.44.2"
-RELEASE_TAG="v3.44.2-termux"
-EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}"
+EXPECTED_SHA256="66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000"
+
+# 其他版本配置
+ANDROID_SDK_EXPECTED_SHA256="fc727c848b8ca4e3011515850702adc1bf98ceae7205d7acc82d026bc94d2601"
+NDK_EXPECTED_SHA256="21ca4237997da6c601eda6de48418609d6d8308b26c631620ae57cf1fa06c4c7"
+SNAPSHOT_EXPECTED_SHA256="527f074d86660fd3f7c900fc8c1ebd5a2ebc4581e174eb8cf9fe343a1664402d"
 NDK_VERSION="29.0.14206865"
 REPO_BASE="https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master"
+
 
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════╗"
@@ -75,32 +65,10 @@ echo ""
 # ========================================
 echo -e "${GREEN}[檢查]${NC} 驗證環境..."
 
-# 檢查架構
-ARCH=$(uname -m)
-if [ "$ARCH" != "aarch64" ]; then
-    echo -e "${RED}錯誤: 此腳本只支援 ARM64 (aarch64) 設備${NC}"
-    echo "你的架構: $ARCH"
-    record_stage preflight failed; exit 10
-fi
-
-# 檢查是否在 Termux 中
-if [ ! -d "/data/data/com.termux" ]; then
-    echo -e "${RED}錯誤: 此腳本必須在 Termux 中執行${NC}"
-    record_stage preflight failed; exit 10
-fi
-
-# 檢查磁碟空間 (需要約 2GB)
-FREE_SPACE=$(df -k /data | awk 'NR==2 {print $4}')
-if [ "$FREE_SPACE" -lt 2000000 ]; then
-    echo -e "${RED}錯誤: 磁碟空間不足。需要至少 2GB 可用空間。${NC}"
-    record_stage preflight failed
-    exit 10
-fi
-
+preflight_check 2000000
 echo "  ✓ 架構: ARM64"
 echo "  ✓ 環境: Termux"
 echo "  ✓ 空間: 充足"
-record_stage preflight success
 
 # 詢問是否繼續
 echo -e "${YELLOW}此腳本將安裝：${NC}"
@@ -162,25 +130,8 @@ record_stage download success
 
 # 驗證 SHA256 校驗碼
 echo "驗證 SHA256 校驗碼..."
-if command -v sha256sum &> /dev/null; then
-    ACTUAL_SHA256=$(sha256sum "$FLUTTER_DEB" | awk '{print $1}')
-    if [ -n "$EXPECTED_SHA256" ] && [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-        echo -e "${RED}"
-        echo "==========================================================="
-        echo " 錯誤: SHA256 校驗碼不符！(Security Alert / Checksum Mismatch)"
-        echo " 預期 (Expected): $EXPECTED_SHA256"
-        echo " 實際 (Actual)  : $ACTUAL_SHA256"
-        echo " 警告: 下載檔案可能已損壞或被篡改！已自動刪除損壞檔案。"
-        echo "==========================================================="
-        echo -e "${NC}"
-        rm -f "$FLUTTER_DEB"
-        record_stage integrity failed; exit 30
-    fi
-    echo "  ✓ SHA256 驗證成功 ($ACTUAL_SHA256)"
-    record_stage integrity success
-else
-    echo -e "${YELLOW}  ⚠ 未找到 sha256sum 工具，跳過 SHA256 驗證${NC}"
-fi
+verify_sha256 "$FLUTTER_DEB" "$EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
+record_stage integrity success
 
 # 安裝
 
@@ -219,6 +170,11 @@ if [ -n "$ENGINE_VERSION" ] && [ ! -f "$SNAPSHOTS_DIR/dds_aot.dart.snapshot" ]; 
     echo "  從官方 Flutter 儲存下載 snapshots..."
     wget -q --show-progress "$SNAPSHOTS_URL" -O "$HOME/dart-sdk.zip" || true
     if [ -f "$HOME/dart-sdk.zip" ]; then
+        if [ "$ENGINE_VERSION" = "77e2e94772b6eb43759e34ed1ad7da4674e19cab" ]; then
+            verify_sha256 "$HOME/dart-sdk.zip" "$SNAPSHOT_EXPECTED_SHA256" || { rm -f "$HOME/dart-sdk.zip"; record_stage integrity failed; exit 30; }
+        else
+            echo "  ⚠ 引擎版本不匹配，跳過 Dart SDK snapshots 校驗碼驗證"
+        fi
         unzip -o -j "$HOME/dart-sdk.zip" 'dart-sdk/bin/snapshots/*' -d "$SNAPSHOTS_DIR" 2>/dev/null || true
         rm -f "$HOME/dart-sdk.zip"
         echo "  ✓ Dart SDK snapshots 已安裝"
@@ -254,8 +210,9 @@ ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
 
 if [ ! -f "$ANDROID_SDK_DEB" ]; then
     echo "下載 Android SDK..."
-    wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB"
+    wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { record_stage download failed; exit 20; }
 fi
+verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
 
 # 安裝 (忽略 openjdk-17 依賴)
 dpkg -i --force-architecture "$ANDROID_SDK_DEB" 2>/dev/null || true
@@ -280,8 +237,9 @@ else
 
     if [ ! -f "$NDK_ARCHIVE" ]; then
         echo "下載 ARM64 NDK (約 350MB)..."
-        wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE"
+        wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { record_stage download failed; exit 20; }
     fi
+    verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
 
     echo "解壓 NDK..."
     mkdir -p "$ANDROID_HOME/ndk"
