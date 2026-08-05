@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import os
+import re
 import io
 import utils
 import string
@@ -15,16 +17,19 @@ from loguru import logger
 from pathlib import Path
 
 
+
 def explore_file(src: Path):
     assert src.exists()
 
     if src.is_dir():
-        for root, dirs, files in src.walk():
-            rel = root.relative_to(src)
+        for root, dirs, files in os.walk(src):
+            # Exclude .git directories to prevent git object bloat in package
+            dirs[:] = [d for d in dirs if d != '.git']
+            rel = Path(root).relative_to(src)
             for it in dirs:
-                yield rel/it
+                yield rel / it
             for it in files:
-                yield rel/it
+                yield rel / it
 
 
 def explore_git(src: Path):
@@ -57,11 +62,13 @@ def safe_eval(expr, globals_dict, defines_dict=None):
     context = {**globals_dict, **(defines_dict or {})}
     if expr.startswith("f'") and expr.endswith("'"):
         inner = expr[2:-1]
-        import re
         def replace(match):
             var = match.group(1)
             if var in context:
-                return str(context[var])
+                val = context[var]
+                if isinstance(val, str) and (val.startswith("f'") or val.startswith("'") or val.startswith('"')):
+                    return str(safe_eval(val, globals_dict, defines_dict))
+                return str(val)
             return f'{{{var}}}'
         return re.sub(r'\{([^}]+)\}', replace, inner)
     elif expr.startswith("'") and expr.endswith("'"):
@@ -72,21 +79,27 @@ def safe_eval(expr, globals_dict, defines_dict=None):
         attr = expr.split('.', 1)[1]
         return getattr(context['output'], attr)
     else:
-        return context.get(expr, expr)
+        val = context.get(expr, expr)
+        if isinstance(val, str) and val != expr and (val.startswith("f'") or val.startswith("'") or val.startswith('"')):
+            return safe_eval(val, globals_dict, defines_dict)
+        return val
 
 
-def explore(src, git):
-    explore = explore_git if git else explore_file
+
+def explore(src, git=False):
+    # Always use explore_file to prevent git repository object traversal into .deb
+    explore_fn = explore_file
 
     if not isinstance(src, list):
         src = [src]
     for src in src:
         src = src.absolute()
-        if not src.exists():
+        if not src.exists() and not src.is_symlink():
             raise FileNotFoundError(f'missing required resource: "{src}"')
         yield src, Path('.')
-        for it in explore(src):
+        for it in explore_fn(src):
             yield src, it
+
 
 
 def reset(info):
@@ -201,16 +214,9 @@ def download(url, out):
         return dst
 
 
-class Output(object):
-    def __init__(self, root, arch):
-        self.any = None
-        for it in utils.__MODE__:
-            out = utils.target_output(root, arch, it)
-            self.__dict__[it] = out
-            if not self.any and Path(out).is_dir():
-                self.any = out
+class Output(utils.Output):
+    pass
 
-        assert self.any, 'no valid out path found.'
 
 
 @utils.record
@@ -228,14 +234,28 @@ class Package(object):
             'architecture': utils.termux_arch(arch),
         }
         self.defines = {
-            k: safe_eval(v, self.globals) for k, v in define.items()
+            k: safe_eval(v, self.globals) for k, v in (define or {}).items()
         }
         self.control = control
         self.resource = resource
+        self.validate_control_headers()
         self.__dict__.update(self.globals)
         self.__dict__.update(self.defines)
 
+    def validate_control_headers(self):
+
+        mandatory = ('Package', 'Version', 'Architecture', 'Maintainer', 'Description')
+        if not isinstance(self.control, dict):
+            raise ValueError('Debian control header section must be a dictionary')
+        for header in mandatory:
+            if header not in self.control:
+                raise ValueError(f"Missing mandatory Debian control header: '{header}'")
+            val = self.control[header]
+            if not val or not str(val).strip():
+                raise ValueError(f"Mandatory Debian control header '{header}' cannot be empty")
+
     def __format__(self, s, **extra):
+
         return string.Template(s).safe_substitute(
             **self.globals,
             **self.defines,
@@ -347,11 +367,30 @@ class Package(object):
             with open(info, 'wb+') as f:
                 f.write(b'2.0\n')
             inventory = []
+            seen_outputs = set()
             def track_resources():
                 for it in self.gen_resource(section):
                     src = it.get('src')
                     out = it.get('out')
                     mod = it.get('mod')
+
+                    # 1. Target path collision detection
+                    out_str = str(out)
+                    if out_str in seen_outputs:
+                        raise ValueError(f"Duplicate target output path collision detected in package: '{out_str}'")
+                    seen_outputs.add(out_str)
+
+                    # 2. Symlink validation
+                    if isinstance(src, Path):
+                        try:
+                            target = os.readlink(src)
+                            target_path = Path(target)
+                            if not target_path.is_absolute():
+                                target_path = src.parent / target_path
+                            if not target_path.exists():
+                                raise ValueError(f"Invalid or broken symlink mapping: '{src}' points to '{target}' which does not exist")
+                        except OSError:
+                            pass
 
                     if isinstance(src, bytes):
                         size = len(src)
@@ -370,6 +409,7 @@ class Package(object):
                     inventory.append(f"{out}\t{sha}\t{size}\t{mod if mod else '-'}")
                     yield it
 
+
             tar(ctrl, self.gen_control())
             tar(data, track_resources())
 
@@ -380,8 +420,8 @@ class Package(object):
                     stderr=True,
                     stdout=True)
 
-            import os
             os.rename(tmp_deb, output)
+
 
             inv_path = output.with_name(output.name + '.inventory')
             with open(inv_path, 'w', encoding='utf-8') as f:

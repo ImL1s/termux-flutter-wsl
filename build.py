@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import sys
 import io
 import git
@@ -11,6 +12,7 @@ import shutil
 import tarfile
 import tomllib
 import platform
+import posixpath
 import subprocess
 from loguru import logger
 from pathlib import Path
@@ -18,11 +20,96 @@ from sysroot import Sysroot
 from package import Package
 
 
+def windows_to_wsl_path(win_path: str) -> str:
+    """Convert Windows path (e.g. C:\\foo\\bar) to WSL mount path (/mnt/c/foo/bar)."""
+    if not win_path:
+        return win_path
+
+    if platform.system() == 'Linux':
+        try:
+            res = subprocess.run(
+                ['wslpath', '-u', str(win_path)],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except FileNotFoundError:
+            pass
+
+    clean_path = str(win_path).replace('\\', '/')
+    match = re.match(r'^([a-zA-Z]):[/\\]?(.*)', clean_path)
+    if match:
+        drive = match.group(1).lower()
+        rest = match.group(2)
+        return f'/mnt/{drive}/{rest}' if rest else f'/mnt/{drive}'
+
+    if clean_path.startswith('/mnt/'):
+        return clean_path
+
+    return clean_path
+
+
+def wsl_to_windows_path(wsl_path: str) -> str:
+    """Convert WSL path (e.g. /mnt/c/foo/bar) to Windows path (C:\\foo\\bar)."""
+    if not wsl_path:
+        return wsl_path
+
+    if platform.system() == 'Linux':
+        try:
+            res = subprocess.run(
+                ['wslpath', '-w', str(wsl_path)],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except FileNotFoundError:
+            pass
+
+    clean_path = str(wsl_path).replace('\\', '/')
+    match = re.match(r'^/mnt/([a-zA-Z])(?:/(.*))?$', clean_path)
+    if match:
+        drive = match.group(1).upper()
+        rest = match.group(2) or ''
+        win_rest = rest.replace('/', '\\')
+        return f'{drive}:\\{win_rest}' if win_rest else f'{drive}:\\'
+
+    if re.match(r'^[a-zA-Z]:', clean_path):
+        return str(wsl_path).replace('/', '\\')
+
+    return clean_path
+
+
+def validate_wsl_mount(path: str) -> None:
+    """Validate WSL mount point configuration and existence.
+
+    Raises ValueError with a clear error message on unsupported mount configurations.
+    """
+    clean_path = str(path).replace('\\', '/')
+    if clean_path.startswith('/mnt/'):
+        parts = clean_path.split('/')
+        if len(parts) < 3 or not parts[2] or len(parts[2]) != 1 or not parts[2].isalpha():
+            raise ValueError(
+                f"Unsupported WSL mount configuration for path: '{path}'. "
+                f"WSL drive mounts must follow /mnt/<drive_letter>/ format (e.g. /mnt/c, /mnt/d)."
+            )
+        mount_point = f"/mnt/{parts[2]}"
+        if platform.system() == 'Linux' and not os.path.exists(mount_point):
+            raise ValueError(
+                f"WSL mount directory '{mount_point}' does not exist or is not mounted. "
+                f"Check your WSL automount configuration."
+            )
+
+
 REQUIRED_DEB_ARTIFACTS = (
     'opt/flutter/bin/cache/dart-sdk/bin/dart',
     'opt/flutter/bin/cache/dart-sdk/bin/dartvm',
     'opt/flutter/bin/cache/dart-sdk/bin/dartaotruntime',
 )
+
 
 
 def _ar_members(path):
@@ -497,9 +584,9 @@ class Build:
         repo = git.Repo(path)
         repo.git.apply([file])
 
-    def sysroot(self, arch: str = 'arm64'):
+    def sysroot(self, arch: str = 'arm64', locked: bool = True):
         """Assemble Termux sysroot and apply fixes."""
-        self._sysroot(arch=arch)
+        self._sysroot(arch=arch, locked=locked)
 
         sysroot_path = Path(self._sysroot.path)
 
@@ -529,6 +616,10 @@ class Build:
                 )
                 glib_typeof.write_text(content, encoding='utf-8')
                 logger.success("Fixed #4: Patched glib-typeof.h with extern C++ wrapper")
+
+    def sysroot_lock(self, arch: str = 'arm64'):
+        """Generate or refresh sysroot.lock.json."""
+        self._sysroot.lock(arch=arch)
 
     def _validate_ndk(self, toolchain=None):
         tc = toolchain or self.toolchain
@@ -831,9 +922,6 @@ class Build:
         This prevents the common issue of editing files on Windows
         but building in WSL with stale copies.
         """
-        import platform
-        import posixpath
-
         if not self.sync_cfg:
             logger.debug('No sync config, skipping')
             return
@@ -846,8 +934,9 @@ class Build:
             logger.warning('sync config incomplete, skipping')
             return
 
-        # Convert Windows path to WSL mount path
-        wsl_mount = '/mnt/' + windows_root[0].lower() + windows_root[2:].replace('\\', '/')
+        # Convert Windows path to WSL mount path using windows_to_wsl_path and validate
+        wsl_mount = windows_to_wsl_path(windows_root)
+        validate_wsl_mount(wsl_mount)
 
         # Detect if running in WSL (Linux) or Windows
         is_wsl = platform.system() == 'Linux'
@@ -869,12 +958,13 @@ class Build:
             else:
                 subprocess.run(['wsl', '-e', 'bash', '-c', f'mkdir -p "{dst_dir}"'], check=True)
 
-            if '.' in p.split('/')[-1] and not src.endswith('/'):
-                 # It's a file
-                 cmd = f"rsync -a '{src}' '{dst}'"
+            # Fix Issue #30: proper filesystem directory check instead of dot in filename heuristic
+            src_check = src if is_wsl else os.path.join(windows_root, p.replace('/', '\\'))
+            if os.path.isdir(src_check):
+                cmd = f"rsync -a --delete '{src}/' '{dst}/'"
             else:
-                 # It's a directory
-                 cmd = f"rsync -a --delete '{src}/' '{dst}/'"
+                cmd = f"rsync -a '{src}' '{dst}'"
+
             logger.info(f'Syncing: {p}')
             if is_wsl:
                 # Running in WSL, execute directly
@@ -905,7 +995,7 @@ class Build:
         else:
             return self.release
 
-    def build_all(self, arch: str = 'arm64', jobs: int = None):
+    def build_all(self, arch: str = 'arm64', jobs: int = None, force: bool = False):
         """One-command build for complete Flutter Termux package.
 
         This builds everything needed for both:
@@ -916,7 +1006,7 @@ class Build:
         --target-platform android-arm64 when building APKs.
 
         Usage:
-            python3 build.py build_all --arch=arm64
+            python3 build.py build_all --arch=arm64 [--force]
         """
         import time
         start_time = time.time()
@@ -928,6 +1018,18 @@ class Build:
             func(**kwargs)
             logger.info(f'✓ {name} completed in {time.time() - t0:.1f}s')
 
+        def run_step_conditional(step, total, name, outputs, func, **kwargs):
+            if not force and outputs:
+                all_exist = True
+                for out_item in outputs:
+                    if not Path(out_item).exists():
+                        all_exist = False
+                        break
+                if all_exist:
+                    logger.info(f'[{step}/{total}] {name} output already exists, skipping (use --force to rebuild).')
+                    return
+            run_step(step, total, name, func, **kwargs)
+
         total = 14
 
         # Step 1: preflight
@@ -938,10 +1040,18 @@ class Build:
         logger.info(f'✓ preflight completed in {time.time() - t0:.1f}s')
 
         # Step 2: clone
-        run_step(2, total, 'clone', self.clone)
+        run_step_conditional(
+            2, total, 'clone',
+            [self.root / 'bin' / 'flutter'],
+            self.clone
+        )
 
         # Step 3: sync
-        run_step(3, total, 'sync', self.sync)
+        run_step_conditional(
+            3, total, 'sync',
+            [self.root / '.gclient', self.root / 'engine/src/third_party/dart/tools/sdks/dart-sdk/version'],
+            self.sync
+        )
 
         # Step 4: patch (skip already-applied patches gracefully)
         logger.info(f'[4/{total}] patch...')
@@ -959,53 +1069,98 @@ class Build:
         logger.info(f'✓ patch completed in {time.time() - t0:.1f}s')
 
         # Step 5: sysroot
-        run_step(5, total, 'sysroot', self.sysroot, arch=arch)
+        run_step_conditional(
+            5, total, 'sysroot',
+            [Path(self._sysroot.path) / 'usr'],
+            self.sysroot, arch=arch
+        )
 
         # Step 6: configure and build debug + dart + impellerc + const_finder
-        logger.info(f'[6/{total}] configure and build debug tools...')
-        t0 = time.time()
-        self.configure(arch=arch, mode='debug')
-        self.build(arch=arch, mode='debug', jobs=jobs)
-        self.build_dart(arch=arch, mode='debug', jobs=jobs)
-        self.build_impellerc(arch=arch, mode='debug', jobs=jobs)
-        self.build_const_finder(arch=arch, mode='debug', jobs=jobs)
-        logger.info(f'✓ debug tools completed in {time.time() - t0:.1f}s')
+        out_debug = utils.target_output(str(self.root), arch, 'debug')
+        debug_outputs = [
+            Path(out_debug) / 'libflutter_linux_gtk.so',
+            Path(out_debug) / 'dart-sdk/bin/dart',
+            Path(out_debug) / 'impellerc',
+        ]
+        if not force and all(p.exists() for p in debug_outputs):
+            logger.info(f'[6/{total}] debug tools output already exists, skipping (use --force to rebuild).')
+        else:
+            logger.info(f'[6/{total}] configure and build debug tools...')
+            t0 = time.time()
+            self.configure(arch=arch, mode='debug')
+            self.build(arch=arch, mode='debug', jobs=jobs)
+            self.build_dart(arch=arch, mode='debug', jobs=jobs)
+            self.build_impellerc(arch=arch, mode='debug', jobs=jobs)
+            self.build_const_finder(arch=arch, mode='debug', jobs=jobs)
+            logger.info(f'✓ debug tools completed in {time.time() - t0:.1f}s')
 
         # Step 7: configure release
-        run_step(7, total, 'configure release', self.configure, arch=arch, mode='release')
+        out_release = utils.target_output(str(self.root), arch, 'release')
+        release_outputs = [
+            Path(out_release) / 'libflutter_linux_gtk.so',
+            Path(out_release) / 'gen_snapshot',
+        ]
+        if not force and all(p.exists() for p in release_outputs):
+            logger.info(f'[7/{total}] configure release skipped (output exists).')
+        else:
+            run_step(7, total, 'configure release', self.configure, arch=arch, mode='release')
 
         # Step 8: build release
-        run_step(8, total, 'build release', self.build, arch=arch, mode='release', jobs=jobs)
+        if not force and all(p.exists() for p in release_outputs):
+            logger.info(f'[8/{total}] build release output already exists, skipping (use --force to rebuild).')
+        else:
+            run_step(8, total, 'build release', self.build, arch=arch, mode='release', jobs=jobs)
 
         # Step 9: configure profile
-        run_step(9, total, 'configure profile', self.configure, arch=arch, mode='profile')
+        out_profile = utils.target_output(str(self.root), arch, 'profile')
+        profile_outputs = [
+            Path(out_profile) / 'libflutter_linux_gtk.so',
+            Path(out_profile) / 'gen_snapshot',
+        ]
+        if not force and all(p.exists() for p in profile_outputs):
+            logger.info(f'[9/{total}] configure profile skipped (output exists).')
+        else:
+            run_step(9, total, 'configure profile', self.configure, arch=arch, mode='profile')
 
         # Step 10: build profile
-        run_step(10, total, 'build profile', self.build, arch=arch, mode='profile', jobs=jobs)
+        if not force and all(p.exists() for p in profile_outputs):
+            logger.info(f'[10/{total}] build profile output already exists, skipping (use --force to rebuild).')
+        else:
+            run_step(10, total, 'build profile', self.build, arch=arch, mode='profile', jobs=jobs)
 
         # Step 11: configure and build android gen_snapshot release
-        logger.info(f'[11/{total}] configure and build android gen_snapshot release...')
-        t0 = time.time()
-        self.configure_android(arch='arm64', mode='release')
-        self.build_android_gen_snapshot(arch='arm64', mode='release', jobs=jobs)
-        logger.info(f'✓ android gen_snapshot release completed in {time.time() - t0:.1f}s')
+        android_rel_gen = self.root / 'engine/src/out/android_release_arm64/clang_arm64/gen_snapshot'
+        if not force and android_rel_gen.exists():
+            logger.info(f'[11/{total}] android gen_snapshot release output already exists, skipping (use --force to rebuild).')
+        else:
+            logger.info(f'[11/{total}] configure and build android gen_snapshot release...')
+            t0 = time.time()
+            self.configure_android(arch='arm64', mode='release')
+            self.build_android_gen_snapshot(arch='arm64', mode='release', jobs=jobs)
+            logger.info(f'✓ android gen_snapshot release completed in {time.time() - t0:.1f}s')
 
         # Step 12: configure and build android gen_snapshot profile
-        logger.info(f'[12/{total}] configure and build android gen_snapshot profile...')
-        t0 = time.time()
-        self.configure_android(arch='arm64', mode='profile')
-        self.build_android_gen_snapshot(arch='arm64', mode='profile', jobs=jobs)
-        logger.info(f'✓ android gen_snapshot profile completed in {time.time() - t0:.1f}s')
+        android_prof_gen = self.root / 'engine/src/out/android_profile_arm64/clang_arm64/gen_snapshot'
+        if not force and android_prof_gen.exists():
+            logger.info(f'[12/{total}] android gen_snapshot profile output already exists, skipping (use --force to rebuild).')
+        else:
+            logger.info(f'[12/{total}] configure and build android gen_snapshot profile...')
+            t0 = time.time()
+            self.configure_android(arch='arm64', mode='profile')
+            self.build_android_gen_snapshot(arch='arm64', mode='profile', jobs=jobs)
+            logger.info(f'✓ android gen_snapshot profile completed in {time.time() - t0:.1f}s')
 
-        # Step 13: sync wsl (called internally by debuild, so we don't need to explicitly call it here, but it's part of debuild process)
-        # We will directly run debuild which calls sync_wsl.
-
-        # Step 14: debuild
-        run_step(14, total, 'debuild', self.debuild, arch=arch, output=self.output(arch))
+        # Step 13 & 14: debuild
+        run_step_conditional(
+            14, total, 'debuild',
+            [self.output(arch)],
+            self.debuild, arch=arch, output=self.output(arch)
+        )
 
         logger.info(f'=== Build complete in {time.time() - start_time:.1f}s ===')
         logger.info(f'Output: {self.output(arch)}')
         logger.info('Note: Users must use --target-platform android-arm64 when building APKs')
+
 
     # TODO: check gclient and ninja existence
     def __call__(self):

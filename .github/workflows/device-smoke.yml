@@ -38,7 +38,7 @@ on:
         default: '45'
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
@@ -69,12 +69,27 @@ jobs:
           $ErrorActionPreference = 'Stop'
           # Find the deb in the candidate dir
           $deb_path = Get-ChildItem -Path ./candidate -Filter *.deb | Select-Object -First 1 | Select-Object -ExpandProperty FullName
+          $metadata_path = Get-ChildItem -Path ./candidate -Filter build_metadata.json -ErrorAction SilentlyContinue | Select-Object -First 1 | Select-Object -ExpandProperty FullName
+          $commit_sha = ""
+          if ($metadata_path -and (Test-Path $metadata_path)) {
+              $json = Get-Content $metadata_path | ConvertFrom-Json
+              $commit_sha = $json.source_commit
+          }
           scripts/device/run_termux_smoke.ps1 `
             -AdbPath '${{ inputs.adb_path }}' `
             -DeviceSerial '${{ inputs.device_serial }}' `
             -DebPath $deb_path `
             -ExpectedSha256 '${{ inputs.expected_sha256 }}' `
-            -TimeoutMinutes ${{ inputs.timeout_minutes }}
+            -TimeoutMinutes ${{ inputs.timeout_minutes }} `
+            -CommitSha "$commit_sha"
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-smoke-evidence
+          path: evidence.json
+          if-no-files-found: error
 
       - name: Promote Release
         if: inputs.promote_release
@@ -97,6 +112,12 @@ jobs:
             exit 1
           fi
 
+          SOURCE_COMMIT=$(python3 -c "import json; v=json.load(open('$METADATA')).get('source_commit'); print(v if v is not None else '')")
+          if [ -z "$SOURCE_COMMIT" ]; then
+            echo "source_commit is required in $METADATA" >&2
+            exit 1
+          fi
+
           # Anti-clobber check: don't overwrite if release already exists without explicit check or maybe just allow create
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists. Cannot clobber existing published assets." >&2
@@ -110,7 +131,7 @@ jobs:
             NOTES_FILE=""
           fi
 
-          CMD="gh release create \"$TAG\" \"$DEB\" \"$SHA_FILE\" \"$SIZE_FILE\" \"$METADATA\" \"$INVENTORY\" --target \"$GITHUB_SHA\" --title \"Flutter Termux $TAG\""
+          CMD="gh release create \"$TAG\" \"$DEB\" \"$SHA_FILE\" \"$SIZE_FILE\" \"$METADATA\" \"$INVENTORY\" --target \"$SOURCE_COMMIT\" --title \"Flutter Termux $TAG\""
           if [ -n "$NOTES_FILE" ]; then
             CMD="$CMD --notes-file \"$NOTES_FILE\""
           fi

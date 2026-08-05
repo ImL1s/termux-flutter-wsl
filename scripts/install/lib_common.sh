@@ -35,25 +35,45 @@ print_summary() {
 verify_sha256() {
     local file=$1
     local expected=$2
-    if command -v sha256sum &> /dev/null; then
-        local actual=$(sha256sum "$file" | awk '{print $1}')
-        if [ -n "$expected" ] && [ "$actual" != "$expected" ]; then
-            echo -e "${RED}"
-            echo "==========================================================="
-            echo " ERROR: SHA256 checksum mismatch!"
-            echo " File: $(basename "$file")"
-            echo " Expected: $expected"
-            echo " Actual  : $actual"
-            echo " Warning: Downloaded file may be corrupted or tampered!"
-            echo "==========================================================="
-            echo -e "${NC}"
-            rm -f "$file"
-            return 1
-        fi
-        echo "  ✓ SHA256 verified ($actual)"
-    else
-        echo -e "${YELLOW}  ⚠ sha256sum not found, skipping checksum verification${NC}"
+    local hasher=""
+
+    if [ ! -f "$file" ]; then
+        echo -e "${RED}Error: File not found: $file${NC}"
+        return 1
     fi
+
+    if command -v sha256sum &> /dev/null; then
+        hasher="sha256sum"
+    elif command -v shasum &> /dev/null; then
+        hasher="shasum -a 256"
+    fi
+
+    if [ -z "$hasher" ]; then
+        echo -e "${RED}Error: Neither sha256sum nor shasum is available. Cannot verify checksum.${NC}"
+        rm -f "$file" 2>/dev/null || true
+        return 1
+    fi
+
+    if [ -z "$expected" ]; then
+        echo -e "${RED}Error: Expected SHA256 checksum is empty or missing.${NC}"
+        rm -f "$file" 2>/dev/null || true
+        return 1
+    fi
+
+    local actual=$($hasher "$file" | awk '{print $1}')
+    if [ "$actual" != "$expected" ]; then
+        echo -e "${RED}"
+        echo "==========================================================="
+        echo " ERROR: SHA256 checksum mismatch!"
+        echo " File: $(basename "$file")"
+        echo " Expected: $expected"
+        echo " Actual  : $actual"
+        echo "==========================================================="
+        echo -e "${NC}"
+        rm -f "$file" 2>/dev/null || true
+        return 1
+    fi
+    echo "  ✓ SHA256 verified ($actual)"
     return 0
 }
 

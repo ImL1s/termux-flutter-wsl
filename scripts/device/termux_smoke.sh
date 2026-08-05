@@ -23,13 +23,92 @@ record_status() {
     fi
 }
 
+EVIDENCE_DIR="${HOME:-/data/data/com.termux/files/home}/.termux_smoke"
+mkdir -p "$EVIDENCE_DIR" 2>/dev/null || true
+EVIDENCE_JSON="$EVIDENCE_DIR/evidence.json"
+
+write_evidence_json() {
+    local cur_status="${status:-1}"
+    local overall_status="failed"
+    if [ "$cur_status" = "0" ]; then
+        overall_status="passed"
+    fi
+
+    local apk_launch_bool=false
+    if [ "${status_APK_LAUNCH_STATUS:-1}" = "0" ]; then
+        apk_launch_bool=true
+    fi
+
+    local crash_free_bool=false
+    if [ "${status_APK_CRASH_FREE_STATUS:-1}" = "0" ]; then
+        crash_free_bool=true
+    fi
+
+    local mode_a_stat="failed"
+    if [ "${status_BUILD_APK_STATUS:-1}" = "0" ] && [ "${status_APK_MANIFEST_STATUS:-1}" = "0" ] && [ "${status_APK_RESOURCES_STATUS:-1}" = "0" ]; then
+        mode_a_stat="passed"
+    fi
+
+    local mode_b_stat="failed"
+    if [ "${status_BUILD_AAB_STATUS:-1}" = "0" ]; then
+        mode_b_stat="passed"
+    fi
+
+    local launch_res="failed"
+    if [ "$apk_launch_bool" = "true" ] && [ "$crash_free_bool" = "true" ] && [ "$mode_a_stat" = "passed" ]; then
+        launch_res="passed"
+    fi
+
+    local commit_sha_val model_val sdk_val abi_val serial_val
+    commit_sha_val="${TERMUX_SMOKE_COMMIT_SHA:-$(git rev-parse HEAD 2>/dev/null || echo 'unknown')}"
+    model_val="$(getprop ro.product.model 2>/dev/null || echo 'unknown')"
+    sdk_val="$(getprop ro.build.version.sdk 2>/dev/null || echo 'unknown')"
+    abi_val="$(getprop ro.product.cpu.abi 2>/dev/null || echo 'unknown')"
+    serial_val="$(getprop ro.serialno 2>/dev/null || echo 'unknown')"
+
+    cat > "$EVIDENCE_JSON" <<EOF
+{
+  "status": "$overall_status",
+  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+  "device": "$model_val",
+  "apk_launch": $apk_launch_bool,
+  "crash_free": $crash_free_bool,
+  "commit_sha": "$commit_sha_val",
+  "device_serial": "$serial_val",
+  "device_info": {
+    "model": "$model_val",
+    "sdk": "$sdk_val",
+    "abi": "$abi_val",
+    "serial": "$serial_val"
+  },
+  "launch_result": "$launch_res",
+  "exit_status": $cur_status,
+  "mode_a_status": "$mode_a_stat",
+  "mode_b_status": "$mode_b_stat",
+  "mode_a": {
+    "status": "$mode_a_stat",
+    "apk_build": "$mode_a_stat"
+  },
+  "mode_b": {
+    "status": "$mode_b_stat",
+    "aab_build": "$mode_b_stat"
+  }
+}
+EOF
+    cp "$EVIDENCE_JSON" /sdcard/Download/evidence.json 2>/dev/null || true
+}
+
+trap write_evidence_json EXIT
+write_evidence_json
+
 export PREFIX=/data/data/com.termux/files/usr
 export HOME=/data/data/com.termux/files/home
 export PATH="$PREFIX/opt/flutter/bin:$PREFIX/bin:$PATH"
 export TMPDIR="$PREFIX/tmp"
 export ANDROID_HOME="$PREFIX/opt/android-sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export JAVA_HOME=$(find "$PREFIX/lib/jvm" -maxdepth 1 -type d -name 'java-*-openjdk' | sort -V | tail -1)
+JAVA_HOME=$(find "$PREFIX/lib/jvm" -maxdepth 1 -type d -name 'java-*-openjdk' | sort -V | tail -1)
+export JAVA_HOME
 
 mkdir -p "$TMPDIR"
 
@@ -78,6 +157,14 @@ record_status CREATE_STATUS $?
 cd "$PROJECT" || exit 3
 
 echo SECTION=PROJECT_CONFIG
+CONFIG_SCRIPT="$PREFIX/share/flutter/flutter_project_config.sh"
+if [ -f "$CONFIG_SCRIPT" ]; then
+    echo "Applying configurator script: $CONFIG_SCRIPT"
+    bash "$CONFIG_SCRIPT" "$TMPDIR/$PROJECT"
+else
+    echo "Warning: Configurator script not found at $CONFIG_SCRIPT"
+fi
+
 sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
 if ! grep -q '^android.aapt2FromMavenOverride=' android/gradle.properties; then
     printf '\nandroid.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2\n' >> android/gradle.properties
@@ -94,24 +181,45 @@ fi
 python - <<'PY'
 from pathlib import Path
 p = Path('android/app/build.gradle.kts')
-s = p.read_text()
-s = s.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
-s = s.replace('compileSdk = flutter.compileSdkVersion.toInteger()', 'compileSdk = 34')
-s = s.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
-s = s.replace('targetSdk = flutter.targetSdkVersion.toInteger()', 'targetSdk = 34')
-if 'abiFilters += listOf("arm64-v8a")' not in s:
-    s = s.replace('targetSdk = 34\n', 'targetSdk = 34\n        ndk { abiFilters += listOf("arm64-v8a") }\n')
-if 'isMinifyEnabled = false' not in s:
-    if 'getByName("release") {' in s:
-        s = s.replace('getByName("release") {', 'getByName("release") {\n            isMinifyEnabled = false\n            isShrinkResources = false')
-    elif 'release {' in s:
-        s = s.replace('release {', 'release {\n            isMinifyEnabled = false\n            isShrinkResources = false')
-p.write_text(s)
+if p.exists():
+    s = p.read_text()
+    s = s.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 34')
+    s = s.replace('compileSdk = flutter.compileSdkVersion.toInteger()', 'compileSdk = 34')
+    s = s.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 34')
+    s = s.replace('targetSdk = flutter.targetSdkVersion.toInteger()', 'targetSdk = 34')
+    if 'abiFilters += listOf("arm64-v8a")' not in s:
+        s = s.replace('targetSdk = 34\n', 'targetSdk = 34\n        ndk { abiFilters += listOf("arm64-v8a") }\n')
+    if 'isMinifyEnabled = false' not in s:
+        if 'getByName("release") {' in s:
+            s = s.replace('getByName("release") {', 'getByName("release") {\n            isMinifyEnabled = false\n            isShrinkResources = false')
+        elif 'release {' in s:
+            s = s.replace('release {', 'release {\n            isMinifyEnabled = false\n            isShrinkResources = false')
+    p.write_text(s)
 p = Path('linux/CMakeLists.txt')
-s = p.read_text()
-if not s.startswith('set(CMAKE_SYSTEM_NAME Linux)'):
-    p.write_text('set(CMAKE_SYSTEM_NAME Linux)\n' + s)
+if p.exists():
+    s = p.read_text()
+    if not s.startswith('set(CMAKE_SYSTEM_NAME Linux)'):
+        p.write_text('set(CMAKE_SYSTEM_NAME Linux)\n' + s)
 PY
+
+# Verify compileSdk 34 and aapt2FromMavenOverride
+HAS_SDK34=0
+if grep -q 'compileSdk.*34' android/app/build.gradle.kts 2>/dev/null || grep -q 'compileSdk.*34' android/app/build.gradle 2>/dev/null; then
+    HAS_SDK34=1
+fi
+HAS_AAPT2=0
+if grep -q 'android.aapt2FromMavenOverride' android/gradle.properties 2>/dev/null; then
+    HAS_AAPT2=1
+fi
+
+if [ "$HAS_SDK34" -eq 1 ] && [ "$HAS_AAPT2" -eq 1 ]; then
+    echo "CONFIG_VERIFY_SUCCESS: compileSdk 34 and aapt2FromMavenOverride verified"
+    record_status CONFIG_VERIFY_STATUS 0
+else
+    echo "CONFIG_VERIFY_FAILED: HAS_SDK34=$HAS_SDK34 HAS_AAPT2=$HAS_AAPT2"
+    record_status CONFIG_VERIFY_STATUS 1
+fi
+
 grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride\|enableResourceOptimizations\|shrink\|org.gradle.jvmargs\|isMinifyEnabled\|isShrinkResources' android/app/build.gradle.kts android/gradle.properties || true
 head -3 linux/CMakeLists.txt
 
@@ -150,29 +258,27 @@ echo SECTION=BUILD_AAB_MODE_B
 flutter build appbundle --release --target-platform android-arm64 --no-tree-shake-icons 2>/dev/null
 record_status BUILD_AAB_STATUS $?
 
-# Generate JSON evidence
-EVIDENCE_DIR="$HOME/.termux_smoke"
-mkdir -p "$EVIDENCE_DIR"
-EVIDENCE_JSON="$EVIDENCE_DIR/evidence.json"
-
-MODE_A_STATUS="failed"
-if [ "${status_BUILD_APK_STATUS:-1}" = "0" ] && [ "${status_APK_MANIFEST_STATUS:-1}" = "0" ] && [ "${status_APK_RESOURCES_STATUS:-1}" = "0" ]; then
-    MODE_A_STATUS="passed"
+echo SECTION=APK_LAUNCH_CHECK
+if command -v am >/dev/null 2>&1; then
+    if am start -W -n com.example.flutter_ci_smoke/.MainActivity; then
+        record_status APK_LAUNCH_STATUS 0
+    else
+        record_status APK_LAUNCH_STATUS 1
+    fi
+    sleep 3
+    if [ "${status_APK_LAUNCH_STATUS:-1}" = "0" ] && command -v pidof >/dev/null 2>&1 && pidof com.example.flutter_ci_smoke >/dev/null 2>&1; then
+        record_status APK_CRASH_FREE_STATUS 0
+    else
+        record_status APK_CRASH_FREE_STATUS 1
+    fi
+    am force-stop com.example.flutter_ci_smoke || true
+else
+    echo "am command not found; APK launch verification failed"
+    record_status APK_LAUNCH_STATUS 1
+    record_status APK_CRASH_FREE_STATUS 1
 fi
 
-MODE_B_STATUS="failed"
-if [ "${status_BUILD_AAB_STATUS:-1}" = "0" ]; then
-    MODE_B_STATUS="passed"
-fi
-
-cat > "$EVIDENCE_JSON" <<EOF
-{
-  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-  "device_serial": "$(getprop ro.serialno 2>/dev/null || echo 'unknown')",
-  "mode_a_status": "$MODE_A_STATUS",
-  "mode_b_status": "$MODE_B_STATUS"
-}
-EOF
+write_evidence_json
 echo "Wrote evidence to $EVIDENCE_JSON"
 cat "$EVIDENCE_JSON"
 

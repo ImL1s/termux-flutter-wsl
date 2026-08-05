@@ -9,12 +9,11 @@ echo "Flutter Termux Post-Install Configuration"
 echo "=========================================="
 
 # 路徑定義
-FLUTTER_ROOT=/data/data/com.termux/files/usr/opt/flutter
-ANDROID_SDK=/data/data/com.termux/files/usr/opt/android-sdk
-DART_SDK=$FLUTTER_ROOT/bin/cache/dart-sdk
+FLUTTER_ROOT="${FLUTTER_ROOT:-/data/data/com.termux/files/usr/opt/flutter}"
+ANDROID_SDK="${ANDROID_SDK:-/data/data/com.termux/files/usr/opt/android-sdk}"
+DART_SDK="${DART_SDK:-$FLUTTER_ROOT/bin/cache/dart-sdk}"
 
-
-PREFIX="/data/data/com.termux/files/usr"
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 PATCH_STATE_FILE="$PREFIX/share/flutter/patch_state.json"
 BACKUP_DIR="$PREFIX/share/flutter/backups"
 
@@ -102,6 +101,13 @@ apply_patches() {
         fi
 
         if [ "$MODE" == "status" ] || [ "$MODE" == "check" ]; then
+            cp "$target_file" "$target_file.tmp" 2>/dev/null || true
+            if $patch_func "$target_file.tmp" 2>/dev/null && cmp -s "$target_file" "$target_file.tmp"; then
+                echo "  ✓ $patch_name: already correct"
+                rm -f "$target_file.tmp"
+                continue
+            fi
+            rm -f "$target_file.tmp"
             echo "  + $patch_name: pending"
             continue
         fi
@@ -122,7 +128,7 @@ apply_patches() {
         fi
 
         if cmp -s "$target_file" "$target_file.tmp"; then
-            echo "  ⚠ $patch_name: no changes after patch"
+            echo "  ✓ $patch_name: already correct"
             rm -f "$target_file.tmp"
             STATE_POSTIMAGE["$patch_name"]="$current_hash"
             STATE_STATUS["$patch_name"]="applied"
@@ -163,12 +169,14 @@ rollback_patches() {
 # --- Register Patches ---
 
 patch_compile_sdk() {
+    if grep -F -q "val compileSdkVersion: Int = 34" "$1"; then return 0; fi
     grep -q "val compileSdkVersion: Int =" "$1" || return 1
     sed -i 's/val compileSdkVersion: Int = [0-9]*/val compileSdkVersion: Int = 34/' "$1"
 }
 register_patch "compile_sdk" "$FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt" patch_compile_sdk
 
 patch_plugin_constants() {
+    if grep -F -q "PLATFORM_ARM64" "$1" && ! grep -F -q "PLATFORM_ARM32 = \"android-arm\"" "$1"; then return 0; fi
     cat > "$1" << 'INNER_EOF'
 package com.flutter.gradle
 
@@ -214,60 +222,67 @@ INNER_EOF
 register_patch "plugin_constants" "$FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterPluginConstants.kt" patch_plugin_constants
 
 patch_build_apk() {
-    grep -q "static const _kDefaultJitArchs = <String>\['android-arm', 'android-arm64', 'android-x64'\]" "$1" || return 1
+    if grep -F -q "['android-arm64']" "$1"; then return 0; fi
+    grep -q "_kDefaultJitArchs" "$1" || return 1
     sed -i "s/static const _kDefaultJitArchs = <String>\['android-arm', 'android-arm64', 'android-x64'\]/static const _kDefaultJitArchs = <String>['android-arm64']/" "$1"
     sed -i "s/static const _kDefaultAotArchs = <String>\['android-arm', 'android-arm64', 'android-x64'\]/static const _kDefaultAotArchs = <String>['android-arm64']/" "$1"
 }
 register_patch "build_apk" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/commands/build_apk.dart" patch_build_apk
 
 patch_build_aar() {
-    grep -q "defaultsTo: <String>\['android-arm', 'android-arm64', 'android-x64'\]" "$1" || return 1
+    if grep -F -q "defaultsTo: <String>['android-arm64']" "$1"; then return 0; fi
+    grep -q "defaultsTo: <String>" "$1" || return 1
     sed -i "s/defaultsTo: <String>\['android-arm', 'android-arm64', 'android-x64'\]/defaultsTo: <String>['android-arm64']/" "$1"
 }
 register_patch "build_aar" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/commands/build_aar.dart" patch_build_aar
 
 patch_build_appbundle() {
-    grep -q "defaultsTo: <String>\['android-arm', 'android-arm64', 'android-x64'\]" "$1" || return 1
+    if grep -F -q "defaultsTo: <String>['android-arm64']" "$1"; then return 0; fi
+    grep -q "defaultsTo: <String>" "$1" || return 1
     sed -i "s/defaultsTo: <String>\['android-arm', 'android-arm64', 'android-x64'\]/defaultsTo: <String>['android-arm64']/" "$1"
 }
 register_patch "build_appbundle" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/commands/build_appbundle.dart" patch_build_appbundle
 
 patch_plugin_utils() {
     # forceNdkDownload() patched to early return
+    if grep -F -q "return // Termux" "$1"; then return 0; fi
     grep -q "fun forceNdkDownload" "$1" || return 1
-    if ! grep -q "return // Termux" "$1"; then
-        sed -i '/fun forceNdkDownload/,/^    }/ {
-            /val forcingNotRequired: Boolean/i\        return // Termux: NDK already installed, skip CMake trick
-        }' "$1"
-    fi
+    sed -i '/fun forceNdkDownload/,/^    }/ {
+        /val forcingNotRequired: Boolean/i\        return // Termux: NDK already installed, skip CMake trick
+    }' "$1"
 }
 register_patch "plugin_utils" "$FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterPluginUtils.kt" patch_plugin_utils
 
 patch_flutter_cache() {
+    if grep -F -q "_platform.isAndroid ? 'linux'" "$1"; then return 0; fi
     grep -q "artifacts\[_platform.operatingSystem\]" "$1" || return 1
     sed -i "s|final List<String>? binaryDirs = artifacts\[_platform.operatingSystem\];|final List<String>? binaryDirs = artifacts[_platform.isAndroid ? 'linux' : _platform.operatingSystem]; // Termux: map Android host to Linux artifacts|" "$1"
 }
 register_patch "flutter_cache" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/flutter_cache.dart" patch_flutter_cache
 
 patch_artifacts() {
+    if grep -F -q "platform.isAndroid" "$1"; then return 0; fi
     grep -q "if (platform.isLinux)" "$1" || return 1
     sed -i "s#if (platform.isLinux) {#if (platform.isLinux || platform.isAndroid) { // Termux: map Android host to Linux artifacts.#" "$1"
 }
 register_patch "artifacts" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/artifacts.dart" patch_artifacts
 
 patch_build_info() {
+    if grep -F -q "globals.platform.isAndroid" "$1"; then return 0; fi
     grep -q "if (globals.platform.isLinux)" "$1" || return 1
     sed -i "s#if (globals.platform.isLinux) {#if (globals.platform.isLinux || globals.platform.isAndroid) { // Termux: Android host uses Linux artifacts.#" "$1"
 }
 register_patch "build_info" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/build_info.dart" patch_build_info
 
 patch_chrome() {
+    if grep -F -q "platform.isAndroid" "$1"; then return 0; fi
     grep -q "if (platform.isLinux)" "$1" || return 1
     sed -i "s#if (platform.isLinux) {#if (platform.isLinux || platform.isAndroid) { // Termux: use Linux Chrome lookup on Android host.#" "$1"
 }
 register_patch "chrome" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/web/chrome.dart" patch_chrome
 
 patch_build_linux() {
+    if grep -F -q "false /* Termux" "$1"; then return 0; fi
     grep -q "if (!globals.platform.isLinux)" "$1" || return 1
     sed -i "s@if (!globals.platform.isLinux)@if (false /* Termux: allow linux build */)@" "$1"
     sed -i "s@!featureFlags.isLinuxEnabled || !globals.platform.isLinux@!featureFlags.isLinuxEnabled /* Termux: visible */@" "$1"
@@ -275,29 +290,29 @@ patch_build_linux() {
 register_patch "build_linux" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/commands/build_linux.dart" patch_build_linux
 
 patch_icon_tree_shaker() {
+    if grep -F -q "false /* Termux" "$1"; then return 0; fi
     grep -q "kIconTreeShakerFlag" "$1" || return 1
     sed -i "s|_environment.defines\[kIconTreeShakerFlag\] == 'true'|false /* Termux: const_finder unavailable */|g" "$1"
 }
 register_patch "icon_tree_shaker" "$FLUTTER_ROOT/packages/flutter_tools/lib/src/build_system/targets/icon_tree_shaker.dart" patch_icon_tree_shaker
 
 patch_cmake_lists() {
+    if grep -F -q "FlutterNDKTrick" "$1"; then return 0; fi
     cat > "$1" << 'CMAKEOF'
 cmake_minimum_required(VERSION 3.6)
-set(CMAKE_C_COMPILER_WORKS TRUE)
-set(CMAKE_CXX_COMPILER_WORKS TRUE)
 project(FlutterNDKTrick C CXX)
 CMAKEOF
 }
 register_patch "cmake_lists" "$FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt" patch_cmake_lists
 
-patch_shebang_flutter() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_dart() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_shared() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_update_dart() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_content_hash() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_last_engine() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_update_engine() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_tool_backend() { sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_flutter() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_dart() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_shared() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_update_dart() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_content_hash() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_last_engine() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_update_engine() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_tool_backend() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
 
 register_patch "shebang_flutter" "$FLUTTER_ROOT/bin/flutter" patch_shebang_flutter
 register_patch "shebang_dart" "$FLUTTER_ROOT/bin/dart" patch_shebang_dart
@@ -450,15 +465,15 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
         if grep -q 'list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")' "$TOOLCHAIN" 2>/dev/null; then
             sed -i 's/list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/# Disabled for Termux: list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/' "$TOOLCHAIN"
         fi
-        if ! grep -q 'CMAKE_C_COMPILER_WORKS' "$TOOLCHAIN" 2>/dev/null; then
-            sed -i '1a set(ANDROID_HOST_TAG "linux-x86_64")\nset(CMAKE_C_COMPILER_WORKS TRUE)\nset(CMAKE_CXX_COMPILER_WORKS TRUE)' "$TOOLCHAIN"
+        if ! grep -q 'ANDROID_HOST_TAG' "$TOOLCHAIN" 2>/dev/null; then
+            sed -i '1a set(ANDROID_HOST_TAG "linux-x86_64")' "$TOOLCHAIN"
         fi
     fi
     # Also patch the main android.toolchain.cmake
     local MAIN_TOOLCHAIN="$NDK_PATH/build/cmake/android.toolchain.cmake"
     if [ -f "$MAIN_TOOLCHAIN" ]; then
-        if ! grep -q 'CMAKE_C_COMPILER_WORKS' "$MAIN_TOOLCHAIN" 2>/dev/null; then
-            sed -i '1a set(ANDROID_HOST_TAG "linux-x86_64")\nset(CMAKE_C_COMPILER_WORKS TRUE)\nset(CMAKE_CXX_COMPILER_WORKS TRUE)' "$MAIN_TOOLCHAIN"
+        if ! grep -q 'ANDROID_HOST_TAG' "$MAIN_TOOLCHAIN" 2>/dev/null; then
+            sed -i '1a set(ANDROID_HOST_TAG "linux-x86_64")' "$MAIN_TOOLCHAIN"
         fi
     fi
 
@@ -674,7 +689,7 @@ setup_build_tools_symlinks() {
         cat > "$BUILD_TOOLS/split-select" << 'SPLITEOF'
 #!/bin/sh
 echo "split-select is not available on Termux ARM64"
-exit 0
+exit 1
 SPLITEOF
         chmod +x "$BUILD_TOOLS/split-select"
     fi
@@ -716,25 +731,39 @@ fi
 
 if [ "$is_mode_b" = "true" ]; then
     echo "  Validating Mode B toolchain (API 35+ / AAB)..."
-    TMP_C=$(mktemp)
-    TMP_OUT=$(mktemp)
-    echo 'int main() { return 0; }' > "$TMP_C"
+    AAPT2_EXE="$BT_DIR/35.0.0/aapt2"
+    TMP_DIR=$(mktemp -d "${TMPDIR:-$PREFIX/tmp}/mode_b_test.XXXXXX")
+    TMP_RES_DIR="$TMP_DIR/res/values"
+    mkdir -p "$TMP_RES_DIR"
+    echo '<resources><string name="test">test</string></resources>' > "$TMP_RES_DIR/strings.xml"
+    TMP_FLAT_DIR="$TMP_DIR/flat"
+    mkdir -p "$TMP_FLAT_DIR"
+    TMP_APK="$TMP_DIR/test.apk"
 
-    if ! clang "$TMP_C" -o "$TMP_OUT" 2>/dev/null; then
-        echo "  ❌ Error: Mode B requires a working native toolchain (clang) but stub toolchain or missing clang detected."
+    mode_b_valid=false
+    if "$AAPT2_EXE" compile "$TMP_RES_DIR/strings.xml" -o "$TMP_FLAT_DIR/" >/dev/null 2>&1; then
+        FLAT_FILE=$(find "$TMP_FLAT_DIR" -name "*.flat" 2>/dev/null | head -n 1)
+        if [ -n "$FLAT_FILE" ]; then
+            if "$AAPT2_EXE" link "$FLAT_FILE" -o "$TMP_APK" >/dev/null 2>&1 || [ -f "$TMP_APK" ]; then
+                mode_b_valid=true
+            fi
+        fi
+    fi
+    rm -rf "$TMP_DIR"
+
+    if [ "$mode_b_valid" = "false" ]; then
+        echo "  ❌ Error: Mode B toolchain validation failed (aapt2 compile/link failed)."
         echo "  Reverting Mode B activation to Mode A..."
 
         # Reversible activation: Revert back to Mode A
         rm -rf "$BT_DIR/35.0.0" 2>/dev/null || true
-        # Also remove the gradle override if possible, though it's global
         sed -i '/android.aapt2FromMavenOverride/d' "$HOME/.gradle/gradle.properties" 2>/dev/null || true
 
         echo "  Mode B reverted. Please install a working NDK (e.g. lzhiyong/termux-ndk) to use Mode B."
         is_mode_b=false
     else
-        echo "  ✓ Mode B toolchain validation passed (clang works)."
+        echo "  ✓ Mode B toolchain validation passed (aapt2 compile/link works)."
     fi
-    rm -f "$TMP_C" "$TMP_OUT"
 fi
 
 if [ -n "$BT_REAL" ]; then

@@ -1,3 +1,4 @@
+#!/bin/sh
 # Flutter & Android SDK Configuration
 export ANDROID_HOME=$PREFIX/opt/android-sdk
 export JAVA_HOME=$PREFIX

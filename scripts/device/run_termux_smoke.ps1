@@ -7,7 +7,9 @@ param(
     [int]$TimeoutMinutes = 45,
     [string]$RemoteDeb = "/sdcard/Download/flutter_ci_input.deb",
     [string]$RemoteScript = "/sdcard/Download/termux_ci_smoke.sh",
-    [string]$RemoteLog = "/sdcard/Download/termux_ci_smoke.txt"
+    [string]$RemoteLog = "/sdcard/Download/termux_ci_smoke.txt",
+    [string]$CommitSha = "",
+    [string]$EvidencePath = "evidence.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -94,6 +96,41 @@ function Assert-DeviceUnlocked {
     }
 }
 
+function Write-InitialEvidence {
+    param([string]$Path, [string]$Commit)
+    $hostPath = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path (Get-Location) $Path }
+    $initObj = [ordered]@{
+        status = "failed"
+        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        device = "unknown"
+        apk_launch = $false
+        crash_free = $false
+        commit_sha = if ($Commit) { $Commit } else { "unknown" }
+        device_serial = "unknown"
+        device_info = [ordered]@{
+            model = "unknown"
+            sdk = "unknown"
+            abi = "unknown"
+            serial = "unknown"
+        }
+        launch_result = "failed"
+        exit_status = 1
+        mode_a_status = "failed"
+        mode_b_status = "failed"
+        mode_a = [ordered]@{
+            status = "failed"
+            apk_build = "failed"
+        }
+        mode_b = [ordered]@{
+            status = "failed"
+            aab_build = "failed"
+        }
+    }
+    $initObj | ConvertTo-Json -Depth 5 | Set-Content -Path $hostPath -Encoding UTF8
+}
+
+Write-InitialEvidence -Path $EvidencePath -Commit $CommitSha
+
 $KeepAwakeEnabled = $false
 
 try {
@@ -117,7 +154,11 @@ if ($ExpectedSha256) {
 }
 
 Write-Host "ADB devices:"
-Invoke-Adb -Args @("devices")
+$devicesOutput = (& $Adb @AdbArgs devices) -join "`n"
+Write-Host $devicesOutput
+if ($devicesOutput -notmatch "(?m)^[a-zA-Z0-9_.-]+\s+(device|unauthorized)") {
+    throw "No active ADB device connected. Output: $devicesOutput"
+}
 
 Wake-Device
 Assert-DeviceUnlocked
@@ -183,10 +224,13 @@ $required = @(
     "DARTVM_VERSION_STATUS=0",
     "DOCTOR_STATUS=0",
     "CREATE_STATUS=0",
+    "CONFIG_VERIFY_STATUS=0",
     "BUILD_APK_STATUS=0",
     "APK_MANIFEST_STATUS=0",
     "APK_RESOURCES_STATUS=0",
     "APK_COPY_STATUS=0",
+    "APK_LAUNCH_STATUS=0",
+    "APK_CRASH_FREE_STATUS=0",
     "BUILD_LINUX_STATUS=0",
     "DONE"
 )
@@ -210,6 +254,98 @@ Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
 
 Write-Host "Installing pulled APK from host..."
 Invoke-Adb -Args @("install", "-r", $localApk)
+
+Write-Host "Verifying APK launch and crash-free execution from host ADB..."
+Invoke-AdbAllowFail -Args @("shell", "am", "start", "-n", "com.example.flutter_ci_smoke/.MainActivity") | Out-Host
+Start-Sleep -Seconds 3
+
+$appPid = (& $Adb @AdbArgs shell "pidof com.example.flutter_ci_smoke 2>/dev/null || true") -join ""
+$appPid = $appPid.Trim()
+$crashCheck = (& $Adb @AdbArgs shell "logcat -d 2>/dev/null | grep -i 'FATAL EXCEPTION.*com.example.flutter_ci_smoke' || true") -join ""
+$crashCheck = $crashCheck.Trim()
+
+$apkLaunchHost = ($appPid -ne "")
+$crashFreeHost = ($apkLaunchHost -and ($crashCheck -eq ""))
+
+Write-Host "Host APK launch verification: pid=$appPid, apk_launch=$apkLaunchHost, crash_free=$crashFreeHost"
+
+$hostEvidencePath = if ([System.IO.Path]::IsPathRooted($EvidencePath)) { $EvidencePath } else { Join-Path (Get-Location) $EvidencePath }
+$remoteEvidence = "/sdcard/Download/evidence.json"
+
+$model = ((& $Adb @AdbArgs shell "getprop ro.product.model 2>/dev/null || true") -join "").Trim()
+$sdk = ((& $Adb @AdbArgs shell "getprop ro.build.version.sdk 2>/dev/null || true") -join "").Trim()
+$abi = ((& $Adb @AdbArgs shell "getprop ro.product.cpu.abi 2>/dev/null || true") -join "").Trim()
+$serial = if ($DeviceSerial) { $DeviceSerial } else { ((& $Adb @AdbArgs shell "getprop ro.serialno 2>/dev/null || true") -join "").Trim() }
+if (-not $serial) { $serial = "unknown" }
+if (-not $model) { $model = "unknown" }
+if (-not $sdk) { $sdk = "unknown" }
+if (-not $abi) { $abi = "unknown" }
+
+if (-not $CommitSha) {
+    try {
+        $CommitSha = (git rev-parse HEAD 2>$null).Trim()
+    } catch {
+        $CommitSha = "unknown"
+    }
+}
+
+$rawEv = $null
+try {
+    $tempEv = Join-Path $work "evidence_remote.json"
+    Invoke-AdbAllowFail -Args @("pull", $remoteEvidence, $tempEv) | Out-Null
+    if (Test-Path $tempEv) {
+        $rawEv = Get-Content -Raw -Path $tempEv | ConvertFrom-Json
+    }
+} catch {
+    Write-Host "Warning: Could not pull remote evidence.json"
+}
+
+$launchPassed = [bool]($apkLaunchHost -and $crashFreeHost)
+$exitStatus = if ($launchPassed) { 0 } else { 1 }
+$modeA = if ($rawEv -and $rawEv.mode_a_status) { $rawEv.mode_a_status } else { "failed" }
+$modeB = if ($rawEv -and $rawEv.mode_b_status) { $rawEv.mode_b_status } else { "failed" }
+
+$modeAApkBuild = if ($rawEv -and $rawEv.mode_a -and $rawEv.mode_a.apk_build) { $rawEv.mode_a.apk_build } else { $modeA }
+$modeBAabBuild = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_build) { $rawEv.mode_b.aab_build } else { $modeB }
+$overallStatus = if ($launchPassed -and $modeA -eq "passed") { "passed" } else { "failed" }
+
+$evObj = [ordered]@{
+    status = $overallStatus
+    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    device = if ($model -and $model -ne "unknown") { $model } else { $serial }
+    apk_launch = [bool]$apkLaunchHost
+    crash_free = [bool]$crashFreeHost
+    commit_sha = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
+    device_serial = if ($rawEv -and $rawEv.device_serial -and $rawEv.device_serial -ne "unknown") { $rawEv.device_serial } else { $serial }
+    device_info = [ordered]@{
+        model = $model
+        sdk = $sdk
+        abi = $abi
+        serial = $serial
+    }
+    launch_result = if ($launchPassed) { "passed" } else { "failed" }
+    exit_status = $exitStatus
+    mode_a_status = $modeA
+    mode_b_status = $modeB
+    mode_a = [ordered]@{
+        status = $modeA
+        apk_build = $modeAApkBuild
+    }
+    mode_b = [ordered]@{
+        status = $modeB
+        aab_build = $modeBAabBuild
+    }
+}
+
+$evObj | ConvertTo-Json -Depth 5 | Set-Content -Path $hostEvidencePath -Encoding UTF8
+Write-Host "Wrote evidence artifact to $hostEvidencePath"
+
+if (-not $apkLaunchHost) {
+    throw "APK launch verification failed on host"
+}
+if (-not $crashFreeHost) {
+    throw "APK crash-free verification failed on host"
+}
 
 Write-Host "Termux Flutter smoke passed."
 } finally {

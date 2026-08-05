@@ -22,7 +22,6 @@ resource:
   flutter:
     source: $root
     output: $distro
-    git: true
 
   flutter_gpu:
     source: $root/engine/src/flutter/lib/gpu
@@ -295,5 +294,10 @@ resource:
   setup_modern_tools:
     source: $root/../scripts/install/setup_modern_tools.sh
     output: $prefix/share/flutter/setup_modern_tools.sh
+    mode: 0o755
+
+  flutter_project_config:
+    source: $root/../scripts/install/flutter_project_config.sh
+    output: $prefix/share/flutter/flutter_project_config.sh
     mode: 0o755
 

@@ -126,3 +126,10 @@ temp_*.*
 *.ps1
 !scripts/**/*.ps1
 !scripts/**/*.sh
+
+# ----- Agent / Orchestrator Metadata -----
+.agents/
+ORIGINAL_REQUEST.md
+PROJECT.md
+GATE_STATUS.md
+

@@ -26,6 +26,7 @@ ROOT_MARKDOWN_ALLOWLIST = {
     "CLAUDE.md",
     "GEMINI.md",
     "ORIGINAL_REQUEST.md",
+    "PROJECT.md",
     "README.md",
     "README_EN.md",
 }
@@ -141,6 +142,20 @@ def check_yaml_files() -> None:
         if key not in resources:
             fail(f"package.yaml missing resource.{key}")
 
+    ci_path = ROOT / ".github" / "workflows" / "ci.yml"
+    if ci_path.is_file():
+        ci_text = ci_path.read_text(encoding="utf-8")
+        if "pytest" not in ci_text:
+            fail("ci.yml missing pytest execution step")
+        if "shellcheck" not in ci_text:
+            fail("ci.yml missing shellcheck execution step")
+        elif "--severity=" not in ci_text:
+            fail("ci.yml missing shellcheck --severity flag")
+        if "actionlint" not in ci_text:
+            fail("ci.yml missing actionlint execution step")
+        elif "curl -sSfL" not in ci_text:
+            fail("ci.yml actionlint step must use curl -sSfL")
+
 
 def check_post_install_contract() -> None:
     text = read("scripts/install/post_install.sh")
@@ -193,6 +208,89 @@ def check_version_drift_contract() -> None:
         fail("check_version_drift.py detected version drift errors")
 
 
+def check_sysroot_lock_contract() -> None:
+    lock_file = ROOT / "sysroot.lock.json"
+    if not lock_file.is_file():
+        fail("missing required file: sysroot.lock.json")
+        return
+    try:
+        import json
+        data = json.loads(lock_file.read_text(encoding="utf-8"))
+        arch_entry = data.get("aarch64") or data.get("arm64")
+        if not isinstance(arch_entry, dict):
+            fail("sysroot.lock.json missing aarch64/arm64 entry")
+            return
+        for req_key in ("arch", "created_at", "tree_hash", "packages"):
+            if req_key not in arch_entry:
+                fail(f"sysroot.lock.json missing required field: {req_key}")
+        pkgs = arch_entry.get("packages", {})
+        if not isinstance(pkgs, dict) or not pkgs:
+            fail("sysroot.lock.json packages mapping is empty or invalid")
+            return
+        for pkg_name, pkg_info in pkgs.items():
+            if not isinstance(pkg_info, dict):
+                fail(f"sysroot.lock.json package '{pkg_name}' is invalid")
+                continue
+            for field in ("name", "version", "url", "sha256", "size", "archive_path", "repo", "dist"):
+                if field not in pkg_info:
+                    fail(f"sysroot.lock.json package '{pkg_name}' missing required field '{field}'")
+    except Exception as e:
+        fail(f"sysroot.lock.json validation failed: {e}")
+
+
+def check_script_headers() -> None:
+    shell_scripts = sorted(list(ROOT.glob("*.sh")) + list((ROOT / "scripts").glob("**/*.sh")))
+    for script in shell_scripts:
+        rel = script.relative_to(ROOT)
+        text = script.read_text(encoding="utf-8", errors="ignore")
+        if not text.startswith("#!"):
+            fail(f"{rel}: shell script missing shebang header")
+        if "\r\n" in text:
+            fail(f"{rel}: shell script contains CRLF line endings")
+
+    py_entrypoints = [
+        "build.py",
+        "package.py",
+        "sysroot.py",
+        "scripts/ci/check_repo.py",
+        "scripts/ci/check_version_drift.py",
+        "scripts/ci/verify_release_asset.py",
+    ]
+    for py_rel in py_entrypoints:
+        py_path = ROOT / py_rel
+        if py_path.is_file():
+            text = py_path.read_text(encoding="utf-8", errors="ignore")
+            if not text.startswith("#!"):
+                fail(f"{py_rel}: Python script missing shebang header")
+            if "\r\n" in text:
+                fail(f"{py_rel}: Python script contains CRLF line endings")
+
+
+def check_test_modules_and_ci_steps() -> None:
+    required_test_modules = [
+        "tests/test_installer.py",
+        "tests/test_flutter_project_config.py",
+        "tests/test_post_install.py",
+        "tests/test_sysroot.py",
+        "tests/test_release.py",
+        "tests/test_build_pipeline.py",
+        "tests/test_package.py",
+        "tests/test_ci.py",
+    ]
+    for test_mod in required_test_modules:
+        require_file(test_mod)
+
+    ci_yml = ROOT / ".github" / "workflows" / "ci.yml"
+    if not ci_yml.is_file():
+        fail("missing required file: .github/workflows/ci.yml")
+        return
+
+    ci_text = ci_yml.read_text(encoding="utf-8")
+    for req_tool in ("pytest", "shellcheck", "actionlint"):
+        if req_tool not in ci_text:
+            fail(f".github/workflows/ci.yml missing job step for {req_tool}")
+
+
 def main() -> int:
     check_ci_layout()
     check_doc_layout()
@@ -203,6 +301,9 @@ def main() -> int:
     check_post_install_contract()
     check_installer_contract()
     check_version_drift_contract()
+    check_sysroot_lock_contract()
+    check_script_headers()
+    check_test_modules_and_ci_steps()
 
     if ERRORS:
         print("Repository sanity check failed:", file=sys.stderr)

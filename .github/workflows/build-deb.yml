@@ -135,6 +135,7 @@ jobs:
         run: |
           DEB="${{ steps.artifact.outputs.deb }}"
           METADATA_FILE="build_metadata.json"
+          EVIDENCE_FILE="evidence.json"
 
           # Generate inventory (list of files in deb)
           dpkg-deb -c "$DEB" > inventory.txt
@@ -144,12 +145,27 @@ jobs:
             "version": "${FLUTTER_VERSION}",
             "arch": "${ARCH}",
             "run_id": "${{ github.run_id }}",
+            "build_number": "${{ github.run_number }}",
+            "source_commit": "${{ github.sha }}",
+            "sha256": "$(cat ${DEB}.sha256 | awk '{print $1}')",
+            "size_bytes": $(stat -c '%s' "$DEB")
+          }
+          EOF
+
+          cat <<EOF > "$EVIDENCE_FILE"
+          {
+            "version": "${FLUTTER_VERSION}",
+            "arch": "${ARCH}",
+            "run_id": "${{ github.run_id }}",
+            "build_number": "${{ github.run_number }}",
+            "source_commit": "${{ github.sha }}",
             "sha256": "$(cat ${DEB}.sha256 | awk '{print $1}')",
             "size_bytes": $(stat -c '%s' "$DEB")
           }
           EOF
 
           echo "metadata=$METADATA_FILE" >> "$GITHUB_OUTPUT"
+          echo "evidence=$EVIDENCE_FILE" >> "$GITHUB_OUTPUT"
           echo "inventory=inventory.txt" >> "$GITHUB_OUTPUT"
 
       - name: Upload deb artifact
@@ -162,5 +178,6 @@ jobs:
             ${{ steps.artifact.outputs.deb }}.size.txt
             ${{ steps.metadata.outputs.metadata }}
             ${{ steps.metadata.outputs.inventory }}
+            evidence.json
           retention-days: 30
           if-no-files-found: error

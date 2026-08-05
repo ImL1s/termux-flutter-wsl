@@ -37,16 +37,51 @@ def flutter_tag(root: str):
         return None
     try:
         return git.Repo(root).git.describe('--tag', '--abbrev=0')
-    except git.exc.GitCommandError:
+    except Exception:
         return None
+
+
+class Output(object):
+    """Target output directory path manager across build modes."""
+    def __init__(self, root: str, arch: str):
+        self.any = None
+        for it in __MODE__:
+            out = target_output(root, arch, it)
+            self.__dict__[it] = out
+
+        existing_modes = [it for it in __MODE__ if getattr(self, it, None) and os.path.isdir(getattr(self, it))]
+
+        # Prioritize debug mode directory whenever available
+        debug_out = getattr(self, 'debug', None)
+        if debug_out and os.path.isdir(debug_out):
+            self.any = debug_out
+        else:
+            # Fall back to first existing directory in __MODE__ order
+            for it in __MODE__:
+                out = getattr(self, it, None)
+                if out and os.path.isdir(out):
+                    self.any = out
+                    break
+
+        # If no build output directory exists on disk yet, default to debug path
+        if not self.any:
+            self.any = getattr(self, 'debug', None)
+
+        if len(existing_modes) > 1:
+            logger.warning(
+                f"Multiple build mode directories found on disk ({', '.join(existing_modes)}). "
+                f"Output.any defaulting to debug mode path: '{self.any}'"
+            )
 
 
 # TODO: see bin/internal/update_engine_version.sh
 def engine_version(root: str):
-    root = os.path.join(root, 'bin/internal/engine.version')
+    path = os.path.join(root, 'bin/internal/engine.version')
+    if os.path.isfile(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return "unknown"
 
-    with open(root) as f:
-        return f.read()
 
 
 def recordm(func):
@@ -75,7 +110,7 @@ def recordm(func):
             return func(*args, **kwargs)
         except Exception as e:
             logger.exception(e)
-            sys.exit(1)
+            raise
     return wrapper
 
 

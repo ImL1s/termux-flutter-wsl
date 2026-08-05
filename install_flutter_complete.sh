@@ -115,29 +115,69 @@ for pkg in d8 dx aidl apksigner googletest android-tools; do
     apt download $pkg 2>/dev/null && dpkg -i ${pkg}*.deb 2>/dev/null && rm -f ${pkg}*.deb
 done
 
-# 下載 Flutter deb
+# 預先下載並驗證所有套件（Staging Phase）
+echo "預先下載並驗證所有套件..."
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
+ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
+NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"; print_summary' EXIT
 FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
+ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
+NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.7z"
 
-if [ ! -f "$FLUTTER_DEB" ]; then
-    echo "下載 Flutter SDK..."
-    wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { record_stage download failed; exit 20; }
-fi
+echo "下載 Flutter SDK..."
+wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { record_stage download failed; exit 20; }
 record_stage download success
 
-# 驗證 SHA256 校驗碼
-echo "驗證 SHA256 校驗碼..."
+echo "驗證 Flutter SDK SHA256 校驗碼..."
 verify_sha256 "$FLUTTER_DEB" "$EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
 record_stage integrity success
 
-# 安裝
+echo "下載 Android SDK..."
+wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { record_stage download failed; exit 20; }
+echo "驗證 Android SDK SHA256 校驗碼..."
+verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
 
-# 在確認新版本下載驗證完成後，移除舊的 SDK
+ANDROID_HOME="$PREFIX/opt/android-sdk"
+NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
+if [ ! -d "$NDK_PATH" ]; then
+    echo "下載 ARM64 NDK..."
+    wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { record_stage download failed; exit 20; }
+    echo "驗證 NDK SHA256 校驗碼..."
+    verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
+fi
+
+# 預先檢驗 ANDROID_SDK_DEB 可用性
+dpkg --force-architecture "$ANDROID_SDK_DEB" --dry-run >/dev/null 2>&1 || true
+
+# 所有下載與驗證均已成功完成，開始安裝
+echo "在確認新版本下載驗證完成後，開始安裝 SDK..."
+
+# ========================================
+# Step 2: 安裝 Android SDK
+# ========================================
+echo ""
+echo -e "${GREEN}[2/${TOTAL_STEPS}]${NC} 安裝 Android SDK..."
+
+echo "移除舊的 Android SDK (如有)..."
 dpkg --purge android-sdk 2>/dev/null || true
+
+echo "安裝 Android SDK..."
+dpkg -i --force-architecture "$ANDROID_SDK_DEB" || dpkg --force-depends --configure android-sdk || { record_stage package failed; exit 40; }
+echo "  ✓ Android SDK 已安裝"
+
+# ========================================
+# Step 3: 安裝 Flutter SDK
+# ========================================
+echo ""
+echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} 安裝 Flutter SDK..."
+
+echo "移除舊的 Flutter SDK (如有)..."
 dpkg --purge flutter 2>/dev/null || true
+
+echo "安裝 Flutter SDK..."
 apt-get install -f -y "$FLUTTER_DEB" || { record_stage package failed; exit 40; }
 record_stage package success
 
@@ -187,7 +227,7 @@ fi
 echo "清理 ELF binaries..."
 apt download termux-elf-cleaner 2>/dev/null || true
 if ls termux-elf-cleaner*.deb 1>/dev/null 2>&1; then
-    dpkg -i termux-elf-cleaner*.deb 2>/dev/null || true
+    dpkg -i termux-elf-cleaner*.deb 2>/dev/null
     rm -f termux-elf-cleaner*.deb
 fi
 if command -v termux-elf-cleaner &> /dev/null; then
@@ -200,47 +240,14 @@ else
 fi
 
 # ========================================
-# Step 3: 安裝 Android SDK
-# ========================================
-echo ""
-echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} 安裝 Android SDK..."
-
-ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
-ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
-
-if [ ! -f "$ANDROID_SDK_DEB" ]; then
-    echo "下載 Android SDK..."
-    wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { record_stage download failed; exit 20; }
-fi
-verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
-
-# 安裝 (忽略 openjdk-17 依賴)
-dpkg -i --force-architecture "$ANDROID_SDK_DEB" 2>/dev/null || true
-dpkg --force-depends --configure android-sdk 2>/dev/null || true
-
-echo "  ✓ Android SDK 已安裝"
-
-# ========================================
 # Step 4: 安裝 ARM64 NDK
 # ========================================
 echo ""
 echo -e "${GREEN}[4/${TOTAL_STEPS}]${NC} 安裝 ARM64 NDK..."
 
-ANDROID_HOME="$PREFIX/opt/android-sdk"
-NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
-
 if [ -d "$NDK_PATH" ]; then
     echo "  ✓ NDK 已安裝"
 else
-    NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
-    NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.7z"
-
-    if [ ! -f "$NDK_ARCHIVE" ]; then
-        echo "下載 ARM64 NDK (約 350MB)..."
-        wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { record_stage download failed; exit 20; }
-    fi
-    verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
-
     echo "解壓 NDK..."
     mkdir -p "$ANDROID_HOME/ndk"
     7z x -y "$NDK_ARCHIVE" "-o$ANDROID_HOME/ndk" >/dev/null
@@ -392,10 +399,10 @@ if ! command -v aapt2 &> /dev/null; then
     # 下載依賴包
     apt download libprotobuf fmt libzopfli aapt aapt2 2>/dev/null || true
     # 安裝（使用 dpkg 避免觸發 apt 的依賴解析）
-    dpkg -i libprotobuf*.deb 2>/dev/null || true
-    dpkg -i fmt*.deb libzopfli*.deb 2>/dev/null || true
-    dpkg -i aapt_*.deb 2>/dev/null || true
-    dpkg -i aapt2*.deb 2>/dev/null || true
+    dpkg -i libprotobuf*.deb 2>/dev/null
+    dpkg -i fmt*.deb libzopfli*.deb 2>/dev/null
+    dpkg -i aapt_*.deb 2>/dev/null
+    dpkg -i aapt2*.deb 2>/dev/null
     rm -f *.deb 2>/dev/null || true
 fi
 

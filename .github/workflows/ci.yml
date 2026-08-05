@@ -31,16 +31,33 @@ jobs:
           cache: pip
 
       - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt pytest
 
       - name: Python compile check
         run: python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py
+
+      - name: Run pytest unit tests
+        run: pytest tests/
 
       - name: Shell syntax check
         shell: bash
         run: |
           set -euo pipefail
           find scripts -name "*.sh" -exec bash -n {} +
+          bash -n install_flutter_complete.sh
+
+      - name: ShellCheck lint shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shellcheck --severity=error install_flutter_complete.sh $(find scripts -name "*.sh")
+
+      - name: actionlint workflow lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -c 'type -p actionlint || bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)'
+          ./actionlint .github/workflows/*.yml || actionlint .github/workflows/*.yml
 
       - name: Validate build.toml schema
         run: |
