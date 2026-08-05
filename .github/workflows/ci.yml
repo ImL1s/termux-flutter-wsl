@@ -50,7 +50,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shellcheck --severity=error install_flutter_complete.sh $(find scripts -name "*.sh")
+          # Exclude .sh files that are actually Python scripts (e.g. config_jdk.sh)
+          SHELL_FILES=$(find scripts -name "*.sh" | xargs grep -l '^#!/.*\(ba\)\?sh' 2>/dev/null || true)
+          shellcheck --severity=error install_flutter_complete.sh $SHELL_FILES
 
       - name: actionlint workflow lint
         shell: bash
