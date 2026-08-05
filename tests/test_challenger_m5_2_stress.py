@@ -39,7 +39,7 @@ def test_build_deb_metadata_generation():
     assert '"build_number": "${{ github.run_number }}"' in content, "build-deb.yml must set build_number to github.run_number"
     assert '"sha256":' in content, "build-deb.yml must record deb sha256"
 
-def test_termux_smoke_sh_failure_propagation_logic():
+def test_termux_smoke_sh_failure_propagation_logic(tmp_path):
     """Empirically test termux_smoke.sh evidence function and exit code when status is non-zero."""
     smoke_sh_path = REPO_ROOT / "scripts" / "device" / "termux_smoke.sh"
     content = smoke_sh_path.read_text(encoding="utf-8")
@@ -51,7 +51,8 @@ def test_termux_smoke_sh_failure_propagation_logic():
     assert 'overall_status="failed"' in content, "overall_status must default to failed"
 
     if shutil.which("bash"):
-        test_dir = REPO_ROOT / ".agents" / "challenger_m5_2"
+        test_dir = tmp_path / "smoke_test"
+        test_dir.mkdir(parents=True, exist_ok=True)
         test_file = test_dir / "run_ev_test.sh"
         test_file.write_text("""#!/bin/bash
 status=1
@@ -83,8 +84,6 @@ write_evidence_json
         ev_data = json.loads(ev_out.read_text(encoding="utf-8"))
         assert ev_data["status"] == "failed"
         assert ev_data["exit_status"] == 1
-        ev_out.unlink(missing_ok=True)
-        test_file.unlink(missing_ok=True)
 
 def test_run_termux_smoke_ps1_markers_and_exceptions():
     """Verify run_termux_smoke.ps1 requires CONFIG_VERIFY_STATUS=0 and throws on missing markers."""

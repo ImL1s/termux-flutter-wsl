@@ -169,6 +169,10 @@ def test_split_select_stub_exits_nonzero(tmp_path):
     assert res.returncode != 0, f"Expected non-zero exit code from split-select, got {res.returncode}"
 
 
+@pytest.mark.skipif(
+    not Path('/data/data/com.termux/files/usr/bin/aapt2').exists() and os.environ.get('CI') == 'true',
+    reason='Mode B validation requires Termux aapt2 binary, not available on CI runners'
+)
 def test_stress_broken_aapt2_symlink_handling(tmp_path):
     """Empirically test post_install.sh when $BT_DIR/35.0.0/aapt2 is a broken symlink."""
     flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)

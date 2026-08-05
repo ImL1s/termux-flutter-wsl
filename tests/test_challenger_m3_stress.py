@@ -95,9 +95,10 @@ def test_edge_corrupt_tree_hash(tmp_path):
             sysroot.build(arch="arm64", locked=True)
 
 
-@pytest.mark.asyncio
-async def test_edge_missing_top_level_package():
+def test_edge_missing_top_level_package():
     """Edge case 5a: Missing top-level package raises RuntimeError in _resolve_packages."""
+    import asyncio
+
     mock_packages_index = """
 Package: pkg-other
 Version: 1.0
@@ -125,13 +126,17 @@ Filename: pool/main/p/pkg-other/pkg-other_1.0_aarch64.deb
         def get(self, url):
             return DummyResponse()
 
+    async def _run():
+        return await _resolve_packages(DummySession(), "arm64", sysroot_data)
+
     with pytest.raises(RuntimeError, match="Required top-level package 'pkg-nonexistent' not found"):
-        await _resolve_packages(DummySession(), "arm64", sysroot_data)
+        asyncio.run(_run())
 
 
-@pytest.mark.asyncio
-async def test_edge_transitive_dependency_cycle():
+def test_edge_transitive_dependency_cycle():
     """Edge case 5b: Circular dependency graph (A -> B -> C -> A) terminates without infinite loop."""
+    import asyncio
+
     mock_packages_index = """
 Package: pkg-a
 Version: 1.0
@@ -173,13 +178,17 @@ SHA256: ccc333
         def get(self, url):
             return DummyResponse()
 
-    resolved = await _resolve_packages(DummySession(), "arm64", sysroot_data)
+    async def _run():
+        return await _resolve_packages(DummySession(), "arm64", sysroot_data)
+
+    resolved = asyncio.run(_run())
     assert set(resolved.keys()) == {"pkg-a", "pkg-b", "pkg-c"}
 
 
-@pytest.mark.asyncio
-async def test_edge_missing_transitive_dependency(caplog):
+def test_edge_missing_transitive_dependency(caplog):
     """Edge case 5c: Missing transitive dependency logs warning and skips without crashing."""
+    import asyncio
+
     mock_packages_index = """
 Package: pkg-a
 Version: 1.0
@@ -209,7 +218,10 @@ SHA256: aaa111
         def get(self, url):
             return DummyResponse()
 
-    resolved = await _resolve_packages(DummySession(), "arm64", sysroot_data)
+    async def _run():
+        return await _resolve_packages(DummySession(), "arm64", sysroot_data)
+
+    resolved = asyncio.run(_run())
     assert set(resolved.keys()) == {"pkg-a"}
 
 
