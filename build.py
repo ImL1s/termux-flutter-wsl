@@ -139,7 +139,7 @@ class Build:
         api = cfg.get('ndk', {}).get('api', 35)
         tag = cfg.get('flutter', {}).get('tag')
         release_tag = cfg.get('flutter', {}).get('release_tag', f'v{tag}-termux' if tag else None)
-        dart_version = cfg.get('flutter', {}).get('dart_version', '3.12.0')
+        dart_version = cfg.get('flutter', {}).get('dart_version', '3.12.1')
         sha256 = cfg.get('flutter', {}).get('sha256')
         asset_name = cfg.get('flutter', {}).get('asset_name', f'flutter_{tag}_aarch64.deb' if tag else None)
         repo = cfg.get('flutter', {}).get('repo')
@@ -340,7 +340,30 @@ class Build:
             logger.error(f"Preflight verification FAILED ({fails} fail, {warns} warn, {passes} pass)")
             return False
 
-    def clone(self, *, url: str = None, tag: str = None, out: str = None):
+    def workspace_status(self, path: str = None) -> dict:
+        """Return status of the flutter workspace."""
+        path = path or self.root
+        if not os.path.exists(path):
+            return {'exists': False}
+
+        try:
+            repo = git.Repo(path)
+            is_dirty = repo.is_dirty(untracked_files=True)
+            try:
+                active_branch = repo.active_branch.name
+            except TypeError:
+                active_branch = None
+            return {
+                'exists': True,
+                'dirty': is_dirty,
+                'tag': utils.flutter_tag(str(path)),
+                'branch': active_branch,
+                'head': repo.head.commit.hexsha
+            }
+        except Exception as e:
+            return {'exists': True, 'dirty': False, 'tag': utils.flutter_tag(str(path)), 'error': str(e)}
+
+    def clone(self, *, url: str = None, tag: str = None, out: str = None, force: bool = False):
         url = url or self.repo
         out_path = Path(out or self.root)
         tag = tag or self.tag
@@ -351,6 +374,11 @@ class Build:
             if current_tag == tag:
                 logger.info(f'flutter exists at {out_path} with tag {tag}, skipping clone.')
                 return
+
+            status = self.workspace_status(str(out_path))
+            if status.get('dirty') and not force:
+                logger.error(f'Checkout at {out_path} has uncommitted changes. Use --force to override.')
+                raise RuntimeError(f'Dirty checkout at {out_path}')
 
             # Attempt checkout of target tag inside existing repository
             try:
@@ -364,28 +392,37 @@ class Build:
             except Exception as e:
                 logger.warning(f'Failed to checkout tag {tag} in existing directory {out_path}: {e}')
 
-            # Backup existing directory if checkout failed or invalid repo
-            backup_path = out_path.parent / f'{out_path.name}.old'
-            if backup_path.exists():
-                logger.info(f'Removing existing backup directory {backup_path}...')
-                if backup_path.is_dir():
-                    shutil.rmtree(backup_path)
-                else:
-                    backup_path.unlink()
+        staging_path = out_path.parent / f'{out_path.name}.staging'
+        if staging_path.exists():
+            shutil.rmtree(staging_path)
 
-            logger.info(f'Moving existing directory {out_path} to {backup_path}...')
-            os.rename(out_path, backup_path)
-
-        logger.info(f'Cloning flutter {tag} from {url} to {out_path}...')
+        logger.info(f'Cloning flutter {tag} from {url} to {staging_path}...')
         try:
             git.Repo.clone_from(
                 url=url,
-                to_path=str(out_path),
+                to_path=str(staging_path),
                 progress=progress,
                 branch=tag)
-            logger.success(f'Successfully cloned flutter {tag} to {out_path}')
         except git.exc.GitCommandError as e:
+            if staging_path.exists():
+                shutil.rmtree(staging_path)
             raise RuntimeError(f'Failed to clone flutter repo:\n' + '\n'.join(progress.error_lines)) from e
+
+        if utils.flutter_tag(str(staging_path)) != tag:
+            if staging_path.exists():
+                shutil.rmtree(staging_path)
+            raise RuntimeError(f'Staging checkout does not match tag {tag}')
+
+        if out_path.is_dir():
+            import time
+            timestamp = int(time.time())
+            backup_path = out_path.parent / f'{out_path.name}.backup.{timestamp}'
+            logger.info(f'Moving existing directory {out_path} to {backup_path}...')
+            os.rename(out_path, backup_path)
+
+        logger.info(f'Moving staging directory {staging_path} to {out_path}...')
+        os.rename(staging_path, out_path)
+        logger.success(f'Successfully cloned flutter {tag} to {out_path}')
 
     def sync(self, *, cfg: str = None, root: str = None):
         cfg = cfg or self.gclient
@@ -408,24 +445,42 @@ class Build:
             import urllib.request
             import zipfile
             import tempfile
-            
+
             version_file = dart_sdk_dir / 'version'
             if version_file.exists() and version_file.read_text().strip() == self.dart_version:
                 logger.info(f'Dart SDK already replaced with {self.dart_version}')
             else:
                 logger.info(f'Replacing prebuilt dart-sdk with {self.dart_version}...')
                 url = f'https://storage.googleapis.com/dart-archive/channels/stable/release/{self.dart_version}/sdk/dartsdk-linux-x64-release.zip'
+                sha256_url = f'{url}.sha256sum'
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     zip_path = Path(tmp_dir) / 'dartsdk.zip'
+
+                    import urllib.request
+                    # Fetch expected checksum
+                    try:
+                        with urllib.request.urlopen(sha256_url) as response:
+                            expected_sha256 = response.read().decode('utf-8').split()[0].strip()
+                    except Exception as e:
+                        raise RuntimeError(f'Failed to fetch dart-sdk checksum: {e}')
+
                     urllib.request.urlretrieve(url, zip_path)
-                    
+
+                    import hashlib
+                    sha256 = hashlib.sha256()
+                    with open(zip_path, 'rb') as f:
+                        for chunk in iter(lambda: f.read(8192), b''):
+                            sha256.update(chunk)
+                    if sha256.hexdigest() != expected_sha256:
+                        raise RuntimeError(f'SHA256 mismatch for dart-sdk: expected {expected_sha256}, got {sha256.hexdigest()}')
+
                     shutil.rmtree(dart_sdk_dir)
                     with zipfile.ZipFile(zip_path, 'r') as zf:
                         zf.extractall(dart_sdk_dir.parent)
                     for bin_path in (dart_sdk_dir / 'bin').iterdir():
                         if bin_path.is_file():
                             bin_path.chmod(bin_path.stat().st_mode | 0o111)
-                
+
                 logger.success(f'Fixed #5: Replaced prebuilt dart-sdk with version {self.dart_version}')
 
         # 2. Run dart pub get for package_config.json files used by GN actions.
@@ -445,9 +500,9 @@ class Build:
     def sysroot(self, arch: str = 'arm64'):
         """Assemble Termux sysroot and apply fixes."""
         self._sysroot(arch=arch)
-        
+
         sysroot_path = Path(self._sysroot.path)
-        
+
         # Fix #3: Remove c++/v1 headers from sysroot (avoid libcxx conflict)
         cxx_dir = sysroot_path / 'usr' / 'include' / 'c++'
         if cxx_dir.is_dir():
@@ -797,29 +852,36 @@ class Build:
         # Detect if running in WSL (Linux) or Windows
         is_wsl = platform.system() == 'Linux'
 
+        if is_wsl:
+            if not os.path.exists(wsl_mount):
+                raise RuntimeError(f"Sync source directory {wsl_mount} does not exist in WSL.")
+        else:
+            if not os.path.exists(windows_root):
+                raise RuntimeError(f"Sync source directory {windows_root} does not exist.")
+
         for p in paths:
             src = f"{wsl_mount}/{p}"
             dst = f"{wsl_root}/{p}"
             # Ensure dst parent directory exists
             dst_dir = posixpath.dirname(dst)
             if is_wsl:
-                subprocess.run(['bash', '-c', f'mkdir -p "{dst_dir}"'], check=False)
+                subprocess.run(['bash', '-c', f'mkdir -p "{dst_dir}"'], check=True)
             else:
-                subprocess.run(['wsl', '-e', 'bash', '-c', f'mkdir -p "{dst_dir}"'], check=False)
-                
+                subprocess.run(['wsl', '-e', 'bash', '-c', f'mkdir -p "{dst_dir}"'], check=True)
+
             if '.' in p.split('/')[-1] and not src.endswith('/'):
                  # It's a file
-                 cmd = f"cp -a {src} {dst}"
+                 cmd = f"rsync -a '{src}' '{dst}'"
             else:
                  # It's a directory
-                 cmd = f"cp -a {src}/. {dst}/"
+                 cmd = f"rsync -a --delete '{src}/' '{dst}/'"
             logger.info(f'Syncing: {p}')
             if is_wsl:
                 # Running in WSL, execute directly
-                subprocess.run(['bash', '-c', cmd], check=False)
+                subprocess.run(['bash', '-c', cmd], check=True)
             else:
                 # Running in Windows, use wsl command
-                subprocess.run(['wsl', '-e', 'bash', '-c', cmd], check=False)
+                subprocess.run(['wsl', '-e', 'bash', '-c', cmd], check=True)
 
         logger.success('Sync completed')
 
@@ -832,7 +894,7 @@ class Build:
         root = root or self.root
         output = output or self.output(arch)
 
-        pkg = Package(root=root, arch=arch, **conf)
+        pkg = Package(root=root, arch=arch, tag=self.tag, release_tag=self.release_tag, **conf)
         pkg.debuild(output=output)
         validate_deb_artifacts(output)
 
@@ -853,79 +915,89 @@ class Build:
         Note: Only android-arm64 gen_snapshot is built. Users must use
         --target-platform android-arm64 when building APKs.
 
-        Technical limitation analysis (2025-12-28):
-        ============================================
-        We tested compiling gen_snapshot for android-arm and android-x64:
-
-        1. android-arm64: ✅ Works
-           - Host=ARM64, Target=ARM64, same architecture
-
-        2. android-arm (32-bit): ❌ Fails
-           - BoringSSL has shift overflow errors (e.g., `r0 << 63` on 32-bit type)
-           - The GN build system compiles host tool dependencies for target arch
-           - Would require extensive patches to BoringSSL and build system
-
-        3. android-x64: ❌ Fails
-           - ARM64 sysroot headers incompatible with x64 compilation
-           - Cross-architecture compilation fundamentally not supported
-
-        Root cause: Flutter Engine's GN build system assumes host and target
-        are compatible architectures. It doesn't properly separate host toolchain
-        (ARM64) from target compilation (ARM32/x64).
-
         Usage:
             python3 build.py build_all --arch=arm64
         """
+        import time
+        start_time = time.time()
         logger.info('=== Starting complete Flutter Termux build ===')
 
-        # Step 1: Build Linux debug (for flutter run -d linux --debug)
-        logger.info('[1/12] Configuring Linux debug...')
-        self.configure(arch=arch, mode='debug')
+        def run_step(step, total, name, func, **kwargs):
+            logger.info(f'[{step}/{total}] {name}...')
+            t0 = time.time()
+            func(**kwargs)
+            logger.info(f'✓ {name} completed in {time.time() - t0:.1f}s')
 
-        logger.info('[2/12] Building Flutter engine + dart...')
+        total = 14
+
+        # Step 1: preflight
+        logger.info(f'[1/{total}] preflight...')
+        t0 = time.time()
+        if not self.preflight():
+            raise RuntimeError("Preflight checks failed")
+        logger.info(f'✓ preflight completed in {time.time() - t0:.1f}s')
+
+        # Step 2: clone
+        run_step(2, total, 'clone', self.clone)
+
+        # Step 3: sync
+        run_step(3, total, 'sync', self.sync)
+
+        # Step 4: patch
+        logger.info(f'[4/{total}] patch...')
+        t0 = time.time()
+        if hasattr(self, 'patches') and isinstance(self.patches, dict):
+            for k in self.patches:
+                logger.info(f'  -> Patching {k}')
+                getattr(self, f'patch_{k}')()
+        logger.info(f'✓ patch completed in {time.time() - t0:.1f}s')
+
+        # Step 5: sysroot
+        run_step(5, total, 'sysroot', self.sysroot, arch=arch)
+
+        # Step 6: configure and build debug + dart + impellerc + const_finder
+        logger.info(f'[6/{total}] configure and build debug tools...')
+        t0 = time.time()
+        self.configure(arch=arch, mode='debug')
         self.build(arch=arch, mode='debug', jobs=jobs)
         self.build_dart(arch=arch, mode='debug', jobs=jobs)
-
-        # Step 3: Build impellerc (for shader compilation)
-        logger.info('[3/12] Building impellerc...')
         self.build_impellerc(arch=arch, mode='debug', jobs=jobs)
-
-        # Step 4: Build const_finder (for icon tree shaking)
-        logger.info('[4/12] Building const_finder...')
         self.build_const_finder(arch=arch, mode='debug', jobs=jobs)
+        logger.info(f'✓ debug tools completed in {time.time() - t0:.1f}s')
 
-        # Step 5: Build Linux release (for flutter build linux)
-        logger.info('[5/12] Configuring Linux release...')
-        self.configure(arch=arch, mode='release')
+        # Step 7: configure release
+        run_step(7, total, 'configure release', self.configure, arch=arch, mode='release')
 
-        logger.info('[6/12] Building Flutter engine (release)...')
-        self.build(arch=arch, mode='release', jobs=jobs)
+        # Step 8: build release
+        run_step(8, total, 'build release', self.build, arch=arch, mode='release', jobs=jobs)
 
-        # Step 7: Build Linux profile (for flutter run -d linux --profile)
-        logger.info('[7/12] Configuring Linux profile...')
-        self.configure(arch=arch, mode='profile')
+        # Step 9: configure profile
+        run_step(9, total, 'configure profile', self.configure, arch=arch, mode='profile')
 
-        logger.info('[8/12] Building Flutter engine (profile)...')
-        self.build(arch=arch, mode='profile', jobs=jobs)
+        # Step 10: build profile
+        run_step(10, total, 'build profile', self.build, arch=arch, mode='profile', jobs=jobs)
 
-        # Step 9: Build Android gen_snapshot (only arm64 supported)
-        # Due to Dart VM cross-compilation limitations, we can only build
-        # gen_snapshot for android-arm64. android-arm and android-x64 require
-        # patching the Dart VM signal handler code.
-        logger.info('[9/12] Building Android gen_snapshot release (arm64 only)...')
+        # Step 11: configure and build android gen_snapshot release
+        logger.info(f'[11/{total}] configure and build android gen_snapshot release...')
+        t0 = time.time()
         self.configure_android(arch='arm64', mode='release')
         self.build_android_gen_snapshot(arch='arm64', mode='release', jobs=jobs)
+        logger.info(f'✓ android gen_snapshot release completed in {time.time() - t0:.1f}s')
 
-        # Step 10: Build Android gen_snapshot profile mode
-        logger.info('[10/12] Building Android gen_snapshot profile (arm64 only)...')
+        # Step 12: configure and build android gen_snapshot profile
+        logger.info(f'[12/{total}] configure and build android gen_snapshot profile...')
+        t0 = time.time()
         self.configure_android(arch='arm64', mode='profile')
         self.build_android_gen_snapshot(arch='arm64', mode='profile', jobs=jobs)
+        logger.info(f'✓ android gen_snapshot profile completed in {time.time() - t0:.1f}s')
 
-        # Step 11: Package deb
-        logger.info('[11/12] Packaging deb...')
-        self.debuild(arch=arch, output=self.output(arch))
+        # Step 13: sync wsl (called internally by debuild, so we don't need to explicitly call it here, but it's part of debuild process)
+        # We will directly run debuild which calls sync_wsl.
 
-        logger.info('[12/12] Build complete!')
+        # Step 14: debuild
+        run_step(14, total, 'debuild', self.debuild, arch=arch, output=self.output(arch))
+
+        logger.info(f'=== Build complete in {time.time() - start_time:.1f}s ===')
         logger.info(f'Output: {self.output(arch)}')
         logger.info('Note: Users must use --target-platform android-arm64 when building APKs')
 
