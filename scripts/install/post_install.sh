@@ -225,15 +225,22 @@ echo "  ✓ engine.realm cleared"
 if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     echo "  ! Missing .git, creating dummy repository for version resolution..."
     cd "$FLUTTER_ROOT" || true
+
+    # Extract actual version before removing the file
+    FLUTTER_VER="3.44.2"
+    if [ -f "version" ]; then
+        FLUTTER_VER=$(cat version | tr -d '\n\r')
+    fi
+
     rm -f version
     /data/data/com.termux/files/usr/bin/git init -q >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.email "termux@example.com" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.name "termux" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git add bin/flutter >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git commit -q -m "Init framework" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git tag "3.44.0" >/dev/null 2>&1 || true
+    /data/data/com.termux/files/usr/bin/git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
-    echo "  ✓ Dummy tag 3.44.0 created"
+    echo "  ✓ Dummy tag $FLUTTER_VER created"
 fi
 
 # 1.5c. Fix CMakeLists.txt (skip compiler test for NDK cmake)
@@ -266,19 +273,8 @@ else
     echo "  ✓ Platform 36 already exists"
 fi
 
-# Replace .deb dart binary with Termux system dart (JIT VM)
-# The .deb ships exe.unstripped/dart which is actually dartdev (AOT wrapper)
-# that cannot execute .dart files in JIT mode. The flutter CLI (shared.sh)
-# needs a full JIT-capable dart VM to run flutter_tools.dart directly.
-echo "[1.5e/13] Replacing dart with Termux JIT-capable dart..."
-SYSTEM_DART=/data/data/com.termux/files/usr/bin/dart
-DEB_DART=$DART_SDK/bin/dart
-
-if [ ! -f "$SYSTEM_DART" ]; then
-    echo "  ! Termux dart not found. Installing dart via apt..."
-    apt update >/dev/null 2>&1 || true
-    apt install -y dart >/dev/null 2>&1 || true
-fi
+# Install required Termux build dependencies
+echo "[1.5e/13] Checking and installing Termux build dependencies..."
 
 if ! command -v aapt2 &> /dev/null; then
     echo "  ! Termux aapt2 not found. Installing build dependencies via apt..."
@@ -293,14 +289,6 @@ for tool in d8 dx aidl apksigner zipalign; do
         apt install -y $tool >/dev/null 2>&1 || true
     fi
 done
-
-if [ -f "$SYSTEM_DART" ]; then
-    cp "$SYSTEM_DART" "$DEB_DART"
-    chmod 755 "$DEB_DART"
-    echo "  ✓ Replaced with system dart ($($DEB_DART --version 2>&1))"
-else
-    echo "  ⚠ Keeping shipped dart wrapper."
-fi
 
 # Generate package_config.json for flutter_tools
 # The flutter CLI runs flutter_tools.dart in JIT mode (see shared.sh line ~200)
@@ -703,11 +691,11 @@ if [ -f "$BUILD_LINUX" ]; then
         sed -i "s@if (!globals.platform.isLinux)@if (false /\* Termux: allow linux build \*/)@" "$BUILD_LINUX"
         # Also unhide the command on Termux
         sed -i "s@!featureFlags.isLinuxEnabled || !globals.platform.isLinux@!featureFlags.isLinuxEnabled /\* Termux: visible \*/@" "$BUILD_LINUX"
-        
+
         # NOTE: MUST DELETE SNAPSHOT AND STAMP TO FORCE REBUILD!
         rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.stamp" 2>/dev/null
         rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot" 2>/dev/null
-        
+
         echo "  ✓ build_linux.dart patched (forced flutter_tools rebuild)"
     else
         echo "  ✓ Already patched"

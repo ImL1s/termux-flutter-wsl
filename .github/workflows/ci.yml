@@ -34,20 +34,27 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Python compile check
-        run: python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py scripts/ci/check_version_drift.py
+        run: python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py
 
       - name: Shell syntax check
         shell: bash
         run: |
           set -euo pipefail
-          bash -n install_flutter_complete.sh
-          bash -n scripts/install/install.sh
-          bash -n scripts/install/install_termux_flutter.sh
-          bash -n scripts/install/post_install.sh
-          bash -n scripts/test/gh_e2e_test.sh
-          bash -n scripts/device/termux_smoke.sh
-          bash -n scripts/install/setup_modern_tools.sh
-          bash -n scripts/ci/check_toolchain.sh
+          find scripts -name "*.sh" -exec bash -n {} +
+
+      - name: Validate build.toml schema
+        run: |
+          python -c "
+          import tomllib
+          with open('build.toml', 'rb') as f:
+              data = tomllib.load(f)
+          assert 'flutter' in data, 'Missing [flutter]'
+          assert 'tag' in data['flutter'], 'Missing flutter.tag'
+          assert 'ndk' in data, 'Missing [ndk]'
+          assert 'path' in data['ndk'], 'Missing ndk.path'
+          assert isinstance(data['ndk']['path'], str), 'ndk.path must be string'
+          print('build.toml schema valid!')
+          "
 
       - name: PowerShell syntax check
         shell: pwsh

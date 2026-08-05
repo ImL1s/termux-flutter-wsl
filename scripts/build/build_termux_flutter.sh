@@ -8,7 +8,7 @@ set -e
 # =====================================================
 # 配置區域 - 根據你的環境修改
 # =====================================================
-NDK_PATH="/opt/android-ndk-r27d"
+NDK_PATH="${NDK_PATH:-${ANDROID_NDK:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT}}}}"
 BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
 ARCH="arm64"
 MODE="debug"

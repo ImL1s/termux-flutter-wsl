@@ -37,7 +37,7 @@ Device smoke on Samsung SM-X716B / Android 16 / ARM64 Termux:
 |---------|--------|
 | `flutter --version` | ✅ Flutter 3.44.2 |
 | `dart --version` | ✅ Dart 3.12.1 on `android_arm64` |
-| `dartvm --version` | ✅ Dart 3.12.0 on `linux_arm64` |
+| `dartvm --version` | ✅ Dart 3.12.1 on `linux_arm64` |
 | `flutter doctor -v` | ✅ completes; unknown channel / no connected device are expected warnings |
 | `flutter create --platforms=android,linux` | ✅ |
 | `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` | ✅ ARM64 APK produced |

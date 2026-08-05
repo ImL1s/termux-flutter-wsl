@@ -16,7 +16,31 @@
 # 完成後你可以直接使用 flutter build apk 構建任何專案
 #
 
-set -e
+set -euo pipefail
+
+DO_UPGRADE=false
+for arg in "$@"; do
+    if [ "$arg" == "--upgrade" ]; then
+        DO_UPGRADE=true
+    fi
+done
+
+declare -A STAGE_STATUS
+record_stage() {
+    STAGE_STATUS[$1]=$2
+}
+print_summary() {
+    echo "{"
+    local first=1
+    for stage in "${!STAGE_STATUS[@]}"; do
+        if [ $first -eq 0 ]; then echo ","; fi
+        echo -n "  \"$stage\": \"${STAGE_STATUS[$stage]}\""
+        first=0
+    done
+    echo ""
+    echo "}"
+}
+trap print_summary EXIT
 
 # 顏色定義
 RED='\033[0;31m'
@@ -56,18 +80,27 @@ ARCH=$(uname -m)
 if [ "$ARCH" != "aarch64" ]; then
     echo -e "${RED}錯誤: 此腳本只支援 ARM64 (aarch64) 設備${NC}"
     echo "你的架構: $ARCH"
-    exit 1
+    record_stage preflight failed; exit 10
 fi
 
 # 檢查是否在 Termux 中
 if [ ! -d "/data/data/com.termux" ]; then
     echo -e "${RED}錯誤: 此腳本必須在 Termux 中執行${NC}"
-    exit 1
+    record_stage preflight failed; exit 10
+fi
+
+# 檢查磁碟空間 (需要約 2GB)
+FREE_SPACE=$(df -k /data | awk 'NR==2 {print $4}')
+if [ "$FREE_SPACE" -lt 2000000 ]; then
+    echo -e "${RED}錯誤: 磁碟空間不足。需要至少 2GB 可用空間。${NC}"
+    record_stage preflight failed
+    exit 10
 fi
 
 echo "  ✓ 架構: ARM64"
 echo "  ✓ 環境: Termux"
-echo ""
+echo "  ✓ 空間: 充足"
+record_stage preflight success
 
 # 詢問是否繼續
 echo -e "${YELLOW}此腳本將安裝：${NC}"
@@ -94,12 +127,9 @@ echo ""
 echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} 更新系統套件..."
 
 # 清理可能存在的舊包（避免依賴衝突）
-dpkg --purge android-sdk 2>/dev/null || true
-dpkg --purge flutter 2>/dev/null || true
-apt --fix-broken install -y 2>/dev/null || true
 
 pkg update -y
-pkg upgrade -y
+if [ "$DO_UPGRADE" = true ]; then pkg upgrade -y; fi
 
 # ========================================
 # Step 2: 安裝 Flutter
@@ -119,12 +149,16 @@ done
 
 # 下載 Flutter deb
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
-FLUTTER_DEB="$HOME/flutter_${FLUTTER_VERSION}_aarch64.deb"
+
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "$WORK_DIR"; print_summary' EXIT
+FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
 
 if [ ! -f "$FLUTTER_DEB" ]; then
     echo "下載 Flutter SDK..."
-    wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB"
+    wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { record_stage download failed; exit 20; }
 fi
+record_stage download success
 
 # 驗證 SHA256 校驗碼
 echo "驗證 SHA256 校驗碼..."
@@ -140,16 +174,21 @@ if command -v sha256sum &> /dev/null; then
         echo "==========================================================="
         echo -e "${NC}"
         rm -f "$FLUTTER_DEB"
-        exit 1
+        record_stage integrity failed; exit 30
     fi
     echo "  ✓ SHA256 驗證成功 ($ACTUAL_SHA256)"
+    record_stage integrity success
 else
     echo -e "${YELLOW}  ⚠ 未找到 sha256sum 工具，跳過 SHA256 驗證${NC}"
 fi
 
 # 安裝
-dpkg -i "$FLUTTER_DEB" || true
-apt --fix-broken install -y
+
+# 在確認新版本下載驗證完成後，移除舊的 SDK
+dpkg --purge android-sdk 2>/dev/null || true
+dpkg --purge flutter 2>/dev/null || true
+apt-get install -f -y "$FLUTTER_DEB" || { record_stage package failed; exit 40; }
+record_stage package success
 
 # 載入環境
 source $PREFIX/etc/profile.d/flutter.sh 2>/dev/null || true
@@ -160,7 +199,7 @@ DART_SDK=$FLUTTER_ROOT/bin/cache/dart-sdk
 if [ ! -x "$DART_SDK/bin/dartvm" ]; then
     echo -e "${RED}錯誤: Dart VM binary missing: $DART_SDK/bin/dartvm${NC}"
     echo "Dart 3.10+ requires dartvm next to dart. Re-download the fixed flutter_${FLUTTER_VERSION}_aarch64.deb release."
-    exit 1
+    record_stage integrity failed; exit 30
 fi
 if [ -f "$DART_SDK/bin/dart" ] && [ -f "$FLUTTER_ROOT/packages/flutter_tools/bin/flutter_tools.dart" ]; then
     echo "重新編譯 flutter_tools.snapshot..."
@@ -211,7 +250,7 @@ echo ""
 echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} 安裝 Android SDK..."
 
 ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
-ANDROID_SDK_DEB="$HOME/android-sdk_35.0.0_aarch64.deb"
+ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
 
 if [ ! -f "$ANDROID_SDK_DEB" ]; then
     echo "下載 Android SDK..."
@@ -237,7 +276,7 @@ if [ -d "$NDK_PATH" ]; then
     echo "  ✓ NDK 已安裝"
 else
     NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
-    NDK_ARCHIVE="$HOME/android-ndk-r29-aarch64.7z"
+    NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.7z"
 
     if [ ! -f "$NDK_ARCHIVE" ]; then
         echo "下載 ARM64 NDK (約 350MB)..."
@@ -322,7 +361,8 @@ done
 # 也運行 post_install.sh（如果存在）
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
     echo "執行 post_install.sh..."
-    bash $PREFIX/share/flutter/post_install.sh 2>/dev/null || true
+    bash $PREFIX/share/flutter/post_install.sh || { record_stage post-install failed; exit 50; }
+    record_stage post-install success
 fi
 
 # ========================================
@@ -349,7 +389,8 @@ EOF
 fi
 
 # 修復 CMake
-rm -rf $ANDROID_HOME/cmake/*/bin 2>/dev/null || true
+# removed wildcard deletion
+# rm -rf $ANDROID_HOME/cmake/*/bin 2>/dev/null || true
 mkdir -p $ANDROID_HOME/cmake/3.22.1/bin
 ln -sf $PREFIX/bin/cmake $ANDROID_HOME/cmake/3.22.1/bin/cmake
 ln -sf $PREFIX/bin/ninja $ANDROID_HOME/cmake/3.22.1/bin/ninja
@@ -400,7 +441,7 @@ if ! command -v aapt2 &> /dev/null; then
     rm -f *.deb 2>/dev/null || true
 fi
 
-TEST_APP_DIR="$HOME/flutter_test_app"
+TEST_APP_DIR="$WORK_DIR/flutter_test_app"
 
 # 創建測試專案
 if [ -d "$TEST_APP_DIR" ]; then
@@ -489,7 +530,8 @@ flutter build apk --release --target-platform android-arm64 2>&1 | tee /tmp/buil
 # Gradle 可能下載了新的 SDK 組件（如 build-tools/35.0.0-2），重新配置
 echo "配置 Gradle 下載的 SDK 組件..."
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
-    bash $PREFIX/share/flutter/post_install.sh 2>/dev/null || true
+    bash $PREFIX/share/flutter/post_install.sh || { record_stage post-install failed; exit 50; }
+    record_stage post-install success
 fi
 
 # 檢查是否因 NDK clang 問題失敗（Gradle 可能下載了新 NDK）
@@ -507,12 +549,15 @@ fi
 
 # 檢查 APK 結果
 if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+    record_stage smoke success
     APK_SIZE=$(ls -lh build/app/outputs/flutter-apk/app-release.apk | awk '{print $5}')
     APK_BUILD_SUCCESS=true
     echo "  ✓ APK 構建成功 ($APK_SIZE)"
 else
     APK_BUILD_SUCCESS=false
     echo "  ✗ APK 構建失敗"
+    record_stage smoke failed
+    exit 60
 fi
 
 # 測試 Linux 構建（如果已安裝 gtk3）
@@ -548,8 +593,6 @@ echo ""
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
 if [ "$BUILD_SUCCESS" = true ]; then
     echo -e "${CYAN}║     ${GREEN}安裝完成！APK 構建測試成功！${CYAN}                        ║${NC}"
-else
-    echo -e "${CYAN}║     ${YELLOW}安裝完成！APK 構建測試需要手動檢查${CYAN}                  ║${NC}"
 fi
 echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
 echo ""
