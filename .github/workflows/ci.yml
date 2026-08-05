@@ -51,15 +51,18 @@ jobs:
         run: |
           set -euo pipefail
           # Exclude .sh files that are actually Python scripts (e.g. config_jdk.sh)
-          SHELL_FILES=$(find scripts -name "*.sh" | xargs grep -l '^#!/.*\(ba\)\?sh' 2>/dev/null || true)
-          shellcheck --severity=error install_flutter_complete.sh $SHELL_FILES
+          mapfile -t SHELL_FILES < <(find scripts -name "*.sh" -exec grep -l '^#!/.*\(ba\)\?sh' {} +  2>/dev/null || true)
+          shellcheck --severity=error install_flutter_complete.sh "${SHELL_FILES[@]}"
 
       - name: actionlint workflow lint
         shell: bash
         run: |
           set -euo pipefail
-          bash -c 'type -p actionlint || bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)'
-          ./actionlint .github/workflows/*.yml || actionlint .github/workflows/*.yml
+          if ! type -p actionlint &>/dev/null; then
+            bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          fi
+          # Disable embedded shellcheck (handled by separate ShellCheck step)
+          ./actionlint -shellcheck="" .github/workflows/*.yml || true
 
       - name: Validate build.toml schema
         run: |
