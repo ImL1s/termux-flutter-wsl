@@ -172,21 +172,24 @@ class Sysroot:
             logger.info('no work to do.')
             return
 
-        async def _do_build():
-            pkgs_info = []
-            if locked:
-                if not self.lock_file.exists():
-                    logger.warning('Lock file not found, creating one...')
-                    self.lock(arch)
-
+        # Ensure lock file exists BEFORE entering async context
+        # (lock() uses asyncio.run() which cannot be nested)
+        if locked:
+            if not self.lock_file.exists():
+                logger.warning('Lock file not found, creating one...')
+                self.lock(arch)
+            else:
                 with open(self.lock_file, 'r', encoding='utf-8') as f:
                     lock_data = json.load(f)
-
                 if arch not in lock_data:
                     logger.warning(f'Arch {arch} not found in lock file, creating...')
                     self.lock(arch)
-                    with open(self.lock_file, 'r', encoding='utf-8') as f:
-                        lock_data = json.load(f)
+
+        async def _do_build():
+            pkgs_info = []
+            if locked:
+                with open(self.lock_file, 'r', encoding='utf-8') as f:
+                    lock_data = json.load(f)
 
                 req_pkgs = set()
                 for it in self.data.values():

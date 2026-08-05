@@ -943,13 +943,19 @@ class Build:
         # Step 3: sync
         run_step(3, total, 'sync', self.sync)
 
-        # Step 4: patch
+        # Step 4: patch (skip already-applied patches gracefully)
         logger.info(f'[4/{total}] patch...')
         t0 = time.time()
         if hasattr(self, 'patches') and isinstance(self.patches, dict):
             for k in self.patches:
-                logger.info(f'  -> Patching {k}')
-                getattr(self, f'patch_{k}')()
+                try:
+                    logger.info(f'  -> Patching {k}')
+                    getattr(self, f'patch_{k}')()
+                except Exception as e:
+                    if 'already applied' in str(e).lower() or 'patch does not apply' in str(e).lower():
+                        logger.info(f'  -> {k} already applied, skipping')
+                    else:
+                        raise
         logger.info(f'✓ patch completed in {time.time() - t0:.1f}s')
 
         # Step 5: sysroot

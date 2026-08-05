@@ -39,6 +39,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: device-smoke-${{ github.ref }}
