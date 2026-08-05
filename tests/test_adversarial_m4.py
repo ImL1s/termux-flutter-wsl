@@ -2,6 +2,7 @@ import os
 import sys
 import yaml
 import pytest
+import unittest.mock
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -119,9 +120,10 @@ def test_adv_missing_control_headers(tmp_path):
 
 
 def test_adv_wsl_mount_validation():
-    # Valid mount paths
-    validate_wsl_mount('/mnt/c/Users/test')
-    validate_wsl_mount('/mnt/d/Project/path')
+    # Valid mount paths - mock os.path.exists for non-WSL Linux CI
+    with unittest.mock.patch('os.path.exists', return_value=True):
+        validate_wsl_mount('/mnt/c/Users/test')
+        validate_wsl_mount('/mnt/d/Project/path')
 
     # Invalid mount paths
     invalid_paths = [

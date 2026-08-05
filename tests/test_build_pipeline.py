@@ -1,6 +1,7 @@
 import os
 import sys
 import pytest
+import unittest.mock
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -53,9 +54,10 @@ def test_wsl_path_conversions():
 
 
 def test_wsl_mount_validation():
-    # Valid mount format
-    validate_wsl_mount('/mnt/c/Users/test')
-    validate_wsl_mount('/mnt/d/project')
+    # Valid mount format - mock os.path.exists for non-WSL Linux CI
+    with unittest.mock.patch('os.path.exists', return_value=True):
+        validate_wsl_mount('/mnt/c/Users/test')
+        validate_wsl_mount('/mnt/d/project')
 
     # Invalid mount format should fail
     with pytest.raises(ValueError, match="Unsupported WSL mount configuration"):

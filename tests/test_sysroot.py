@@ -51,8 +51,9 @@ def test_compute_tree_hash_determinism(tmp_path):
     assert h1 != h3
 
 
-@pytest.mark.asyncio
-async def test_transitive_dependency_resolution():
+def test_transitive_dependency_resolution():
+    import asyncio
+
     mock_packages_index = """
 Package: pkg-a
 Version: 1.0
@@ -102,8 +103,11 @@ SHA256: ddd444
         def get(self, url):
             return DummyResponse()
 
-    sess = DummySession()
-    resolved = await _resolve_packages(sess, "arm64", sysroot_data)
+    async def _run():
+        sess = DummySession()
+        return await _resolve_packages(sess, "arm64", sysroot_data)
+
+    resolved = asyncio.run(_run())
 
     assert set(resolved.keys()) == {"pkg-a", "pkg-b", "pkg-c", "pkg-d"}
     assert resolved["pkg-a"]["sha256"] == "aaa111"
