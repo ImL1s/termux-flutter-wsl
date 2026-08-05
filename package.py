@@ -51,6 +51,30 @@ def emit(out, src, git):
             'src': src/it}
 
 
+def safe_eval(expr, globals_dict, defines_dict=None):
+    if not isinstance(expr, str):
+        return expr
+    context = {**globals_dict, **(defines_dict or {})}
+    if expr.startswith("f'") and expr.endswith("'"):
+        inner = expr[2:-1]
+        import re
+        def replace(match):
+            var = match.group(1)
+            if var in context:
+                return str(context[var])
+            return f'{{{var}}}'
+        return re.sub(r'\{([^}]+)\}', replace, inner)
+    elif expr.startswith("'") and expr.endswith("'"):
+        return expr[1:-1]
+    elif expr.startswith('"') and expr.endswith('"'):
+        return expr[1:-1]
+    elif expr.startswith('output.'):
+        attr = expr.split('.', 1)[1]
+        return getattr(context['output'], attr)
+    else:
+        return context.get(expr, expr)
+
+
 def explore(src, git):
     explore = explore_git if git else explore_file
 
@@ -59,8 +83,7 @@ def explore(src, git):
     for src in src:
         src = src.absolute()
         if not src.exists():
-            logger.warning(f'source not found: "{src}"')
-            continue
+            raise FileNotFoundError(f'missing required resource: "{src}"')
         yield src, Path('.')
         for it in explore(src):
             yield src, it
@@ -192,11 +215,12 @@ class Output(object):
 
 @utils.record
 class Package(object):
-    def __init__(self, root, arch, control, resource, define=None):
+    def __init__(self, root, arch, control, resource, define=None, tag=None, release_tag=None, **kwargs):
         root = Path(root).resolve()
         assert root.is_dir(), f'bad flutter root path: "{root}"'
         self.globals = {
-            'tag': utils.flutter_tag(root),
+            'tag': tag or utils.flutter_tag(root),
+            'release_tag': release_tag or tag or utils.flutter_tag(root),
             'root': root,
             'arch': arch,
             'output': Output(root, arch),
@@ -204,7 +228,7 @@ class Package(object):
             'architecture': utils.termux_arch(arch),
         }
         self.defines = {
-            k: eval(v, self.globals) for k, v in define.items()
+            k: safe_eval(v, self.globals) for k, v in define.items()
         }
         self.control = control
         self.resource = resource
@@ -248,7 +272,7 @@ class Package(object):
         ext = {}
 
         for k, v in dep.items():
-            dep[k] = eval(v, self.globals, self.defines)
+            dep[k] = safe_eval(v, self.globals, self.defines)
 
         # expect None, str, int
         if isinstance(mod, str):
@@ -296,7 +320,7 @@ class Package(object):
         if not (test := data.get('test', {})):
             return None
         deps = data.get('define', {}).items()
-        deps = {k: eval(v, self.globals, self.defines) for k, v in deps}
+        deps = {k: safe_eval(v, self.globals, self.defines) for k, v in deps}
         file = self.__format__(test['file'], **deps)
         path = self.__format__(test['path'], **deps)
         if not (dest := download(file, Path('~/storage/downloads/1DMP/General').expanduser())):
@@ -322,14 +346,47 @@ class Package(object):
 
             with open(info, 'wb+') as f:
                 f.write(b'2.0\n')
-            tar(ctrl, self.gen_control())
-            tar(data, self.gen_resource(section))
+            inventory = []
+            def track_resources():
+                for it in self.gen_resource(section):
+                    src = it.get('src')
+                    out = it.get('out')
+                    mod = it.get('mod')
 
+                    if isinstance(src, bytes):
+                        size = len(src)
+                        sha = hashlib.sha256(src).hexdigest()
+                    elif not src or src.is_dir():
+                        size = 0
+                        sha = "-"
+                    elif src.exists():
+                        size = src.stat().st_size
+                        with open(src, 'rb') as f:
+                            sha = hashlib.file_digest(f, 'sha256').hexdigest()
+                    else:
+                        size = 0
+                        sha = "-"
+
+                    inventory.append(f"{out}\t{sha}\t{size}\t{mod if mod else '-'}")
+                    yield it
+
+            tar(ctrl, self.gen_control())
+            tar(data, track_resources())
+
+            tmp_deb = Path(tmp, output.name)
             subprocess.run(
-                    ['ar', 'rc', output, info, ctrl, data],
+                    ['ar', 'rc', tmp_deb, info, ctrl, data],
                     check=True,
                     stderr=True,
                     stdout=True)
+
+            import os
+            os.rename(tmp_deb, output)
+
+            inv_path = output.with_name(output.name + '.inventory')
+            with open(inv_path, 'w', encoding='utf-8') as f:
+                f.write("Path\tSHA256\tSize\tMode\n")
+                f.write("\n".join(inventory))
 
         logger.info(f'✓ 构建完成 {output}')
 
