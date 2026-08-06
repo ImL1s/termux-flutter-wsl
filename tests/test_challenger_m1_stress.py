@@ -158,22 +158,25 @@ apt-get install -f -y "dummy.deb" || { record_stage package failed; exit 40; }
 
 
 def test_real_installer_script_staging_order():
-    """Verify by direct code inspection and regex that install_flutter_complete.sh has staging before purge."""
+    """Verify that install_flutter_complete.sh uses transactional install-first (no premature purge)."""
     content = INSTALLER.read_text(encoding="utf-8")
     
     pos_staging = content.find("預先下載並驗證所有套件")
     pos_verify_flutter = content.find('verify_sha256 "$FLUTTER_DEB"')
     pos_verify_android = content.find('verify_sha256 "$ANDROID_SDK_DEB"')
     pos_verify_ndk = content.find('verify_sha256 "$NDK_ARCHIVE"')
-    pos_purge_android = content.find('dpkg --purge android-sdk')
-    pos_purge_flutter = content.find('dpkg --purge flutter')
     
     assert pos_staging > 0, "Staging block header missing"
     assert pos_verify_flutter > pos_staging, "Flutter verification must be inside staging block"
     assert pos_verify_android > pos_staging, "Android SDK verification must be inside staging block"
     assert pos_verify_ndk > pos_staging, "NDK verification must be inside staging block"
-    assert pos_purge_android > pos_verify_ndk, "dpkg --purge android-sdk MUST occur AFTER all sha256 verifications"
-    assert pos_purge_flutter > pos_verify_ndk, "dpkg --purge flutter MUST occur AFTER all sha256 verifications"
+    
+    # Transactional: no premature purge should exist
+    # dpkg --purge with || true was the old dangerous pattern
+    assert 'dpkg --purge android-sdk' not in content, \
+        "Transactional installer must not have dpkg --purge android-sdk (dpkg -i handles upgrade)"
+    assert 'dpkg --purge flutter' not in content, \
+        "Transactional installer must not have dpkg --purge flutter (dpkg -i handles upgrade)"
 
 
 # ==============================================================================

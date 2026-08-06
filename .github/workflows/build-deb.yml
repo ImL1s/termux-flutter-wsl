@@ -64,6 +64,8 @@ jobs:
 
       - name: Validate host toolchain contract
         shell: bash
+        env:
+          INPUT_FLUTTER_VERSION: ${{ inputs.flutter_version }}
         run: |
           set -euo pipefail
           NDK_DIR="${NDK_PATH:-${ANDROID_NDK:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}}"
@@ -72,7 +74,7 @@ jobs:
             exit 1
           fi
 
-          INPUT_VERSION="${{ inputs.flutter_version }}"
+          INPUT_VERSION="$INPUT_FLUTTER_VERSION"
           TOML_VERSION=$(grep '^tag *=' build.toml | sed -E "s/tag *= *'([^']+)'/\1/")
 
           if [ -z "$TOML_VERSION" ]; then
@@ -140,6 +142,9 @@ jobs:
           # Generate inventory (list of files in deb)
           dpkg-deb -c "$DEB" > inventory.txt
 
+          TREE_SHA=$(git log -1 --format='%T' HEAD)
+          BUILD_DURATION="${SECONDS:-0}"
+
           cat <<EOF > "$METADATA_FILE"
           {
             "version": "${FLUTTER_VERSION}",
@@ -147,20 +152,26 @@ jobs:
             "run_id": "${{ github.run_id }}",
             "build_number": "${{ github.run_number }}",
             "source_commit": "${{ github.sha }}",
+            "tree_sha": "${TREE_SHA}",
             "sha256": "$(cat ${DEB}.sha256 | awk '{print $1}')",
-            "size_bytes": $(stat -c '%s' "$DEB")
+            "size_bytes": $(stat -c '%s' "$DEB"),
+            "build_duration_seconds": ${BUILD_DURATION}
           }
           EOF
 
+          INVENTORY_COUNT=$(wc -l < inventory.txt)
           cat <<EOF > "$EVIDENCE_FILE"
           {
+            "type": "build_evidence",
             "version": "${FLUTTER_VERSION}",
             "arch": "${ARCH}",
             "run_id": "${{ github.run_id }}",
-            "build_number": "${{ github.run_number }}",
             "source_commit": "${{ github.sha }}",
-            "sha256": "$(cat ${DEB}.sha256 | awk '{print $1}')",
-            "size_bytes": $(stat -c '%s' "$DEB")
+            "tree_sha": "${TREE_SHA}",
+            "deb_sha256": "$(cat ${DEB}.sha256 | awk '{print $1}')",
+            "deb_size_bytes": $(stat -c '%s' "$DEB"),
+            "inventory_file_count": ${INVENTORY_COUNT},
+            "build_duration_seconds": ${BUILD_DURATION}
           }
           EOF
 

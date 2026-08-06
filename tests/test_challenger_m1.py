@@ -97,28 +97,27 @@ def test_installer_swallowed_dpkg_errors_scan():
 
 
 def test_installer_preflight_purge_order_analysis():
-    """Verify if dpkg --purge destroys pre-existing environment before dpkg -i of all components finishes."""
+    """Verify installer uses transactional install-first approach (no premature purge)."""
     content = INSTALLER.read_text(encoding="utf-8")
     lines = content.splitlines()
     
-    purge_line_idx = None
-    android_sdk_install_idx = None
-    
+    # Transactional installer: dpkg --purge should NOT exist as a standalone purge-first step
+    # (dpkg -i handles upgrades directly)
     for idx, line in enumerate(lines, 1):
-        if "dpkg --purge flutter" in line:
-            if purge_line_idx is None:
-                purge_line_idx = idx
+        stripped = line.strip()
+        if "dpkg --purge" in stripped and "|| true" in stripped:
+            pytest.fail(
+                f"Line {idx}: Found premature purge '{stripped}'. "
+                f"Transactional installer must not purge before install."
+            )
+    
+    # Verify Android SDK install line exists
+    android_sdk_install_idx = None
+    for idx, line in enumerate(lines, 1):
         if "ANDROID_SDK_DEB" in line and ("dpkg -i" in line or "dpkg --force" in line):
             if android_sdk_install_idx is None:
                 android_sdk_install_idx = idx
-                
-    print(f"Purge line idx: {purge_line_idx}, Android SDK install line idx: {android_sdk_install_idx}")
-    assert purge_line_idx is not None
-    assert android_sdk_install_idx is not None
-    assert android_sdk_install_idx < purge_line_idx, f"Android SDK install (line {android_sdk_install_idx}) must complete BEFORE dpkg --purge flutter (line {purge_line_idx})"
-    # Check if purge happens BEFORE Android SDK installation
-    # If purge happens at line 168 and Android SDK is installed at line 237,
-    # then a failure during Android SDK installation (line 237) occurs AFTER flutter was already purged!
+    assert android_sdk_install_idx is not None, "Android SDK install line must exist"
 
 
 # ============================================================================

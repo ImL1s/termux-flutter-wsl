@@ -471,7 +471,7 @@ class Sysroot:
                 logger.info(f'✓ Atomic replacement to {self.path} successful.')
             except Exception as e:
                 logger.error(f'Build failed: {e}')
-                _safe_rmtree(staging_out)
+                logger.error(f'Staging directory preserved at {staging_out} for debugging')
                 raise
 
         asyncio.run(_do_build())

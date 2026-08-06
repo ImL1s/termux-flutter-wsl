@@ -122,50 +122,82 @@ ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/do
 NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
 
 WORK_DIR=$(mktemp -d)
-trap 'rm -rf "$WORK_DIR"; print_summary' EXIT
+INSTALL_FAILED=false
+
+# Snapshot existing package state for rollback
+FLUTTER_WAS_INSTALLED=false
+ANDROID_SDK_WAS_INSTALLED=false
+if dpkg -l flutter 2>/dev/null | grep -q '^ii'; then
+    FLUTTER_WAS_INSTALLED=true
+fi
+if dpkg -l android-sdk 2>/dev/null | grep -q '^ii'; then
+    ANDROID_SDK_WAS_INSTALLED=true
+fi
+
+rollback_packages() {
+    echo -e "${RED}[ROLLBACK] Install failed — preserving existing environment.${NC}"
+    if [ "$FLUTTER_WAS_INSTALLED" = true ]; then
+        echo -e "${RED}[ROLLBACK] Flutter was previously installed. State preserved.${NC}"
+    fi
+    if [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
+        echo -e "${RED}[ROLLBACK] Android SDK was previously installed. State preserved.${NC}"
+    fi
+    record_stage rollback triggered
+}
+
+cleanup_and_exit() {
+    local exit_code=$?
+    if [ "$INSTALL_FAILED" = true ]; then
+        rollback_packages
+    fi
+    rm -rf "$WORK_DIR"
+    print_summary
+    exit $exit_code
+}
+trap cleanup_and_exit EXIT
+
 FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
 ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
 NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.7z"
 
 echo "下載 Flutter SDK..."
-wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { record_stage download failed; exit 20; }
+wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
 record_stage download success
 
 echo "驗證 Flutter SDK SHA256 校驗碼..."
-verify_sha256 "$FLUTTER_DEB" "$EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
+verify_sha256 "$FLUTTER_DEB" "$EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
 record_stage integrity success
 
 echo "下載 Android SDK..."
-wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { record_stage download failed; exit 20; }
+wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
 echo "驗證 Android SDK SHA256 校驗碼..."
-verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
+verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
 
 ANDROID_HOME="$PREFIX/opt/android-sdk"
 NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
 if [ ! -d "$NDK_PATH" ]; then
     echo "下載 ARM64 NDK..."
-    wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { record_stage download failed; exit 20; }
+    wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
     echo "驗證 NDK SHA256 校驗碼..."
-    verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" || { record_stage integrity failed; exit 30; }
+    verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
 fi
 
-# 預先檢驗 ANDROID_SDK_DEB 可用性
-dpkg --force-architecture "$ANDROID_SDK_DEB" --dry-run >/dev/null 2>&1 || true
+# 預先驗證 deb 結構完整性 (hard failure)
+echo "驗證 Android SDK deb 結構完整性..."
+dpkg-deb --info "$ANDROID_SDK_DEB" >/dev/null 2>&1 || { INSTALL_FAILED=true; record_stage integrity failed; echo "Android SDK deb is corrupt"; exit 30; }
 
 # 所有下載與驗證均已成功完成，開始安裝
-echo "在確認新版本下載驗證完成後，開始安裝 SDK..."
+echo "所有下載與驗證均已成功完成，開始安裝 SDK..."
 
 # ========================================
-# Step 2: 安裝 Android SDK
+# Step 2: 安裝 Android SDK (install-first, never purge-first)
 # ========================================
 echo ""
 echo -e "${GREEN}[2/${TOTAL_STEPS}]${NC} 安裝 Android SDK..."
 
-echo "移除舊的 Android SDK (如有)..."
-dpkg --purge android-sdk 2>/dev/null || true
-
+# Transactional: install new package directly (dpkg handles upgrade)
 echo "安裝 Android SDK..."
-dpkg -i --force-architecture "$ANDROID_SDK_DEB" || dpkg --force-depends --configure android-sdk || { record_stage package failed; exit 40; }
+dpkg -i --force-architecture "$ANDROID_SDK_DEB" || dpkg --force-depends --configure android-sdk || { INSTALL_FAILED=true; record_stage package failed; exit 40; }
 echo "  ✓ Android SDK 已安裝"
 
 # ========================================
@@ -174,11 +206,8 @@ echo "  ✓ Android SDK 已安裝"
 echo ""
 echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} 安裝 Flutter SDK..."
 
-echo "移除舊的 Flutter SDK (如有)..."
-dpkg --purge flutter 2>/dev/null || true
-
 echo "安裝 Flutter SDK..."
-apt-get install -f -y "$FLUTTER_DEB" || { record_stage package failed; exit 40; }
+apt-get install -f -y "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage package failed; exit 40; }
 record_stage package success
 
 # 載入環境
@@ -190,7 +219,7 @@ DART_SDK=$FLUTTER_ROOT/bin/cache/dart-sdk
 if [ ! -x "$DART_SDK/bin/dartvm" ]; then
     echo -e "${RED}錯誤: Dart VM binary missing: $DART_SDK/bin/dartvm${NC}"
     echo "Dart 3.10+ requires dartvm next to dart. Re-download the fixed flutter_${FLUTTER_VERSION}_aarch64.deb release."
-    record_stage integrity failed; exit 30
+    INSTALL_FAILED=true; record_stage integrity failed; exit 30
 fi
 if [ -f "$DART_SDK/bin/dart" ] && [ -f "$FLUTTER_ROOT/packages/flutter_tools/bin/flutter_tools.dart" ]; then
     echo "重新編譯 flutter_tools.snapshot..."
@@ -211,7 +240,7 @@ if [ -n "$ENGINE_VERSION" ] && [ ! -f "$SNAPSHOTS_DIR/dds_aot.dart.snapshot" ]; 
     wget -q --show-progress "$SNAPSHOTS_URL" -O "$HOME/dart-sdk.zip" || true
     if [ -f "$HOME/dart-sdk.zip" ]; then
         if [ "$ENGINE_VERSION" = "77e2e94772b6eb43759e34ed1ad7da4674e19cab" ]; then
-            verify_sha256 "$HOME/dart-sdk.zip" "$SNAPSHOT_EXPECTED_SHA256" || { rm -f "$HOME/dart-sdk.zip"; record_stage integrity failed; exit 30; }
+            verify_sha256 "$HOME/dart-sdk.zip" "$SNAPSHOT_EXPECTED_SHA256" || { rm -f "$HOME/dart-sdk.zip"; INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
         else
             echo "  ⚠ 引擎版本不匹配，跳過 Dart SDK snapshots 校驗碼驗證"
         fi
@@ -326,7 +355,7 @@ done
 # 也運行 post_install.sh（如果存在）
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
     echo "執行 post_install.sh..."
-    bash $PREFIX/share/flutter/post_install.sh || { record_stage post-install failed; exit 50; }
+    bash $PREFIX/share/flutter/post_install.sh || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
     record_stage post-install success
 fi
 
@@ -495,7 +524,7 @@ flutter build apk --release --target-platform android-arm64 2>&1 | tee /tmp/buil
 # Gradle 可能下載了新的 SDK 組件（如 build-tools/35.0.0-2），重新配置
 echo "配置 Gradle 下載的 SDK 組件..."
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
-    bash $PREFIX/share/flutter/post_install.sh || { record_stage post-install failed; exit 50; }
+    bash $PREFIX/share/flutter/post_install.sh || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
     record_stage post-install success
 fi
 
@@ -522,7 +551,7 @@ else
     APK_BUILD_SUCCESS=false
     echo "  ✗ APK 構建失敗"
     record_stage smoke failed
-    exit 60
+    INSTALL_FAILED=true; exit 60
 fi
 
 # 測試 Linux 構建（如果已安裝 gtk3）

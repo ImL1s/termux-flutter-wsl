@@ -582,6 +582,25 @@ class Build:
 
     def patch(self, *, file, path):
         repo = git.Repo(path)
+        # Classify patch state: {postimage, preimage, unknown}
+        # 1. Check if patch is already applied (reverse succeeds)
+        try:
+            repo.git.apply(['--reverse', '--check', file])
+            logger.info(f'  Patch {Path(file).name} already applied (postimage), skipping.')
+            return
+        except git.GitCommandError:
+            pass  # Not in postimage state
+
+        # 2. Check if patch can be applied cleanly (preimage)
+        try:
+            repo.git.apply(['--check', file])
+        except git.GitCommandError as e:
+            raise RuntimeError(
+                f'Patch {Path(file).name} cannot be applied and is not already applied. '
+                f'Source tree is in unknown state. Error: {e}'
+            )
+
+        # 3. Apply the patch
         repo.git.apply([file])
 
     def sysroot(self, arch: str = 'arm64', locked: bool = True):
@@ -1053,19 +1072,13 @@ class Build:
             self.sync
         )
 
-        # Step 4: patch (skip already-applied patches gracefully)
+        # Step 4: patch (uses reverse-check classification)
         logger.info(f'[4/{total}] patch...')
         t0 = time.time()
         if hasattr(self, 'patches') and isinstance(self.patches, dict):
             for k in self.patches:
-                try:
-                    logger.info(f'  -> Patching {k}')
-                    getattr(self, f'patch_{k}')()
-                except Exception as e:
-                    if 'already applied' in str(e).lower() or 'patch does not apply' in str(e).lower():
-                        logger.info(f'  -> {k} already applied, skipping')
-                    else:
-                        raise
+                logger.info(f'  -> Patching {k}')
+                getattr(self, f'patch_{k}')()
         logger.info(f'✓ patch completed in {time.time() - t0:.1f}s')
 
         # Step 5: sysroot

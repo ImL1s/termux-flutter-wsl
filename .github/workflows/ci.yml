@@ -62,7 +62,7 @@ jobs:
             bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           fi
           # Disable embedded shellcheck (handled by separate ShellCheck step)
-          ./actionlint -shellcheck="" .github/workflows/*.yml || true
+          ./actionlint -shellcheck="" .github/workflows/*.yml
 
       - name: Validate build.toml schema
         run: |

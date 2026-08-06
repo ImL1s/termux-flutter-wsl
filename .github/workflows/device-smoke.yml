@@ -59,12 +59,37 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
         run: |
-          gh run download ${{ inputs.artifact_run_id }} -n ${{ inputs.artifact_name }} -D ./candidate
+          gh run download "$ARTIFACT_RUN_ID" -n "$ARTIFACT_NAME" -D ./candidate
           ls -la ./candidate
+
+      - name: Verify artifact SHA256
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        run: |
+          set -euo pipefail
+          DEB=$(find ./candidate -name '*.deb' | head -n 1)
+          if [ -z "$DEB" ]; then
+            echo "No deb found in candidate directory" >&2
+            exit 1
+          fi
+          ACTUAL_SHA=$(sha256sum "$DEB" | awk '{print $1}')
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA256" ]; then
+            echo "SHA256 MISMATCH: expected $EXPECTED_SHA256, got $ACTUAL_SHA" >&2
+            exit 1
+          fi
+          echo "✓ SHA256 verified: $ACTUAL_SHA"
 
       - name: Run Termux smoke through ADB
         shell: pwsh
+        env:
+          INPUT_ADB_PATH: ${{ inputs.adb_path }}
+          INPUT_DEVICE_SERIAL: ${{ inputs.device_serial }}
+          INPUT_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
         run: |
           $ErrorActionPreference = 'Stop'
           # Find the deb in the candidate dir
@@ -76,11 +101,11 @@ jobs:
               $commit_sha = $json.source_commit
           }
           scripts/device/run_termux_smoke.ps1 `
-            -AdbPath '${{ inputs.adb_path }}' `
-            -DeviceSerial '${{ inputs.device_serial }}' `
+            -AdbPath $env:INPUT_ADB_PATH `
+            -DeviceSerial $env:INPUT_DEVICE_SERIAL `
             -DebPath $deb_path `
-            -ExpectedSha256 '${{ inputs.expected_sha256 }}' `
-            -TimeoutMinutes ${{ inputs.timeout_minutes }} `
+            -ExpectedSha256 $env:INPUT_EXPECTED_SHA256 `
+            -TimeoutMinutes $env:INPUT_TIMEOUT_MINUTES `
             -CommitSha "$commit_sha"
 
       - name: Upload evidence artifact
@@ -96,6 +121,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           command -v gh >/dev/null 2>&1 || { echo "gh CLI is required" >&2; exit 1; }
@@ -106,7 +132,7 @@ jobs:
           METADATA=$(ls ./candidate/build_metadata.json | head -n 1)
           INVENTORY=$(ls ./candidate/inventory.txt | head -n 1)
 
-          TAG="${{ inputs.release_tag }}"
+          TAG="$INPUT_RELEASE_TAG"
           if [ -z "$TAG" ]; then
             echo "release_tag is required for promotion" >&2
             exit 1
