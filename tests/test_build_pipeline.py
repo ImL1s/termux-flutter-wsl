@@ -205,3 +205,38 @@ def test_build_sysroot_applies_header_fixes(tmp_path, monkeypatch):
     assert not cxx_dir.exists()
     assert (sysroot_dir / 'usr' / 'include' / 'c++.bak').is_dir()
     assert 'extern "C++"' in glib_typeof.read_text(encoding='utf-8')
+
+
+def test_clone_tag_mismatch_defines_current_tag(tmp_path, monkeypatch):
+    conf_path = tmp_path / 'build.toml'
+    flutter_dir = tmp_path / 'flutter'
+    package_yaml = tmp_path / 'package.yaml'
+    flutter_dir.mkdir()
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.0\n", encoding='utf-8')
+
+    flutter_str = str(flutter_dir).replace('\\', '/')
+    package_str = str(package_yaml).replace('\\', '/')
+
+    conf_content = f"""
+    [flutter]
+    tag = "3.44.0"
+    path = "{flutter_str}"
+    [package]
+    conf = "{package_str}"
+    """
+    conf_path.write_text(conf_content, encoding='utf-8')
+    b = Build(conf=str(conf_path))
+
+    monkeypatch.setattr(b, 'workspace_status', lambda path: {'exists': True, 'dirty': False, 'tag': '3.43.0'})
+
+    mock_repo = MagicMock()
+    mock_repo.git.fetch = MagicMock()
+    mock_repo.git.checkout = MagicMock()
+
+    import git
+    monkeypatch.setattr(git, 'Repo', lambda path: mock_repo)
+    monkeypatch.setattr(utils, 'flutter_tag', lambda path: '3.44.0')
+
+    # Calling clone should successfully log current_tag without raising NameError
+    b.clone(tag='3.44.0')
+    mock_repo.git.checkout.assert_called_once_with('3.44.0')

@@ -466,6 +466,7 @@ class Build:
                 logger.error(f'Checkout at {out_path} has uncommitted changes. Use --force to override.')
                 raise RuntimeError(f'Dirty checkout at {out_path}')
 
+            current_tag = status.get('tag')
             # Attempt checkout of target tag inside existing repository
             try:
                 repo = git.Repo(out_path)
