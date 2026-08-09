@@ -183,3 +183,54 @@ def test_workflow_ndk_resolution_fallback(tmp_path):
 
     resolved_clang = Path(ndk_dir) / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin" / "clang"
     assert resolved_clang.exists(), "Workflow NDK resolution failed to fall back to default NDK directory"
+
+
+def test_size_artifact_contract_producer_and_parser(tmp_path):
+    """Test size artifact contract: producer writes pure integer stat output, parser strictly validates ^[0-9]+$, single line, positive integer, and exact byte size."""
+    dummy_deb = tmp_path / "test.deb"
+    dummy_deb.write_bytes(b"x" * 12345)
+    size_file = tmp_path / "test.deb.size.txt"
+
+    # Producer contract (stat -c '%s' "$DEB" | tee "${DEB}.size.txt")
+    size_bytes = dummy_deb.stat().st_size
+    size_file.write_text(f"{size_bytes}\n", encoding="utf-8")
+
+    def check_size_file(file_path, expected_size):
+        if not file_path.is_file():
+            return "Error: missing file"
+        content_raw = file_path.read_text(encoding="utf-8")
+        lines = content_raw.splitlines()
+        if len(lines) != 1:
+            return f"Error: expected 1 line, got {len(lines)}"
+        content = lines[0].strip()
+        import re
+        if not re.match(r"^[0-9]+$", content):
+            return f"Error: content '{content}' is not a pure integer"
+        val = int(content)
+        if val <= 0:
+            return f"Error: size {val} is not positive"
+        if val != expected_size:
+            return f"Error: size {val} != expected {expected_size}"
+        return "VERIFIED"
+
+    assert check_size_file(size_file, 12345) == "VERIFIED"
+
+    # Test rejection of annotated value (e.g. "test.deb 12345 bytes")
+    bad_annotated = tmp_path / "bad_annotated.txt"
+    bad_annotated.write_text("test.deb 12345 bytes\n", encoding="utf-8")
+    assert check_size_file(bad_annotated, 12345) != "VERIFIED"
+
+    # Test rejection of empty file
+    bad_empty = tmp_path / "bad_empty.txt"
+    bad_empty.write_text("", encoding="utf-8")
+    assert check_size_file(bad_empty, 12345) != "VERIFIED"
+
+    # Test rejection of multiline file
+    bad_multi = tmp_path / "bad_multi.txt"
+    bad_multi.write_text("12345\n67890\n", encoding="utf-8")
+    assert check_size_file(bad_multi, 12345) != "VERIFIED"
+
+    # Test rejection of negative value
+    bad_neg = tmp_path / "bad_neg.txt"
+    bad_neg.write_text("-12345\n", encoding="utf-8")
+    assert check_size_file(bad_neg, 12345) != "VERIFIED"

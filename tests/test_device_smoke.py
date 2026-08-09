@@ -89,3 +89,37 @@ def test_host_adb_pid_liveness_and_crash_parsing_logic():
     assert "app_pid" in ps1_text
     assert "artifact_source_commit" in ps1_text
     assert "verifier_commit" in ps1_text
+
+
+def test_candidate_install_failure_with_old_package_fails(tmp_path):
+    """Regression test: when candidate install fails but old flutter package version is present, INSTALL_STATUS must be 1."""
+    log_file = tmp_path / "smoke.log"
+    script = (
+        f"export TERMUX_SMOKE_LOG='{to_wsl_posix(log_file)}'\n"
+        "record_status() { echo \"$1=$2\" >> \"$TERMUX_SMOKE_LOG\"; }\n"
+        "EXPECTED_PACKAGE='flutter'\n"
+        "EXPECTED_VERSION='3.44.0'\n"
+        "EXPECTED_ARCH='aarch64'\n"
+        "status_APT_REPAIR_STATUS=0\n"
+        "# Old package installed: version 3.3.0 instead of candidate 3.44.0\n"
+        "PKG_STATUS='install ok installed'\n"
+        "ACTUAL_PKG='flutter'\n"
+        "ACTUAL_VER='3.3.0'\n"
+        "ACTUAL_ARCH='aarch64'\n"
+        "if [ \"${status_APT_REPAIR_STATUS:-1}\" = \"0\" ] && \\\n"
+        "   [ \"$PKG_STATUS\" = \"install ok installed\" ] && \\\n"
+        "   [ \"$ACTUAL_PKG\" = \"$EXPECTED_PACKAGE\" ] && \\\n"
+        "   [ \"$ACTUAL_VER\" = \"$EXPECTED_VERSION\" ] && \\\n"
+        "   [ \"$ACTUAL_ARCH\" = \"$EXPECTED_ARCH\" ]; then\n"
+        "    record_status INSTALL_STATUS 0\n"
+        "else\n"
+        "    record_status INSTALL_STATUS 1\n"
+        "fi\n"
+    )
+    sh_file = tmp_path / "test_old_pkg.sh"
+    sh_file.write_text(script, encoding="utf-8", newline="\n")
+    res = subprocess.run(["bash", to_wsl_posix(sh_file)], cwd=REPO_ROOT, capture_output=True, text=True)
+    assert res.returncode == 0
+    log_content = log_file.read_text()
+    assert "INSTALL_STATUS=1" in log_content
+    assert "INSTALL_STATUS=0" not in log_content

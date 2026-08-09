@@ -133,22 +133,34 @@ if [ ! -f "$DEB" ]; then
 fi
 
 echo SECTION=INSTALL_DEB
+EXPECTED_PACKAGE=$(dpkg-deb -f "$DEB" Package 2>/dev/null || echo "flutter")
+EXPECTED_VERSION=$(dpkg-deb -f "$DEB" Version 2>/dev/null || echo "unknown")
+EXPECTED_ARCH=$(dpkg-deb -f "$DEB" Architecture 2>/dev/null || echo "aarch64")
+
+echo "Expected candidate package metadata: Name=$EXPECTED_PACKAGE, Version=$EXPECTED_VERSION, Arch=$EXPECTED_ARCH"
+
 dpkg -i "$DEB" || true
 echo "Running dependency repair..."
 apt-get install -f -y
 record_status APT_REPAIR_STATUS $?
 
-PKG_QUERY=$(dpkg-query -W -f='${Status}|${Version}' flutter 2>/dev/null || echo "not_installed|unknown")
+PKG_QUERY=$(dpkg-query -W -f='${Status}|${Package}|${Version}|${Architecture}' "$EXPECTED_PACKAGE" 2>/dev/null || echo "not_installed|unknown|unknown|unknown")
 PKG_STATUS=$(echo "$PKG_QUERY" | cut -d'|' -f1)
-PKG_VERSION=$(echo "$PKG_QUERY" | cut -d'|' -f2)
+ACTUAL_PKG=$(echo "$PKG_QUERY" | cut -d'|' -f2)
+ACTUAL_VER=$(echo "$PKG_QUERY" | cut -d'|' -f3)
+ACTUAL_ARCH=$(echo "$PKG_QUERY" | cut -d'|' -f4)
 
-echo "Final flutter package status: '$PKG_STATUS', version: '$PKG_VERSION'"
+echo "Installed package details: Status='$PKG_STATUS', Package='$ACTUAL_PKG', Version='$ACTUAL_VER', Arch='$ACTUAL_ARCH'"
 
-if echo "$PKG_STATUS" | grep -q "install ok installed"; then
+if [ "${status_APT_REPAIR_STATUS:-1}" = "0" ] && \
+   [ "$PKG_STATUS" = "install ok installed" ] && \
+   [ "$ACTUAL_PKG" = "$EXPECTED_PACKAGE" ] && \
+   [ "$ACTUAL_VER" = "$EXPECTED_VERSION" ] && \
+   [ "$ACTUAL_ARCH" = "$EXPECTED_ARCH" ]; then
     record_status INSTALL_STATUS 0
-    echo "✓ Flutter package installed cleanly: $PKG_VERSION"
+    echo "✓ Flutter candidate package installed and verified cleanly: $ACTUAL_PKG $ACTUAL_VER ($ACTUAL_ARCH)"
 else
-    echo "❌ Flutter package installation unverified or half-configured: '$PKG_STATUS'" >&2
+    echo "❌ Candidate installation verification failed! APT_REPAIR=${status_APT_REPAIR_STATUS:-1}, Status='$PKG_STATUS', Package='$ACTUAL_PKG' (expected '$EXPECTED_PACKAGE'), Version='$ACTUAL_VER' (expected '$EXPECTED_VERSION'), Arch='$ACTUAL_ARCH' (expected '$EXPECTED_ARCH')" >&2
     record_status INSTALL_STATUS 1
 fi
 
@@ -278,8 +290,19 @@ record_status BUILD_LINUX_STATUS $?
 ls -lh "build/linux/arm64/release/bundle/$PROJECT" build/linux/arm64/release/bundle/lib/libflutter_linux_gtk.so 2>/dev/null || true
 
 echo SECTION=BUILD_AAB_MODE_B
-flutter build appbundle --release --target-platform android-arm64 --no-pub --no-tree-shake-icons 2>/dev/null
-record_status BUILD_AAB_STATUS $?
+flutter build appbundle --release --target-platform android-arm64 --no-pub --no-tree-shake-icons
+BUILD_AAB_RES=$?
+record_status BUILD_AAB_STATUS $BUILD_AAB_RES
+
+AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
+if [ "$BUILD_AAB_RES" -eq 0 ] && [ -f "$AAB_PATH" ]; then
+    cp "$AAB_PATH" /sdcard/Download/app-release.aab
+    record_status AAB_COPY_STATUS 0
+    echo "✓ AAB copied to /sdcard/Download/app-release.aab"
+else
+    echo "❌ AAB build or file missing at $AAB_PATH" >&2
+    record_status AAB_COPY_STATUS 1
+fi
 
 echo SECTION=APK_LAUNCH_CHECK
 if [ "${ALLOW_LOCAL_TERMUX_LAUNCH:-0}" = "1" ] && command -v am >/dev/null 2>&1; then

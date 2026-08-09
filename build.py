@@ -569,9 +569,55 @@ class Build:
         os.rename(staging_path, out_path)
         logger.success(f'Successfully cloned flutter {tag} to {out_path}')
 
+    def _sync_receipt_path(self, root: str = None) -> Path:
+        src = Path(root or self.root)
+        return src / '.gclient_sync.receipt.json'
+
+    def is_sync_complete(self, root: str = None, cfg: str = None) -> bool:
+        src = Path(root or self.root)
+        cfg_path = Path(cfg or self.gclient)
+        receipt_path = self._sync_receipt_path(src)
+
+        if not receipt_path.exists():
+            return False
+
+        try:
+            data = json.loads(receipt_path.read_text(encoding='utf-8'))
+            if not data.get('completed', False):
+                return False
+
+            # Required checkout roots
+            engine_src = src / 'engine' / 'src'
+            if not (engine_src.exists() and (engine_src / 'flutter').exists() and (engine_src / 'third_party').exists()):
+                return False
+
+            # Bound to Flutter HEAD
+            cur_flutter_head = utils.flutter_tag(str(src))
+            if data.get('flutter_head') != cur_flutter_head:
+                return False
+
+            # Bound to gclient config SHA-256
+            if cfg_path.exists():
+                import hashlib
+                cfg_sha = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
+                if data.get('gclient_sha256') != cfg_sha:
+                    return False
+
+            return True
+        except Exception:
+            return False
+
     def sync(self, *, cfg: str = None, root: str = None):
         cfg = cfg or self.gclient
         src = root or self.root
+        src_path = Path(src)
+
+        receipt_path = self._sync_receipt_path(src_path)
+        if receipt_path.exists():
+            try:
+                receipt_path.unlink()
+            except Exception:
+                pass
 
         shutil.copy(cfg, os.path.join(src, '.gclient'))
         cmd = ['gclient', 'sync', '-DR', '--no-history']
@@ -637,6 +683,18 @@ class Build:
                 logger.info(f'Running dart pub get in {pub_dir} ...')
                 subprocess.run([str(dart_bin), 'pub', 'get'], cwd=pub_dir, check=True)
             logger.success('Fixed #5: Finished dart pub get')
+
+        import hashlib
+        cfg_path = Path(cfg)
+        cfg_sha = hashlib.sha256(cfg_path.read_bytes()).hexdigest() if cfg_path.exists() else ''
+        receipt_data = {
+            'flutter_head': utils.flutter_tag(str(src)),
+            'gclient_sha256': cfg_sha,
+            'timestamp': int(time.time()),
+            'completed': True
+        }
+        receipt_path.write_text(json.dumps(receipt_data, indent=2), encoding='utf-8')
+        logger.success('Sync receipt saved successfully.')
 
     def patch(self, *, file, path):
         repo = git.Repo(path)
@@ -1096,11 +1154,11 @@ class Build:
         run_step(2, total, 'clone', self.clone, force=force)
 
         # Step 3: sync
-        run_step_conditional(
-            3, total, 'sync',
-            [self.root / '.gclient', self.root / 'engine/src/third_party/dart/tools/sdks/dart-sdk/version'],
-            self.sync
-        )
+        if force or not self.is_sync_complete():
+            rebuilt_any_artifact[0] = True
+            run_step(3, total, 'sync', self.sync)
+        else:
+            logger.info(f'[3/{total}] sync output already complete (receipt verified), skipping.')
 
         # Step 4: patch (uses reverse-check classification)
         logger.info(f'[4/{total}] patch...')

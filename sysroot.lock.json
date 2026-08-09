@@ -1,7 +1,7 @@
 {
   "aarch64": {
-    "arch": "aarch64",
-    "created_at": "2026-08-05T04:07:54.766347+00:00",
+    "arch": "arm64",
+    "created_at": "2026-08-09T11:35:18.833532+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -84,14 +84,14 @@
         "version": "0.28-3"
       },
       "fontconfig": {
-        "archive_path": "pool/main/f/fontconfig/fontconfig_2.18.2_aarch64.deb",
+        "archive_path": "pool/main/f/fontconfig/fontconfig_2.18.3_aarch64.deb",
         "dist": "stable",
         "name": "fontconfig",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "f8770203011f61389251e2fcfc5738cb2caeb7d852cb70e80637a7749affd44b",
-        "size": 137680,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/f/fontconfig/fontconfig_2.18.2_aarch64.deb",
-        "version": "2.18.2"
+        "sha256": "7f8b70dd7ca85b1e7cbb14a11e9e6bd4ce3189ab985aa7af51145484d85f2c61",
+        "size": 140288,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/f/fontconfig/fontconfig_2.18.3_aarch64.deb",
+        "version": "2.18.3"
       },
       "freetype": {
         "archive_path": "pool/main/f/freetype/freetype_2.14.3_aarch64.deb",
@@ -704,14 +704,14 @@
         "version": "1:3.6.3"
       },
       "pango": {
-        "archive_path": "pool/main/p/pango/pango_1.58.0_aarch64.deb",
+        "archive_path": "pool/main/p/pango/pango_1.58.2_aarch64.deb",
         "dist": "stable",
         "name": "pango",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "a788d9dbe7c6dd92ffdde463a7424b05c2c14ee2cb63673de5a7bf8a48e88813",
-        "size": 364324,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/p/pango/pango_1.58.0_aarch64.deb",
-        "version": "1.58.0"
+        "sha256": "3089e2de505f3aed90b60235af7723bdc6e90bd0dd954bcd8083848a5d9c19e9",
+        "size": 364204,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/p/pango/pango_1.58.2_aarch64.deb",
+        "version": "1.58.2"
       },
       "pcre2": {
         "archive_path": "pool/main/p/pcre2/pcre2_10.47_aarch64.deb",
@@ -794,14 +794,14 @@
         "version": "0.0.3"
       },
       "vulkan-loader-generic": {
-        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.358_aarch64.deb",
+        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
         "dist": "stable",
         "name": "vulkan-loader-generic",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "2e3b0a27c090d45f1395c1b824f0caec7dfa5f36a6b16ae579acc8b1eb84ed6a",
-        "size": 129000,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.358_aarch64.deb",
-        "version": "1.4.358"
+        "sha256": "ed6c8fe3cf01e5c1de8bfd8bd1ec73fa38114ba48594660883f9af44d2ca4054",
+        "size": 128664,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
+        "version": "1.4.359"
       },
       "xkeyboard-config": {
         "archive_path": "pool/main/x/xkeyboard-config/xkeyboard-config_2.48-1_all.deb",
@@ -854,11 +854,11 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "655151d4e4ea1dc2bf2cc9afcfd58d44aa91ed7eb5b70ff070036c939d925a6b"
+    "tree_hash": "897d64af2d67fa1815cdf79ba564132807d3be2e23b0fb2d461008e087bd3ac1"
   },
   "arm64": {
     "arch": "arm64",
-    "created_at": "2026-08-05T04:07:50.344903+00:00",
+    "created_at": "2026-08-09T11:35:18.833532+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -941,14 +941,14 @@
         "version": "0.28-3"
       },
       "fontconfig": {
-        "archive_path": "pool/main/f/fontconfig/fontconfig_2.18.2_aarch64.deb",
+        "archive_path": "pool/main/f/fontconfig/fontconfig_2.18.3_aarch64.deb",
         "dist": "stable",
         "name": "fontconfig",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "f8770203011f61389251e2fcfc5738cb2caeb7d852cb70e80637a7749affd44b",
-        "size": 137680,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/f/fontconfig/fontconfig_2.18.2_aarch64.deb",
-        "version": "2.18.2"
+        "sha256": "7f8b70dd7ca85b1e7cbb14a11e9e6bd4ce3189ab985aa7af51145484d85f2c61",
+        "size": 140288,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/f/fontconfig/fontconfig_2.18.3_aarch64.deb",
+        "version": "2.18.3"
       },
       "freetype": {
         "archive_path": "pool/main/f/freetype/freetype_2.14.3_aarch64.deb",
@@ -1561,14 +1561,14 @@
         "version": "1:3.6.3"
       },
       "pango": {
-        "archive_path": "pool/main/p/pango/pango_1.58.0_aarch64.deb",
+        "archive_path": "pool/main/p/pango/pango_1.58.2_aarch64.deb",
         "dist": "stable",
         "name": "pango",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "a788d9dbe7c6dd92ffdde463a7424b05c2c14ee2cb63673de5a7bf8a48e88813",
-        "size": 364324,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/p/pango/pango_1.58.0_aarch64.deb",
-        "version": "1.58.0"
+        "sha256": "3089e2de505f3aed90b60235af7723bdc6e90bd0dd954bcd8083848a5d9c19e9",
+        "size": 364204,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/p/pango/pango_1.58.2_aarch64.deb",
+        "version": "1.58.2"
       },
       "pcre2": {
         "archive_path": "pool/main/p/pcre2/pcre2_10.47_aarch64.deb",
@@ -1651,14 +1651,14 @@
         "version": "0.0.3"
       },
       "vulkan-loader-generic": {
-        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.358_aarch64.deb",
+        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
         "dist": "stable",
         "name": "vulkan-loader-generic",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "2e3b0a27c090d45f1395c1b824f0caec7dfa5f36a6b16ae579acc8b1eb84ed6a",
-        "size": 129000,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.358_aarch64.deb",
-        "version": "1.4.358"
+        "sha256": "ed6c8fe3cf01e5c1de8bfd8bd1ec73fa38114ba48594660883f9af44d2ca4054",
+        "size": 128664,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
+        "version": "1.4.359"
       },
       "xkeyboard-config": {
         "archive_path": "pool/main/x/xkeyboard-config/xkeyboard-config_2.48-1_all.deb",
@@ -1711,6 +1711,6 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "c3da9ba3061f203d0ebd10eac34be8fbf3281021e773b6f8a9c1dd7a93d2e82e"
+    "tree_hash": "897d64af2d67fa1815cdf79ba564132807d3be2e23b0fb2d461008e087bd3ac1"
   }
 }

@@ -8,7 +8,8 @@ import tempfile
 import asyncio
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
 import sysroot
 from sysroot import (
@@ -441,4 +442,27 @@ def test_sysroot_orphaned_backup_startup_recovery(tmp_path):
     s = Sysroot(path=str(sysroot_dir))
     assert (sysroot_dir / "usr" / "recovered_file.txt").exists()
     assert (sysroot_dir / "usr" / "recovered_file.txt").read_text() == "recovered_content"
+
+
+def test_sysroot_lock_alias_no_drift():
+    """Repository contract test: require arm64 and aarch64 package maps and tree_hash to be identical in sysroot.lock.json."""
+    lock_path = REPO_ROOT / "sysroot.lock.json"
+    assert lock_path.exists(), "sysroot.lock.json must exist"
+
+    with open(lock_path, "r", encoding="utf-8") as f:
+        lock_data = json.load(f)
+
+    assert "arm64" in lock_data, "arm64 key missing from sysroot.lock.json"
+    assert "aarch64" in lock_data, "aarch64 key missing from sysroot.lock.json"
+
+    arm64_entry = lock_data["arm64"]
+    aarch64_entry = lock_data["aarch64"]
+
+    assert arm64_entry.get("tree_hash") == aarch64_entry.get("tree_hash"), (
+        f"Alias tree_hash mismatch: arm64={arm64_entry.get('tree_hash')} != aarch64={aarch64_entry.get('tree_hash')}"
+    )
+
+    arm64_pkgs = arm64_entry.get("packages", {})
+    aarch64_pkgs = aarch64_entry.get("packages", {})
+    assert arm64_pkgs == aarch64_pkgs, "Package maps for arm64 and aarch64 must be identical"
 

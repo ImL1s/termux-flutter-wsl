@@ -237,6 +237,7 @@ def test_adv_step_skipping_build_all(tmp_path, monkeypatch):
     (android_prof / 'gen_snapshot').write_text('dummy')
 
     monkeypatch.setattr(b._sysroot, 'verify', lambda arch: True)
+    monkeypatch.setattr(b, 'is_sync_complete', lambda: True)
 
     steps_called.clear()
     b.build_all(arch='arm64', force=False)

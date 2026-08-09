@@ -149,21 +149,32 @@ jobs:
             exit 1
           fi
 
-          if ! echo "$META_COMMIT" | grep -E -q '^[0-9a-f]{40}$'; then
-            echo "Error: build_metadata.json source_commit ($META_COMMIT) is not a valid 40-hex commit" >&2
+          ARTIFACT_SOURCE_COMMIT=$(python3 -c "import json; v=json.load(open('$METADATA')).get('source_commit',''); print(v.lower().strip())")
+          VERIFIER_COMMIT=$(git rev-parse HEAD | tr '[:upper:]' '[:lower:]' | xargs)
+
+          if ! echo "$ARTIFACT_SOURCE_COMMIT" | grep -E -q '^[0-9a-f]{40}$'; then
+            echo "Error: artifact_source_commit ($ARTIFACT_SOURCE_COMMIT) is not a valid 40-hex commit" >&2
             exit 1
           fi
 
-          SOURCE_COMMIT="$META_COMMIT"
+          if ! echo "$VERIFIER_COMMIT" | grep -E -q '^[0-9a-f]{40}$'; then
+            echo "Error: verifier_commit ($VERIFIER_COMMIT) is not a valid 40-hex commit" >&2
+            exit 1
+          fi
+
+          if [ "$ARTIFACT_SOURCE_COMMIT" != "$VERIFIER_COMMIT" ]; then
+            echo "Error: Commit mismatch! artifact_source_commit ($ARTIFACT_SOURCE_COMMIT) != verifier_commit ($VERIFIER_COMMIT)" >&2
+            exit 1
+          fi
 
           echo "RESOLVED_DEB=$DEB" >> $GITHUB_ENV
           echo "RESOLVED_SHA_FILE=$SHA_FILE" >> $GITHUB_ENV
           echo "RESOLVED_SIZE_FILE=$SIZE_FILE" >> $GITHUB_ENV
           echo "RESOLVED_METADATA=$METADATA" >> $GITHUB_ENV
           echo "RESOLVED_INVENTORY=$INVENTORY" >> $GITHUB_ENV
-          echo "RESOLVED_COMMIT=$SOURCE_COMMIT" >> $GITHUB_ENV
-          echo "SOURCE_COMMIT=$SOURCE_COMMIT" >> $GITHUB_ENV
-          echo "✓ Candidate set cryptographically bound and verified: DEB=$DEB, SHA256=$ACTUAL_SHA, COMMIT=$SOURCE_COMMIT"
+          echo "ARTIFACT_SOURCE_COMMIT=$ARTIFACT_SOURCE_COMMIT" >> $GITHUB_ENV
+          echo "VERIFIER_COMMIT=$VERIFIER_COMMIT" >> $GITHUB_ENV
+          echo "✓ Candidate set cryptographically bound and verified: DEB=$DEB, SHA256=$ACTUAL_SHA, COMMIT=$ARTIFACT_SOURCE_COMMIT"
 
       - name: Run Termux smoke through ADB
         shell: pwsh
@@ -173,7 +184,8 @@ jobs:
           INPUT_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
           INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
           RESOLVED_DEB: ${{ env.RESOLVED_DEB }}
-          RESOLVED_COMMIT: ${{ env.RESOLVED_COMMIT }}
+          ARTIFACT_SOURCE_COMMIT: ${{ env.ARTIFACT_SOURCE_COMMIT }}
+          VERIFIER_COMMIT: ${{ env.VERIFIER_COMMIT }}
         run: |
           $ErrorActionPreference = 'Stop'
           scripts/device/run_termux_smoke.ps1 `
@@ -182,7 +194,8 @@ jobs:
             -DebPath $env:RESOLVED_DEB `
             -ExpectedSha256 $env:INPUT_EXPECTED_SHA256 `
             -TimeoutMinutes $env:INPUT_TIMEOUT_MINUTES `
-            -CommitSha "$env:RESOLVED_COMMIT"
+            -ArtifactSourceCommit "$env:ARTIFACT_SOURCE_COMMIT" `
+            -VerifierCommit "$env:VERIFIER_COMMIT"
 
       - name: Upload evidence artifact
         uses: actions/upload-artifact@v4
@@ -203,7 +216,7 @@ jobs:
           RESOLVED_SIZE_FILE: ${{ env.RESOLVED_SIZE_FILE }}
           RESOLVED_METADATA: ${{ env.RESOLVED_METADATA }}
           RESOLVED_INVENTORY: ${{ env.RESOLVED_INVENTORY }}
-          RESOLVED_COMMIT: ${{ env.RESOLVED_COMMIT }}
+          ARTIFACT_SOURCE_COMMIT: ${{ env.ARTIFACT_SOURCE_COMMIT }}
         run: |
           set -euo pipefail
           command -v gh >/dev/null 2>&1 || { echo "gh CLI is required" >&2; exit 1; }
@@ -214,7 +227,6 @@ jobs:
             exit 1
           fi
 
-          # Fail promotion if evidence.json overall status is not passed or mode_b failed
           if [ ! -f evidence.json ]; then
             echo "Error: evidence.json missing. Cannot promote." >&2
             exit 1
@@ -222,9 +234,40 @@ jobs:
 
           EV_STATUS=$(python3 -c "import json; print(json.load(open('evidence.json')).get('status', 'failed'))")
           MODE_B_STATUS=$(python3 -c "import json; print(json.load(open('evidence.json')).get('mode_b_status', 'failed'))")
+          EV_ART_COMMIT=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifact_source_commit', ''))")
+          EV_VER_COMMIT=$(python3 -c "import json; print(json.load(open('evidence.json')).get('verifier_commit', ''))")
+
+          DEB_SHA=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('deb_sha256', ''))")
+          DEB_SZ=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('deb_size', 0))")
+
+          APK_SHA=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('apk_sha256', ''))")
+          APK_SZ=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('apk_size', 0))")
+
+          AAB_SHA=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('aab_sha256', ''))")
+          AAB_SZ=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('aab_size', 0))")
 
           if [ "$EV_STATUS" != "passed" ] || [ "$MODE_B_STATUS" != "passed" ]; then
             echo "Error: Promotion rejected! Evidence status is '$EV_STATUS' and mode_b_status is '$MODE_B_STATUS' (both must be 'passed')" >&2
+            exit 1
+          fi
+
+          if [ "$EV_ART_COMMIT" != "$EV_VER_COMMIT" ] || [ -z "$EV_ART_COMMIT" ]; then
+            echo "Error: Promotion rejected! artifact_source_commit ($EV_ART_COMMIT) != verifier_commit ($EV_VER_COMMIT)" >&2
+            exit 1
+          fi
+
+          if ! echo "$DEB_SHA" | grep -E -q '^[0-9a-f]{64}$' || [ "$DEB_SZ" -le 0 ]; then
+            echo "Error: Promotion rejected! Invalid DEB artifact evidence: SHA=$DEB_SHA, size=$DEB_SZ" >&2
+            exit 1
+          fi
+
+          if ! echo "$APK_SHA" | grep -E -q '^[0-9a-f]{64}$' || [ "$APK_SZ" -le 0 ]; then
+            echo "Error: Promotion rejected! Invalid APK artifact evidence: SHA=$APK_SHA, size=$APK_SZ" >&2
+            exit 1
+          fi
+
+          if ! echo "$AAB_SHA" | grep -E -q '^[0-9a-f]{64}$' || [ "$AAB_SZ" -le 0 ]; then
+            echo "Error: Promotion rejected! Invalid AAB artifact evidence: SHA=$AAB_SHA, size=$AAB_SZ" >&2
             exit 1
           fi
 
@@ -238,7 +281,7 @@ jobs:
             NOTES_FILE=""
           fi
 
-          SOURCE_COMMIT="${RESOLVED_COMMIT:-$(python3 -c "import json; v=json.load(open('$RESOLVED_METADATA')).get('source_commit'); print(v if v is not None else '')")}"
+          SOURCE_COMMIT="${ARTIFACT_SOURCE_COMMIT:-$EV_ART_COMMIT}"
           if [ -z "$SOURCE_COMMIT" ]; then
             echo "Error: source_commit is required" >&2
             exit 1

@@ -9,6 +9,8 @@ param(
     [string]$RemoteScript = "/sdcard/Download/termux_ci_smoke.sh",
     [string]$RemoteLog = "/sdcard/Download/termux_ci_smoke.txt",
     [string]$CommitSha = "",
+    [string]$ArtifactSourceCommit = "",
+    [string]$VerifierCommit = "",
     [string]$EvidencePath = "evidence.json"
 )
 
@@ -29,6 +31,40 @@ function Write-InitialEvidence {
         timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         apk_launch = $false
         crash_free = $false
+        commit_sha = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+        source_commit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+        artifact_source_commit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+        verifier_commit = if ($VerifierCommit) { $VerifierCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+        device_serial = "[REDACTED]"
+        artifacts = [ordered]@{
+            deb_sha256 = if (Test-Path $DebPath) { Get-Sha256Hex -Path $DebPath } else { "unknown" }
+            deb_size = if (Test-Path $DebPath) { (Get-Item $DebPath).Length } else { 0 }
+            apk_sha256 = "unknown"
+            apk_size = 0
+            aab_sha256 = "unknown"
+            aab_size = 0
+        }
+        verification_details = [ordered]@{
+            package_name = "com.example.flutter_ci_smoke"
+            component = "com.example.flutter_ci_smoke/.MainActivity"
+            initial_pid = ""
+            app_pid = ""
+            same_pid_observations = 0
+            observation_duration_seconds = 0
+            scoped_crash_free = $false
+        }
+        launch_result = "failed"
+        exit_status = 1
+        mode_a_status = "failed"
+        mode_b_status = "failed"
+        mode_a = [ordered]@{
+            status = "failed"
+            apk_build = "failed"
+        }
+        mode_b = [ordered]@{
+            status = "failed"
+            aab_build = "failed"
+        }
     }
     $initObj | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
 }
@@ -228,6 +264,7 @@ Write-Host "===== Full Termux smoke log ====="
 Write-Host $log
 
 $required = @(
+    "APT_REPAIR_STATUS=0",
     "INSTALL_STATUS=0",
     "POST_INSTALL_STATUS=0",
     "FLUTTER_VERSION_STATUS=0",
@@ -260,17 +297,22 @@ Write-Host "Uninstalling previous package if it exists..."
 Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke")
 
 $localApk = "$work/app-release.apk"
-if (Test-Path $localApk) {
-    Write-Host "Cleaning up stale host-side APK: $localApk"
-    Remove-Item $localApk -Force
-}
+$localAab = "$work/app-release.aab"
+if (Test-Path $localApk) { Remove-Item $localApk -Force }
+if (Test-Path $localAab) { Remove-Item $localAab -Force }
 
-Write-Host "Pulling built APK to host..."
+Write-Host "Pulling built APK and AAB to host..."
 Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
+Invoke-AdbAllowFail -Args @("pull", "/sdcard/Download/app-release.aab", $localAab) | Out-Null
 
-$apkSha256 = Get-Sha256Hex -Path $localApk
+$apkSha256 = if (Test-Path $localApk) { Get-Sha256Hex -Path $localApk } else { "unknown" }
 $apkSize = if (Test-Path $localApk) { (Get-Item $localApk).Length } else { 0 }
+
+$aabSha256 = if (Test-Path $localAab) { Get-Sha256Hex -Path $localAab } else { "unknown" }
+$aabSize = if (Test-Path $localAab) { (Get-Item $localAab).Length } else { 0 }
+
 Write-Host "Pulled APK SHA-256: $apkSha256, Size: $apkSize bytes"
+Write-Host "Pulled AAB SHA-256: $aabSha256, Size: $aabSize bytes"
 
 Write-Host "Removing stale package state..."
 Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke") | Out-Null
@@ -328,12 +370,8 @@ if (-not $model) { $model = "unknown" }
 if (-not $sdk) { $sdk = "unknown" }
 if (-not $abi) { $abi = "unknown" }
 
-if (-not $CommitSha) {
-    try {
-        $CommitSha = (git rev-parse HEAD 2>$null).Trim()
-    } catch {
-        $CommitSha = "unknown"
-    }
+$verifierCommitMeasured = if ($VerifierCommit) { $VerifierCommit } else {
+    try { (git rev-parse HEAD 2>$null).Trim().ToLower() } catch { if ($CommitSha) { $CommitSha } else { "unknown" } }
 }
 
 $rawEv = $null
@@ -345,6 +383,10 @@ try {
     }
 } catch {
     Write-Host "Warning: Could not pull remote evidence.json"
+}
+
+$artifactCommitMeasured = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } else {
+    if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $verifierCommitMeasured }
 }
 
 $launchPassed = [bool]($apkLaunchHost -and $crashFreeHost)
@@ -362,10 +404,10 @@ $evObj = [ordered]@{
     device = $model
     apk_launch = [bool]$apkLaunchHost
     crash_free = [bool]$crashFreeHost
-    commit_sha = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
-    source_commit = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
-    artifact_source_commit = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
-    verifier_commit = if ($CommitSha) { $CommitSha } else { "unknown" }
+    commit_sha = $artifactCommitMeasured
+    source_commit = $artifactCommitMeasured
+    artifact_source_commit = $artifactCommitMeasured
+    verifier_commit = $verifierCommitMeasured
     device_serial = "[REDACTED]"
     device_info = [ordered]@{
         model = $model
@@ -378,8 +420,8 @@ $evObj = [ordered]@{
         deb_size = if (Test-Path $DebPath) { (Get-Item $DebPath).Length } else { 0 }
         apk_sha256 = $apkSha256
         apk_size = $apkSize
-        aab_sha256 = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_sha256) { $rawEv.mode_b.aab_sha256 } else { "unknown" }
-        aab_size = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_size) { $rawEv.mode_b.aab_size } else { 0 }
+        aab_sha256 = $aabSha256
+        aab_size = $aabSize
     }
     verification_details = [ordered]@{
         package_name = "com.example.flutter_ci_smoke"

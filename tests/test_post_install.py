@@ -325,8 +325,33 @@ def compute_dir_tree_hash(root_dir):
 
 
 def test_post_install_read_only_tree_byte_identical(tmp_path):
-    """Verify post_install --status and --check do not modify any files in mock trees (byte-identical tree hashes)."""
+    """Verify post_install --status and --check do not modify any files or sentinels in mock trees (byte-identical tree hashes)."""
     flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # 1. flutter_tools.stamp and flutter_tools.snapshot
+    cache_dir = flutter_root / "bin" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    stamp_file = cache_dir / "flutter_tools.stamp"
+    snapshot_file = cache_dir / "flutter_tools.snapshot"
+    stamp_file.write_text("sentinel_stamp_v1", encoding="utf-8")
+    snapshot_file.write_text("sentinel_snapshot_v1", encoding="utf-8")
+
+    # 2. patch_state.json and backups
+    flutter_share = prefix / "share" / "flutter"
+    flutter_share.mkdir(parents=True, exist_ok=True)
+    patch_state_file = flutter_share / "patch_state.json"
+    backup_dir = flutter_share / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    patch_state_file.write_text('{"mock_patch": {"status": "applied"}}', encoding="utf-8")
+    (backup_dir / "sentinel_backup.orig").write_text("sentinel_backup_content", encoding="utf-8")
+
+    # 3. NDK wrapper and Android SDK files
+    ndk_bin = android_sdk / "ndk" / "27.2.12479018" / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin"
+    ndk_bin.mkdir(parents=True, exist_ok=True)
+    (ndk_bin / "clang").write_text("sentinel_clang_wrapper", encoding="utf-8")
+    bt_dir = android_sdk / "build-tools" / "35.0.0"
+    bt_dir.mkdir(parents=True, exist_ok=True)
+    (bt_dir / "aapt2").write_text("sentinel_aapt2_binary", encoding="utf-8")
 
     hash_flut_before = compute_dir_tree_hash(flutter_root)
     hash_sdk_before = compute_dir_tree_hash(android_sdk)
@@ -338,6 +363,8 @@ def test_post_install_read_only_tree_byte_identical(tmp_path):
     assert compute_dir_tree_hash(flutter_root) == hash_flut_before, "flutter_root tree mutated during --status"
     assert compute_dir_tree_hash(android_sdk) == hash_sdk_before, "android_sdk tree mutated during --status"
     assert compute_dir_tree_hash(prefix) == hash_pref_before, "prefix tree mutated during --status"
+    assert stamp_file.read_text(encoding="utf-8") == "sentinel_stamp_v1"
+    assert snapshot_file.read_text(encoding="utf-8") == "sentinel_snapshot_v1"
 
     res_check = run_post_install(flutter_root, android_sdk, prefix, ["--check"])
     assert res_check.returncode == 0, f"--check failed: {res_check.stderr}"
@@ -345,3 +372,5 @@ def test_post_install_read_only_tree_byte_identical(tmp_path):
     assert compute_dir_tree_hash(flutter_root) == hash_flut_before, "flutter_root tree mutated during --check"
     assert compute_dir_tree_hash(android_sdk) == hash_sdk_before, "android_sdk tree mutated during --check"
     assert compute_dir_tree_hash(prefix) == hash_pref_before, "prefix tree mutated during --check"
+    assert stamp_file.read_text(encoding="utf-8") == "sentinel_stamp_v1"
+    assert snapshot_file.read_text(encoding="utf-8") == "sentinel_snapshot_v1"

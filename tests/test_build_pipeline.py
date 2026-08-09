@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import pytest
 import unittest.mock
 from pathlib import Path
@@ -138,11 +139,13 @@ def test_build_all_deduplication_and_skipping(tmp_path, monkeypatch):
     (flutter_dir / 'bin').mkdir(exist_ok=True)
     (flutter_dir / 'bin' / 'flutter').write_text('dummy flutter')
     (flutter_dir / '.gclient').write_text('dummy gclient')
+    (flutter_dir / '.gclient_sync.receipt.json').write_text(json.dumps({'flutter_head': 'dummy', 'gclient_sha256': 'dummy', 'completed': True}))
     dart_ver = flutter_dir / 'engine' / 'src' / 'third_party' / 'dart' / 'tools' / 'sdks' / 'dart-sdk'
     dart_ver.mkdir(parents=True, exist_ok=True)
     (dart_ver / 'version').write_text('3.12.1')
     (sysroot_dir / 'usr').mkdir(exist_ok=True)
     monkeypatch.setattr(b._sysroot, 'verify', lambda arch: True)
+    monkeypatch.setattr(b, 'is_sync_complete', lambda: True)
 
     executed_steps.clear()
     b.build_all(arch='arm64', force=False)
@@ -270,3 +273,75 @@ def test_clone_dirty_checkout_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(b, 'workspace_status', lambda path: {'exists': True, 'dirty': True, 'tag': '3.44.0'})
     with pytest.raises(RuntimeError, match="Dirty checkout"):
         b.clone(tag='3.44.0', force=False)
+
+
+def test_build_all_sole_owner_avoids_dirty_checkout_sequence(tmp_path, monkeypatch):
+    """Behavioral test: proving build_all running sole ownership pipeline clones before patching and never encounters Dirty checkout error."""
+    conf_path = tmp_path / 'build.toml'
+    flutter_dir = tmp_path / 'flutter'
+    package_yaml = tmp_path / 'package.yaml'
+    flutter_dir.mkdir()
+    (flutter_dir / 'bin').mkdir()
+    (flutter_dir / 'bin' / 'flutter').touch()
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.0\n", encoding='utf-8')
+
+    flutter_str = str(flutter_dir).replace('\\', '/')
+    package_str = str(package_yaml).replace('\\', '/')
+
+    conf_content = f"""
+    [flutter]
+    tag = "3.44.0"
+    path = "{flutter_str}"
+    [package]
+    conf = "{package_str}"
+    """
+    conf_path.write_text(conf_content, encoding='utf-8')
+    b = Build(conf=str(conf_path))
+    b.patches = {'engine': {}, 'dart': {}, 'skia': {}}
+
+    sequence_log = []
+
+    monkeypatch.setattr(b, 'preflight', lambda: True)
+
+    def mock_clone(**kwargs):
+        sequence_log.append('clone')
+
+    def mock_sync(**kwargs):
+        sequence_log.append('sync')
+
+    def mock_patch(**kwargs):
+        sequence_log.append('patch')
+
+    def mock_sysroot(**kwargs):
+        sequence_log.append('sysroot')
+
+    def mock_build(*args, **kwargs):
+        sequence_log.append('build')
+
+    def mock_debuild(*args, **kwargs):
+        sequence_log.append('debuild')
+
+    monkeypatch.setattr(b, 'clone', mock_clone)
+    monkeypatch.setattr(b, 'sync', mock_sync)
+    setattr(b, 'patch_engine', mock_patch)
+    setattr(b, 'patch_dart', mock_patch)
+    setattr(b, 'patch_skia', mock_patch)
+    setattr(b, 'patch_flutter_sdk', mock_patch)
+    monkeypatch.setattr(b, 'sysroot', mock_sysroot)
+    monkeypatch.setattr(b, 'configure', mock_build)
+    monkeypatch.setattr(b, 'build', mock_build)
+    monkeypatch.setattr(b, 'build_dart', mock_build)
+    monkeypatch.setattr(b, 'build_impellerc', mock_build)
+    monkeypatch.setattr(b, 'build_const_finder', mock_build)
+    monkeypatch.setattr(b, 'configure_android', mock_build)
+    monkeypatch.setattr(b, 'build_android_gen_snapshot', mock_build)
+    monkeypatch.setattr(b, 'debuild', mock_debuild)
+    monkeypatch.setattr(b, 'is_sync_complete', lambda: False)
+
+    b.build_all(arch='arm64')
+
+    first_clone_idx = sequence_log.index('clone')
+    first_patch_idx = sequence_log.index('patch')
+    assert first_clone_idx < first_patch_idx, "clone must execute before patch"
+    assert sequence_log.count('clone') == 1, "clone must execute exactly once during build_all"
+    assert 'debuild' in sequence_log, "debuild must complete single-owner pipeline"

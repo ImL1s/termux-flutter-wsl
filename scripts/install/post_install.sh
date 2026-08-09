@@ -344,7 +344,7 @@ fi
 if [ "$MODE" == "status" ] || [ "$MODE" == "check" ]; then
     echo "Checking patch status..."
     apply_patches
-    if [ "$MODE" == "check" ]; then exit 0; fi
+    exit 0
 fi
 
 echo "Applying patches..."

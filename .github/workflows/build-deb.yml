@@ -115,27 +115,6 @@ jobs:
           bash -n scripts/install/post_install.sh
           python scripts/ci/check_repo.py
 
-      - name: Clone Flutter SDK
-        run: python3 build.py clone
-
-      - name: Preflight check
-        run: python3 build.py preflight
-
-      - name: Sync engine dependencies
-        run: python3 build.py sync
-
-      - name: Apply patches
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 build.py patch_engine
-          python3 build.py patch_dart
-          python3 build.py patch_skia
-          python3 build.py patch_flutter_sdk
-
-      - name: Build sysroot
-        run: python3 build.py sysroot --arch="$ARCH"
-
       - name: Build all artifacts
         run: python3 build.py build_all --arch="$ARCH"
 
@@ -147,7 +126,7 @@ jobs:
           DEB=$(python3 -c "import build; print(build.Build().output('$ARCH'))")
           test -f "$DEB"
           sha256sum "$DEB" | tee "${DEB}.sha256"
-          stat -c '%n %s bytes' "$DEB" | tee "${DEB}.size.txt"
+          stat -c '%s' "$DEB" | tee "${DEB}.size.txt"
           echo "deb=$DEB" >> "$GITHUB_OUTPUT"
 
       - name: Generate build metadata
