@@ -69,19 +69,66 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
         run: |
           set -euo pipefail
-          DEB=$(find ./candidate -name '*.deb' | head -n 1)
-          if [ -z "$DEB" ]; then
-            echo "No deb found in candidate directory" >&2
+
+          mapfile -t DEBS < <(find ./candidate -type f -name '*.deb')
+          mapfile -t SHAS < <(find ./candidate -type f -name '*.sha256')
+          mapfile -t SIZES < <(find ./candidate -type f -name '*.size.txt')
+          mapfile -t METADATAS < <(find ./candidate -type f -name 'build_metadata.json')
+          mapfile -t INVENTORIES < <(find ./candidate -type f -name 'inventory.txt')
+
+          if [ "${#DEBS[@]}" -ne 1 ]; then
+            echo "Error: Ambiguous or missing candidate .deb file. Expected 1, found ${#DEBS[@]}" >&2
             exit 1
           fi
+          if [ "${#SHAS[@]}" -ne 1 ]; then
+            echo "Error: Ambiguous or missing candidate .sha256 file. Expected 1, found ${#SHAS[@]}" >&2
+            exit 1
+          fi
+          if [ "${#SIZES[@]}" -ne 1 ]; then
+            echo "Error: Ambiguous or missing candidate .size.txt file. Expected 1, found ${#SIZES[@]}" >&2
+            exit 1
+          fi
+          if [ "${#METADATAS[@]}" -ne 1 ]; then
+            echo "Error: Ambiguous or missing candidate build_metadata.json file. Expected 1, found ${#METADATAS[@]}" >&2
+            exit 1
+          fi
+          if [ "${#INVENTORIES[@]}" -ne 1 ]; then
+            echo "Error: Ambiguous or missing candidate inventory.txt file. Expected 1, found ${#INVENTORIES[@]}" >&2
+            exit 1
+          fi
+
+          DEB="${DEBS[0]}"
+          SHA_FILE="${SHAS[0]}"
+          SIZE_FILE="${SIZES[0]}"
+          METADATA="${METADATAS[0]}"
+          INVENTORY="${INVENTORIES[0]}"
+
           ACTUAL_SHA=$(sha256sum "$DEB" | awk '{print $1}')
-          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA256" ]; then
-            echo "SHA256 MISMATCH: expected $EXPECTED_SHA256, got $ACTUAL_SHA" >&2
+          EXPECTED_CLEAN=$(echo "$EXPECTED_SHA256" | tr '[:upper:]' '[:lower:]' | xargs)
+          if [ "$ACTUAL_SHA" != "$EXPECTED_CLEAN" ]; then
+            echo "SHA256 MISMATCH: expected $EXPECTED_CLEAN, got $ACTUAL_SHA" >&2
             exit 1
           fi
-          echo "✓ SHA256 verified: $ACTUAL_SHA"
+
+          META_COMMIT=$(python3 -c "import json; v=json.load(open('$METADATA')).get('source_commit'); print(v if v is not None else '')")
+          if [ -z "$META_COMMIT" ]; then
+            echo "Error: build_metadata.json missing source_commit" >&2
+            exit 1
+          fi
+
+          SOURCE_COMMIT="$META_COMMIT"
+
+          echo "RESOLVED_DEB=$DEB" >> $GITHUB_ENV
+          echo "RESOLVED_SHA_FILE=$SHA_FILE" >> $GITHUB_ENV
+          echo "RESOLVED_SIZE_FILE=$SIZE_FILE" >> $GITHUB_ENV
+          echo "RESOLVED_METADATA=$METADATA" >> $GITHUB_ENV
+          echo "RESOLVED_INVENTORY=$INVENTORY" >> $GITHUB_ENV
+          echo "RESOLVED_COMMIT=$SOURCE_COMMIT" >> $GITHUB_ENV
+          echo "SOURCE_COMMIT=$SOURCE_COMMIT" >> $GITHUB_ENV
+          echo "✓ Candidate set resolved: DEB=$DEB, SHA256=$ACTUAL_SHA, COMMIT=$SOURCE_COMMIT"
 
       - name: Run Termux smoke through ADB
         shell: pwsh
@@ -90,23 +137,17 @@ jobs:
           INPUT_DEVICE_SERIAL: ${{ inputs.device_serial }}
           INPUT_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
           INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+          RESOLVED_DEB: ${{ env.RESOLVED_DEB }}
+          RESOLVED_COMMIT: ${{ env.RESOLVED_COMMIT }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # Find the deb in the candidate dir
-          $deb_path = Get-ChildItem -Path ./candidate -Filter *.deb | Select-Object -First 1 | Select-Object -ExpandProperty FullName
-          $metadata_path = Get-ChildItem -Path ./candidate -Filter build_metadata.json -ErrorAction SilentlyContinue | Select-Object -First 1 | Select-Object -ExpandProperty FullName
-          $commit_sha = ""
-          if ($metadata_path -and (Test-Path $metadata_path)) {
-              $json = Get-Content $metadata_path | ConvertFrom-Json
-              $commit_sha = $json.source_commit
-          }
           scripts/device/run_termux_smoke.ps1 `
             -AdbPath $env:INPUT_ADB_PATH `
             -DeviceSerial $env:INPUT_DEVICE_SERIAL `
-            -DebPath $deb_path `
+            -DebPath $env:RESOLVED_DEB `
             -ExpectedSha256 $env:INPUT_EXPECTED_SHA256 `
             -TimeoutMinutes $env:INPUT_TIMEOUT_MINUTES `
-            -CommitSha "$commit_sha"
+            -CommitSha "$env:RESOLVED_COMMIT"
 
       - name: Upload evidence artifact
         uses: actions/upload-artifact@v4
@@ -122,15 +163,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          RESOLVED_DEB: ${{ env.RESOLVED_DEB }}
+          RESOLVED_SHA_FILE: ${{ env.RESOLVED_SHA_FILE }}
+          RESOLVED_SIZE_FILE: ${{ env.RESOLVED_SIZE_FILE }}
+          RESOLVED_METADATA: ${{ env.RESOLVED_METADATA }}
+          RESOLVED_INVENTORY: ${{ env.RESOLVED_INVENTORY }}
+          RESOLVED_COMMIT: ${{ env.RESOLVED_COMMIT }}
         run: |
           set -euo pipefail
           command -v gh >/dev/null 2>&1 || { echo "gh CLI is required" >&2; exit 1; }
-
-          DEB=$(ls ./candidate/*.deb | head -n 1)
-          SHA_FILE=$(ls ./candidate/*.sha256 | head -n 1)
-          SIZE_FILE=$(ls ./candidate/*.size.txt | head -n 1)
-          METADATA=$(ls ./candidate/build_metadata.json | head -n 1)
-          INVENTORY=$(ls ./candidate/inventory.txt | head -n 1)
 
           TAG="$INPUT_RELEASE_TAG"
           if [ -z "$TAG" ]; then
@@ -138,26 +179,36 @@ jobs:
             exit 1
           fi
 
-          SOURCE_COMMIT=$(python3 -c "import json; v=json.load(open('$METADATA')).get('source_commit'); print(v if v is not None else '')")
-          if [ -z "$SOURCE_COMMIT" ]; then
-            echo "source_commit is required in $METADATA" >&2
+          # Fail promotion if evidence.json overall status is not passed or mode_b failed
+          if [ ! -f evidence.json ]; then
+            echo "Error: evidence.json missing. Cannot promote." >&2
             exit 1
           fi
 
-          # Anti-clobber check: don't overwrite if release already exists without explicit check or maybe just allow create
+          EV_STATUS=$(python3 -c "import json; print(json.load(open('evidence.json')).get('status', 'failed'))")
+          MODE_B_STATUS=$(python3 -c "import json; print(json.load(open('evidence.json')).get('mode_b_status', 'failed'))")
+
+          if [ "$EV_STATUS" != "passed" ] || [ "$MODE_B_STATUS" != "passed" ]; then
+            echo "Error: Promotion rejected! Evidence status is '$EV_STATUS' and mode_b_status is '$MODE_B_STATUS' (both must be 'passed')" >&2
+            exit 1
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists. Cannot clobber existing published assets." >&2
             exit 1
           fi
 
-          # Parse version from metadata if needed, but we can just use the provided tag
-          # Use docs/releases/RELEASE_NOTES.md if it exists, else just a string
           NOTES_FILE="docs/releases/RELEASE_NOTES.md"
           if [ ! -f "$NOTES_FILE" ]; then
             NOTES_FILE=""
           fi
 
-          CMD="gh release create \"$TAG\" \"$DEB\" \"$SHA_FILE\" \"$SIZE_FILE\" \"$METADATA\" \"$INVENTORY\" --target \"$SOURCE_COMMIT\" --title \"Flutter Termux $TAG\""
+          SOURCE_COMMIT="${RESOLVED_COMMIT:-$(python3 -c "import json; v=json.load(open('$RESOLVED_METADATA')).get('source_commit'); print(v if v is not None else '')")}"
+          if [ -z "$SOURCE_COMMIT" ]; then
+            echo "Error: source_commit is required" >&2
+            exit 1
+          fi
+          CMD="gh release create \"$TAG\" \"$RESOLVED_DEB\" \"$RESOLVED_SHA_FILE\" \"$RESOLVED_SIZE_FILE\" \"$RESOLVED_METADATA\" \"$RESOLVED_INVENTORY\" --target \"$SOURCE_COMMIT\" --title \"Flutter Termux $TAG\""
           if [ -n "$NOTES_FILE" ]; then
             CMD="$CMD --notes-file \"$NOTES_FILE\""
           fi

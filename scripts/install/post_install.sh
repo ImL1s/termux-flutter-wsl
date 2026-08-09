@@ -23,9 +23,11 @@ if [ "$1" == "--apply" ]; then MODE="apply"; fi
 if [ "$1" == "--status" ]; then MODE="status"; fi
 if [ "$1" == "--rollback" ]; then MODE="rollback"; fi
 
-mkdir -p "$BACKUP_DIR"
-if [ ! -f "$PATCH_STATE_FILE" ]; then
-    echo "{}" > "$PATCH_STATE_FILE"
+if [ "$MODE" != "status" ] && [ "$MODE" != "check" ]; then
+    mkdir -p "$BACKUP_DIR"
+    if [ ! -f "$PATCH_STATE_FILE" ]; then
+        echo "{}" > "$PATCH_STATE_FILE"
+    fi
 fi
 
 declare -A STATE_TARGET
@@ -39,18 +41,20 @@ declare -A PATCH_FUNCS
 regex_start='"([^"]+)"[[:space:]]*:[[:space:]]*\{'
 regex_field='"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]+)"'
 
-while read -r line; do
-    if [[ "$line" =~ $regex_start ]]; then
-        P_NAME="${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ $regex_field ]]; then
-        P_KEY="${BASH_REMATCH[1]}"
-        P_VAL="${BASH_REMATCH[2]}"
-        if [ "$P_KEY" = "target" ]; then STATE_TARGET["$P_NAME"]="$P_VAL"; fi
-        if [ "$P_KEY" = "preimage" ]; then STATE_PREIMAGE["$P_NAME"]="$P_VAL"; fi
-        if [ "$P_KEY" = "postimage" ]; then STATE_POSTIMAGE["$P_NAME"]="$P_VAL"; fi
-        if [ "$P_KEY" = "status" ]; then STATE_STATUS["$P_NAME"]="$P_VAL"; fi
-    fi
-done < "$PATCH_STATE_FILE"
+if [ -f "$PATCH_STATE_FILE" ]; then
+    while read -r line; do
+        if [[ "$line" =~ $regex_start ]]; then
+            P_NAME="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ $regex_field ]]; then
+            P_KEY="${BASH_REMATCH[1]}"
+            P_VAL="${BASH_REMATCH[2]}"
+            if [ "$P_KEY" = "target" ]; then STATE_TARGET["$P_NAME"]="$P_VAL"; fi
+            if [ "$P_KEY" = "preimage" ]; then STATE_PREIMAGE["$P_NAME"]="$P_VAL"; fi
+            if [ "$P_KEY" = "postimage" ]; then STATE_POSTIMAGE["$P_NAME"]="$P_VAL"; fi
+            if [ "$P_KEY" = "status" ]; then STATE_STATUS["$P_NAME"]="$P_VAL"; fi
+        fi
+    done < "$PATCH_STATE_FILE"
+fi
 
 save_state() {
     echo "{" > "$PATCH_STATE_FILE"

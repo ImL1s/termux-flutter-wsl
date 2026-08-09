@@ -436,24 +436,47 @@ class Build:
 
         try:
             repo = git.Repo(path)
+
+            git_dir = Path(repo.git_dir)
+            in_progress = any((git_dir / flag).exists() for flag in (
+                'rebase-apply', 'rebase-merge', 'MERGE_HEAD',
+                'BISECT_LOG', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'
+            ))
+            if in_progress:
+                return {'exists': True, 'dirty': True, 'error': 'In-progress git operation detected'}
+
+            if 'origin' not in repo.remotes:
+                return {'exists': True, 'dirty': True, 'error': 'Missing origin remote'}
+
+            origin_url = repo.remotes.origin.url
+            if not origin_url:
+                return {'exists': True, 'dirty': True, 'error': 'Empty origin remote URL'}
+
             is_dirty = repo.is_dirty(untracked_files=True)
             try:
                 active_branch = repo.active_branch.name
             except TypeError:
                 active_branch = None
 
-            origin_url = None
-            try:
-                origin_url = repo.remotes.origin.url
-            except Exception:
-                pass
+            head_sha = repo.head.commit.hexsha
+            peeled_sha = None
+            tag = self.tag
+            if tag:
+                try:
+                    peeled_sha = repo.git.rev_parse(f'refs/tags/{tag}^{{commit}}').strip()
+                except Exception:
+                    try:
+                        peeled_sha = repo.git.rev_list('-n', '1', tag).strip()
+                    except Exception:
+                        pass
 
             return {
                 'exists': True,
                 'dirty': is_dirty,
                 'tag': utils.flutter_tag(str(path)),
                 'branch': active_branch,
-                'head': repo.head.commit.hexsha,
+                'head': head_sha,
+                'peeled_sha': peeled_sha,
                 'remote': origin_url,
             }
         except Exception as e:
@@ -468,17 +491,28 @@ class Build:
         if out_path.is_dir():
             status = self.workspace_status(str(out_path))
 
-            # Helper to compare git URLs (ignoring trailing .git or slashes)
             def urls_match(u1, u2):
                 if not u1 or not u2:
-                    return True
-                return u1.rstrip('/').removesuffix('.git') == u2.rstrip('/').removesuffix('.git')
+                    return False
+                return utils.canonicalize_git_url(u1) == utils.canonicalize_git_url(u2)
 
             remote_ok = urls_match(status.get('remote'), url)
             has_structure = (out_path / 'bin' / 'flutter').exists()
+            head_matches_peeled = (
+                status.get('peeled_sha') is not None
+                and status.get('head') == status.get('peeled_sha')
+            )
 
-            if status.get('exists') and status.get('tag') == tag and not status.get('dirty') and 'error' not in status and remote_ok and has_structure:
-                logger.info(f'flutter exists at {out_path} with valid tag {tag} and clean workspace status, skipping clone.')
+            if (
+                status.get('exists')
+                and status.get('tag') == tag
+                and not status.get('dirty')
+                and 'error' not in status
+                and remote_ok
+                and has_structure
+                and head_matches_peeled
+            ):
+                logger.info(f'flutter exists at {out_path} with valid tag {tag} (HEAD={status.get("head")[:8]}) and clean workspace status, skipping clone.')
                 return
 
             if status.get('dirty') and not force:
@@ -486,14 +520,18 @@ class Build:
                 raise RuntimeError(f'Dirty checkout at {out_path}')
 
             current_tag = status.get('tag')
-            # Attempt checkout of target tag inside existing repository if valid git repo
             if 'error' not in status and remote_ok:
                 try:
                     repo = git.Repo(out_path)
-                    logger.info(f'Existing flutter checkout tag "{current_tag}" != target "{tag}". Attempting git checkout {tag}...')
+                    logger.info(f'Existing flutter checkout HEAD ({status.get("head", "")[:8]}) does not match tag {tag} peeled commit ({status.get("peeled_sha", "")[:8]}). Attempting git checkout {tag}...')
                     repo.git.fetch('origin', '--tags')
                     repo.git.checkout(tag)
-                    if utils.flutter_tag(str(out_path)) == tag:
+                    new_status = self.workspace_status(str(out_path))
+                    if (
+                        new_status.get('tag') == tag
+                        and not new_status.get('dirty')
+                        and new_status.get('head') == new_status.get('peeled_sha')
+                    ):
                         logger.success(f'Successfully checked out tag {tag} in {out_path}.')
                         return
                 except Exception as e:

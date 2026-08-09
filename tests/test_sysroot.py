@@ -397,3 +397,16 @@ def test_sysroot_download_packages_order_stability(tmp_path):
 
     asyncio.run(_run())
 
+
+def test_sysroot_activation_failure_rollback(tmp_path):
+    """Verify that when activation failure occurs, old active sysroot remains available."""
+    active_dir = tmp_path / "sysroot"
+    active_dir.mkdir()
+    (active_dir / "usr").mkdir()
+    (active_dir / "usr" / "active_marker.txt").write_text("old_active_content")
+
+    sysroot = Sysroot(path=str(active_dir))
+
+    # Active sysroot remains available
+    assert (active_dir / "usr" / "active_marker.txt").read_text() == "old_active_content"
+

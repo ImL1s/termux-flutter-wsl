@@ -41,6 +41,17 @@ def flutter_tag(root: str):
         return None
 
 
+def canonicalize_git_url(url: str | None) -> str:
+    if not url:
+        return ""
+    u = str(url).strip()
+    if u.startswith('git@') and ':' in u:
+        host, path = u.split(':', 1)
+        host = host.removeprefix('git@')
+        u = f"https://{host}/{path}"
+    return u.rstrip('/').removesuffix('.git')
+
+
 class Output(object):
     """Target output directory path manager across build modes."""
     def __init__(self, root: str, arch: str):

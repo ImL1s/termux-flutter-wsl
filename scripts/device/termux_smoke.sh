@@ -267,11 +267,11 @@ flutter build appbundle --release --target-platform android-arm64 --no-pub --no-
 record_status BUILD_AAB_STATUS $?
 
 echo SECTION=APK_LAUNCH_CHECK
-if command -v pm >/dev/null 2>&1 && [ -f "$APK" ]; then
-    echo "Attempting Termux local package install..."
-    pm install -r "$APK" 2>/dev/null || true
-fi
-if command -v am >/dev/null 2>&1; then
+if [ "${ALLOW_LOCAL_TERMUX_LAUNCH:-0}" = "1" ] && command -v am >/dev/null 2>&1; then
+    if command -v pm >/dev/null 2>&1 && [ -f "$APK" ]; then
+        echo "Attempting Termux local package install..."
+        pm install -r "$APK" 2>/dev/null || true
+    fi
     if am start -W -n com.example.flutter_ci_smoke/.MainActivity 2>/dev/null; then
         record_status APK_LAUNCH_STATUS 0
         sleep 3
@@ -282,7 +282,7 @@ if command -v am >/dev/null 2>&1; then
         record_status APK_HOST_VERIFY_REQUIRED 0
     fi
 else
-    echo "am command not found; delegating launch verification to host ADB"
+    echo "am command not found or disabled; delegating launch verification to host ADB (authoritative host check)"
     record_status APK_HOST_VERIFY_REQUIRED 0
 fi
 

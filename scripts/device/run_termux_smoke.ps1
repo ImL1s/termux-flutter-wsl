@@ -22,6 +22,17 @@ function Resolve-Adb {
     throw "adb not found. Pass -AdbPath with the full platform-tools adb path."
 }
 
+function Write-InitialEvidence {
+    param([string]$Status = "failed", [string]$Path = "evidence.json")
+    $initObj = [ordered]@{
+        status = $Status
+        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        apk_launch = $false
+        crash_free = $false
+    }
+    $initObj | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
+}
+
 $Adb = Resolve-Adb $AdbPath
 $AdbArgs = @()
 if ($DeviceSerial) { $AdbArgs += @("-s", $DeviceSerial) }
@@ -229,15 +240,20 @@ $required = @(
     "APK_MANIFEST_STATUS=0",
     "APK_RESOURCES_STATUS=0",
     "APK_COPY_STATUS=0",
-    "APK_LAUNCH_STATUS=0",
-    "APK_CRASH_FREE_STATUS=0",
     "BUILD_LINUX_STATUS=0",
+    "BUILD_AAB_STATUS=0",
     "DONE"
 )
 foreach ($marker in $required) {
     if ($log -notmatch [regex]::Escape($marker)) {
         throw "Missing smoke marker: $marker"
     }
+}
+
+$hasLocalLaunch = ($log -match "APK_LAUNCH_STATUS=0" -and $log -match "APK_CRASH_FREE_STATUS=0")
+$hasHostRequired = ($log -match "APK_HOST_VERIFY_REQUIRED=0")
+if (-not ($hasLocalLaunch -xor $hasHostRequired)) {
+    throw "Smoke log must contain exactly one launch verification marker pair: either (APK_LAUNCH_STATUS=0 AND APK_CRASH_FREE_STATUS=0) OR APK_HOST_VERIFY_REQUIRED=0"
 }
 
 Write-Host "Uninstalling previous package if it exists..."
@@ -330,7 +346,7 @@ $modeB = if ($rawEv -and $rawEv.mode_b_status) { $rawEv.mode_b_status } else { "
 
 $modeAApkBuild = if ($rawEv -and $rawEv.mode_a -and $rawEv.mode_a.apk_build) { $rawEv.mode_a.apk_build } else { $modeA }
 $modeBAabBuild = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_build) { $rawEv.mode_b.aab_build } else { $modeB }
-$overallStatus = if ($launchPassed -and $modeA -eq "passed") { "passed" } else { "failed" }
+$overallStatus = if ($launchPassed -and $modeA -eq "passed" -and $modeB -eq "passed") { "passed" } else { "failed" }
 
 $evObj = [ordered]@{
     status = $overallStatus
@@ -339,12 +355,25 @@ $evObj = [ordered]@{
     apk_launch = [bool]$apkLaunchHost
     crash_free = [bool]$crashFreeHost
     commit_sha = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
+    source_commit = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
     device_serial = "[REDACTED]"
     device_info = [ordered]@{
         model = $model
         sdk = $sdk
         abi = $abi
         serial = "[REDACTED]"
+    }
+    artifacts = [ordered]@{
+        deb_sha256 = if (Test-Path $DebPath) { Get-Sha256Hex -Path $DebPath } else { "unknown" }
+        deb_size = if (Test-Path $DebPath) { (Get-Item $DebPath).Length } else { 0 }
+        apk_sha256 = $apkSha256
+        apk_size = $apkSize
+    }
+    verification_details = [ordered]@{
+        package_name = "com.example.flutter_ci_smoke"
+        component = "com.example.flutter_ci_smoke/.MainActivity"
+        liveness_pid = $initialPid
+        liveness_passed = [bool]$livenessPassed
     }
     launch_result = if ($launchPassed) { "passed" } else { "failed" }
     exit_status = $exitStatus

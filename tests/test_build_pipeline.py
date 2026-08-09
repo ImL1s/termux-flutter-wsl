@@ -228,7 +228,11 @@ def test_clone_tag_mismatch_defines_current_tag(tmp_path, monkeypatch):
     conf_path.write_text(conf_content, encoding='utf-8')
     b = Build(conf=str(conf_path))
 
-    monkeypatch.setattr(b, 'workspace_status', lambda path: {'exists': True, 'dirty': False, 'tag': '3.43.0'})
+    status_calls = [
+        {'exists': True, 'dirty': False, 'tag': '3.43.0', 'remote': b.repo, 'head': 'abc', 'peeled_sha': 'def'},
+        {'exists': True, 'dirty': False, 'tag': '3.44.0', 'remote': b.repo, 'head': '123', 'peeled_sha': '123'},
+    ]
+    monkeypatch.setattr(b, 'workspace_status', lambda path: status_calls.pop(0) if status_calls else {'exists': True, 'dirty': False, 'tag': '3.44.0', 'remote': b.repo, 'head': '123', 'peeled_sha': '123'})
 
     mock_repo = MagicMock()
     mock_repo.git.fetch = MagicMock()

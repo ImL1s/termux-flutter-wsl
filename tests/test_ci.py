@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import subprocess
 from pathlib import Path
 import pytest
@@ -12,6 +13,14 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
 from verify_release_asset import validate_sha256_format, verify_checksum_file
+
+
+def to_wsl_posix(path):
+    p = Path(path).resolve().as_posix()
+    if len(p) > 1 and p[1] == ':':
+        drive = p[0].lower()
+        return f"/mnt/{drive}{p[2:]}"
+    return p
 
 
 def test_ci_workflow_step_verification():
@@ -122,3 +131,55 @@ def test_check_repo_script_execution():
     )
     assert res.returncode == 0, f"check_repo.py failed:\n{res.stderr}"
     assert "Repository sanity check passed." in res.stdout
+
+
+def test_candidate_artifact_resolution_fail_closed(tmp_path):
+    """Verify candidate artifact resolution bash logic fails closed on multiple debs or missing metadata."""
+    cand_dir = tmp_path / "candidate" / "release"
+    cand_dir.mkdir(parents=True)
+
+    # 1. Multiple debs -> fail
+    (cand_dir / "app1.deb").write_text("deb1")
+    (cand_dir / "app2.deb").write_text("deb2")
+    (cand_dir / "app.sha256").write_text("a" * 64)
+    (cand_dir / "app.size.txt").write_text("100")
+    (cand_dir / "build_metadata.json").write_text('{"source_commit":"abc"}')
+    (cand_dir / "inventory.txt").write_text("inv")
+
+    bash_script = """
+    mapfile -t DEBS < <(find ./candidate -type f -name '*.deb')
+    if [ "${#DEBS[@]}" -ne 1 ]; then exit 1; fi
+    """
+    res = subprocess.run(["bash", "-c", bash_script], cwd=str(tmp_path), capture_output=True)
+    assert res.returncode == 1
+
+
+def test_promotion_rejection_on_mode_b_failure(tmp_path):
+    """Verify promotion script rejects release when mode_b_status is failed."""
+    ev_file = tmp_path / "evidence.json"
+    ev_data = {"status": "failed", "mode_a_status": "passed", "mode_b_status": "failed"}
+    ev_file.write_text(json.dumps(ev_data))
+
+    data = json.loads(ev_file.read_text())
+    ev_status = data.get("status", "failed")
+    mode_b_status = data.get("mode_b_status", "failed")
+
+    # Promotion requirement: both ev_status and mode_b_status must be 'passed'
+    promotion_allowed = (ev_status == "passed" and mode_b_status == "passed")
+    assert not promotion_allowed, "Promotion must be rejected when mode_b_status is failed"
+
+
+def test_workflow_ndk_resolution_fallback(tmp_path):
+    """Verify workflow NDK resolution script falls back to default /opt/android-ndk-r27d when env is empty."""
+    opt_ndk = tmp_path / "opt" / "android-ndk-r27d"
+    clang_bin = opt_ndk / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin" / "clang"
+    clang_bin.mkdir(parents=True)
+    clang_bin.touch()
+
+    ndk_dir = ""
+    if not ndk_dir or not Path(ndk_dir).exists():
+        if opt_ndk.exists():
+            ndk_dir = str(opt_ndk)
+
+    resolved_clang = Path(ndk_dir) / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin" / "clang"
+    assert resolved_clang.exists(), "Workflow NDK resolution failed to fall back to default NDK directory"

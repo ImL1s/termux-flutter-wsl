@@ -48,3 +48,30 @@ def test_termux_smoke_evidence_structure(tmp_path):
     assert data["commit_sha"] == "abc123def"
     assert "mode_a" in data
     assert "mode_b" in data
+
+
+def test_termux_smoke_delegated_launch_emits_pending_host_marker(tmp_path):
+    log_file = tmp_path / "smoke.log"
+    script = (
+        f"export TERMUX_SMOKE_LOG='{to_wsl_posix(log_file)}'\n"
+        "record_status() { echo \"$1=$2\" >> \"$TERMUX_SMOKE_LOG\"; }\n"
+        "ALLOW_LOCAL_TERMUX_LAUNCH=0\n"
+        "if [ \"${ALLOW_LOCAL_TERMUX_LAUNCH:-0}\" = \"1\" ]; then\n"
+        "  record_status APK_LAUNCH_STATUS 0\n"
+        "else\n"
+        "  record_status APK_HOST_VERIFY_REQUIRED 0\n"
+        "fi\n"
+    )
+    sh_file = tmp_path / "test.sh"
+    sh_file.write_text(script, encoding="utf-8", newline="\n")
+    res = subprocess.run(["bash", to_wsl_posix(sh_file)], cwd=REPO_ROOT, capture_output=True, text=True)
+    assert res.returncode == 0, f"Command failed: {res.stderr}"
+    log_content = log_file.read_text()
+    assert "APK_HOST_VERIFY_REQUIRED=0" in log_content
+    assert "APK_LAUNCH_STATUS=0" not in log_content
+
+
+def test_mode_b_failure_fails_overall_status():
+    ps_script = (REPO_ROOT / "scripts" / "device" / "run_termux_smoke.ps1").read_text(encoding="utf-8")
+    assert 'BUILD_AAB_STATUS=0' in ps_script
+    assert 'overallStatus = if ($launchPassed -and $modeA -eq "passed" -and $modeB -eq "passed") { "passed" } else { "failed" }' in ps_script

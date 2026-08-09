@@ -5,6 +5,7 @@ import sys
 import io
 import re
 import json
+import time
 import utils
 import shutil
 import hashlib
@@ -433,16 +434,28 @@ class Sysroot:
             if _is_file_uncommitted(self.lock_file):
                 raise RuntimeError(f'Lock file {self.lock_file.name} is uncommitted or untracked in git.')
 
-            with open(self.lock_file, 'r', encoding='utf-8') as f:
-                lock_data = json.load(f)
+            try:
+                with open(self.lock_file, 'r', encoding='utf-8') as f:
+                    lock_data = json.load(f)
+            except Exception as e:
+                raise RuntimeError(f'Lock file {self.lock_file.name} invalid or unparseable: {e}')
+
+            if not isinstance(lock_data, dict):
+                raise RuntimeError(f'Lock file {self.lock_file.name} root element must be a dictionary.')
 
             arch_entry = lock_data.get(arch) or lock_data.get(arch_name)
-            if not arch_entry or not isinstance(arch_entry, dict) or 'packages' not in arch_entry:
-                raise RuntimeError(f'Arch {arch} missing or lock file incomplete in {self.lock_file.name}.')
+            if not arch_entry or not isinstance(arch_entry, dict):
+                raise RuntimeError(f'Arch {arch} ({arch_name}) entry missing or lock file incomplete in {self.lock_file.name}.')
 
-            pkgs_dict = arch_entry['packages']
+            pkgs_dict = arch_entry.get('packages')
+            if not isinstance(pkgs_dict, (dict, list)) or not pkgs_dict:
+                raise RuntimeError(f'Arch {arch} packages field missing or malformed in lock file {self.lock_file.name}.')
+
             expected_tree_hash = arch_entry.get('tree_hash')
-            pkgs_info = list(pkgs_dict.values())
+            if not expected_tree_hash or not isinstance(expected_tree_hash, str) or not re.fullmatch(r'[0-9a-f]{64}', expected_tree_hash):
+                raise RuntimeError(f'Arch {arch} tree_hash missing, empty, or malformed ({expected_tree_hash!r}) in lock file {self.lock_file.name}.')
+
+            pkgs_info = list(pkgs_dict.values()) if isinstance(pkgs_dict, dict) else pkgs_dict
 
         async def _do_build():
             nonlocal pkgs_info, expected_tree_hash
@@ -483,16 +496,36 @@ class Sysroot:
 
                 # Validate tree_hash if locked
                 actual_tree_hash = compute_tree_hash(staging_out)
-                if locked and expected_tree_hash:
-                    if actual_tree_hash != expected_tree_hash:
+                if locked:
+                    if not expected_tree_hash or actual_tree_hash != expected_tree_hash:
                         raise RuntimeError(
                             f'Sysroot tree_hash mismatch: expected {expected_tree_hash}, got {actual_tree_hash}'
                         )
 
-                # Atomic replacement
-                _safe_rmtree(self.path)
-                staging_out.rename(self.path)
-                logger.info(f'✓ Atomic replacement to {self.path} successful.')
+                # Safe activation with rollback backup
+                timestamp = int(time.time())
+                backup_path = self.path.parent / f"{self.path.name}.bak.{timestamp}"
+
+                has_active = self.path.exists()
+                if has_active:
+                    _safe_rmtree(backup_path)
+                    self.path.rename(backup_path)
+
+                try:
+                    staging_out.rename(self.path)
+                    logger.info(f'✓ Atomic activation to {self.path} successful.')
+                    if has_active and backup_path.exists():
+                        _safe_rmtree(backup_path)
+                except Exception as act_err:
+                    logger.error(f'Activation failed: {act_err}')
+                    if has_active and backup_path.exists():
+                        try:
+                            _safe_rmtree(self.path)
+                            backup_path.rename(self.path)
+                            logger.info(f'Restored active sysroot from backup {backup_path}')
+                        except Exception as restore_err:
+                            logger.error(f'Failed to restore backup {backup_path}: {restore_err}')
+                    raise
             except Exception as e:
                 logger.error(f'Build failed: {e}')
                 logger.error(f'Staging directory preserved at {staging_out} for debugging')

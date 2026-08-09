@@ -66,15 +66,15 @@ fi
 MODIFIED_FILES=()
 
 # Backup and update gradle.properties
+TERMUX_AAPT2="/data/data/com.termux/files/usr/bin/aapt2"
 if [ -f "$GRADLE_PROPS" ]; then
     if [ ! -f "${GRADLE_PROPS}.bak" ]; then
         cp "$GRADLE_PROPS" "${GRADLE_PROPS}.bak"
     fi
-    if ! grep -q "android.aapt2FromMavenOverride" "$GRADLE_PROPS"; then
-        echo "" >> "$GRADLE_PROPS"
-        echo "android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2" >> "$GRADLE_PROPS"
-        echo "Added android.aapt2FromMavenOverride to $GRADLE_PROPS"
-    fi
+    # Remove existing (stale/wrong/duplicate) aapt2FromMavenOverride entries
+    sed -i '/^android\.aapt2FromMavenOverride=/d' "$GRADLE_PROPS"
+    echo "android.aapt2FromMavenOverride=$TERMUX_AAPT2" >> "$GRADLE_PROPS"
+    echo "Set android.aapt2FromMavenOverride=$TERMUX_AAPT2 in $GRADLE_PROPS"
     MODIFIED_FILES+=("android/gradle.properties")
 fi
 
