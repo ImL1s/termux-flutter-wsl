@@ -255,25 +255,43 @@ Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
 $apkSha256 = Get-Sha256Hex -Path $localApk
 Write-Host "Pulled APK SHA-256: $apkSha256"
 
-Write-Host "Clearing ADB logcat buffer before launch..."
-Invoke-AdbAllowFail -Args @("logcat", "-c") | Out-Null
+Write-Host "Removing stale package state..."
+Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke") | Out-Null
 
 Write-Host "Installing pulled APK from host..."
 Invoke-Adb -Args @("install", "-r", $localApk)
 
+$pkgList = (& $Adb @AdbArgs shell "pm list packages | grep com.example.flutter_ci_smoke 2>/dev/null || true") -join ""
+if (-not ($pkgList -match "com.example.flutter_ci_smoke")) {
+    throw "Package com.example.flutter_ci_smoke is not installed on target device."
+}
+Write-Host "Verified package identity: com.example.flutter_ci_smoke"
+
+Write-Host "Clearing ADB logcat buffer before launch..."
+Invoke-AdbAllowFail -Args @("logcat", "-c") | Out-Null
+
 Write-Host "Verifying APK launch and crash-free execution from host ADB..."
-Invoke-AdbAllowFail -Args @("shell", "am", "start", "-n", "com.example.flutter_ci_smoke/.MainActivity") | Out-Host
-Start-Sleep -Seconds 3
+Invoke-AdbAllowFail -Args @("shell", "am", "start", "-W", "-n", "com.example.flutter_ci_smoke/.MainActivity") | Out-Host
 
-$appPid = (& $Adb @AdbArgs shell "pidof com.example.flutter_ci_smoke 2>/dev/null || true") -join ""
-$appPid = $appPid.Trim()
-$crashCheck = (& $Adb @AdbArgs shell "logcat -d -t 1000 2>/dev/null | grep -i 'FATAL EXCEPTION.*com.example.flutter_ci_smoke' || true") -join ""
-$crashCheck = $crashCheck.Trim()
+$livenessPassed = $true
+$appPid = ""
+for ($check = 1; $check -le 3; $check++) {
+    Start-Sleep -Seconds 2
+    $pidCurrent = ((& $Adb @AdbArgs shell "pidof com.example.flutter_ci_smoke 2>/dev/null || true") -join "").Trim()
+    if (-not $pidCurrent) {
+        $livenessPassed = $false
+        break
+    }
+    if (-not $appPid) { $appPid = $pidCurrent }
+}
 
-$apkLaunchHost = ($appPid -ne "")
-$crashFreeHost = ($apkLaunchHost -and ($crashCheck -eq ""))
+$crashLogs = (& $Adb @AdbArgs shell "logcat -d 2>/dev/null | grep -E -i 'FATAL EXCEPTION|AndroidRuntime|SIGSEGV|SIGABRT|Process com.example.flutter_ci_smoke' || true") -join "`n"
+$hasCrash = ($crashLogs -match "FATAL EXCEPTION" -or $crashLogs -match "SIGSEGV" -or $crashLogs -match "SIGABRT")
 
-Write-Host "Host APK launch verification: pid=$appPid, apk_launch=$apkLaunchHost, crash_free=$crashFreeHost"
+$apkLaunchHost = [bool]($appPid -ne "" -and $livenessPassed)
+$crashFreeHost = [bool]($apkLaunchHost -and (-not $hasCrash))
+
+Write-Host "Host APK launch verification: pid=$appPid, liveness=$livenessPassed, apk_launch=$apkLaunchHost, crash_free=$crashFreeHost"
 
 $hostEvidencePath = if ([System.IO.Path]::IsPathRooted($EvidencePath)) { $EvidencePath } else { Join-Path (Get-Location) $EvidencePath }
 $remoteEvidence = "/sdcard/Download/evidence.json"
@@ -281,8 +299,7 @@ $remoteEvidence = "/sdcard/Download/evidence.json"
 $model = ((& $Adb @AdbArgs shell "getprop ro.product.model 2>/dev/null || true") -join "").Trim()
 $sdk = ((& $Adb @AdbArgs shell "getprop ro.build.version.sdk 2>/dev/null || true") -join "").Trim()
 $abi = ((& $Adb @AdbArgs shell "getprop ro.product.cpu.abi 2>/dev/null || true") -join "").Trim()
-$serial = if ($DeviceSerial) { $DeviceSerial } else { ((& $Adb @AdbArgs shell "getprop ro.serialno 2>/dev/null || true") -join "").Trim() }
-if (-not $serial) { $serial = "unknown" }
+$serial = "[REDACTED]"
 if (-not $model) { $model = "unknown" }
 if (-not $sdk) { $sdk = "unknown" }
 if (-not $abi) { $abi = "unknown" }
@@ -318,16 +335,16 @@ $overallStatus = if ($launchPassed -and $modeA -eq "passed") { "passed" } else {
 $evObj = [ordered]@{
     status = $overallStatus
     timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    device = if ($model -and $model -ne "unknown") { $model } else { $serial }
+    device = $model
     apk_launch = [bool]$apkLaunchHost
     crash_free = [bool]$crashFreeHost
     commit_sha = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
-    device_serial = if ($rawEv -and $rawEv.device_serial -and $rawEv.device_serial -ne "unknown") { $rawEv.device_serial } else { $serial }
+    device_serial = "[REDACTED]"
     device_info = [ordered]@{
         model = $model
         sdk = $sdk
         abi = $abi
-        serial = $serial
+        serial = "[REDACTED]"
     }
     launch_result = if ($launchPassed) { "passed" } else { "failed" }
     exit_status = $exitStatus
@@ -342,6 +359,7 @@ $evObj = [ordered]@{
         aab_build = $modeBAabBuild
     }
 }
+
 
 $evObj | ConvertTo-Json -Depth 5 | Set-Content -Path $hostEvidencePath -Encoding UTF8
 Write-Host "Wrote evidence artifact to $hostEvidencePath"

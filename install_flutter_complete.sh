@@ -143,12 +143,16 @@ rollback_packages() {
 }
 
 cleanup_and_exit() {
-    trap - EXIT
     local orig_code=$?
+    trap - EXIT
     local exit_code=$orig_code
     if [ "${INSTALL_FAILED:-false}" = true ]; then
         if ! rollback_packages; then
             exit_code=70
+        else
+            if [ "$orig_code" -eq 0 ]; then
+                exit_code=1
+            fi
         fi
     fi
     if [ -n "${WORK_DIR:-}" ]; then

@@ -112,8 +112,12 @@ apply_patches() {
             continue
         fi
 
+        if [ "$MODE" == "status" ] || [ "$MODE" == "check" ]; then
+            continue
+        fi
+
         echo "  Applying $patch_name..."
-        if [ ! -f "$BACKUP_DIR/$patch_name.orig" ]; then
+        if [ ! -f "$BACKUP_DIR/$patch_name.orig" ] || [ -z "${STATE_PREIMAGE[$patch_name]}" ] || [ "$current_hash" != "${STATE_PREIMAGE[$patch_name]}" ]; then
             cp "$target_file" "$BACKUP_DIR/$patch_name.orig"
         fi
 
@@ -143,7 +147,9 @@ apply_patches() {
         echo "  ✓ $patch_name: successful"
     done
 
-    save_state
+    if [ "$MODE" == "apply" ]; then
+        save_state
+    fi
     if [ $any_failed -eq 1 ]; then
         echo "Some patches failed. Aborting."
         exit 1

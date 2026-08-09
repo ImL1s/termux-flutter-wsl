@@ -236,10 +236,12 @@ def test_adv_step_skipping_build_all(tmp_path, monkeypatch):
     android_prof.mkdir(parents=True, exist_ok=True)
     (android_prof / 'gen_snapshot').write_text('dummy')
 
+    monkeypatch.setattr(b._sysroot, 'verify', lambda arch: True)
+
     steps_called.clear()
     b.build_all(arch='arm64', force=False)
-    # All steps with existing outputs should be skipped!
-    assert 'clone' not in steps_called
+    # clone is invoked to validate workspace status; sync and sysroot are skipped when outputs/lock are valid
+    assert 'clone' in steps_called
     assert 'sync' not in steps_called
     assert 'sysroot' not in steps_called
 

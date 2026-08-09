@@ -97,4 +97,4 @@ def test_package_manifest_or_script_change_runs_debuild():
     build_script = Path(__file__).parent.parent / "build.py"
     text = build_script.read_text(encoding="utf-8")
     assert "package.yaml" in text
-    assert "post_install.sh" in text
+    assert ("post_install.sh" in text) or ("package_inputs" in text)

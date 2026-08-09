@@ -120,8 +120,8 @@ def test_build_all_deduplication_and_skipping(tmp_path, monkeypatch):
     monkeypatch.setattr(b, 'build_android_gen_snapshot', lambda **kwargs: None)
     
     executed_steps = []
-    def mock_clone(): executed_steps.append('clone')
-    def mock_sync(): executed_steps.append('sync')
+    def mock_clone(**kwargs): executed_steps.append('clone')
+    def mock_sync(**kwargs): executed_steps.append('sync')
     def mock_sysroot(**kwargs): executed_steps.append('sysroot')
 
     monkeypatch.setattr(b, 'clone', mock_clone)
@@ -142,11 +142,12 @@ def test_build_all_deduplication_and_skipping(tmp_path, monkeypatch):
     dart_ver.mkdir(parents=True, exist_ok=True)
     (dart_ver / 'version').write_text('3.12.1')
     (sysroot_dir / 'usr').mkdir(exist_ok=True)
+    monkeypatch.setattr(b._sysroot, 'verify', lambda arch: True)
 
     executed_steps.clear()
     b.build_all(arch='arm64', force=False)
-    # Clone, sync, sysroot should now be skipped
-    assert 'clone' not in executed_steps
+    # clone is invoked to run workspace validation (and skips internally), sync & sysroot skip step execution
+    assert 'clone' in executed_steps
     assert 'sync' not in executed_steps
     assert 'sysroot' not in executed_steps
 
@@ -240,3 +241,28 @@ def test_clone_tag_mismatch_defines_current_tag(tmp_path, monkeypatch):
     # Calling clone should successfully log current_tag without raising NameError
     b.clone(tag='3.44.0')
     mock_repo.git.checkout.assert_called_once_with('3.44.0')
+
+
+def test_clone_dirty_checkout_fails_closed(tmp_path, monkeypatch):
+    conf_path = tmp_path / 'build.toml'
+    flutter_dir = tmp_path / 'flutter'
+    package_yaml = tmp_path / 'package.yaml'
+    flutter_dir.mkdir()
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.0\n", encoding='utf-8')
+
+    flutter_str = str(flutter_dir).replace('\\', '/')
+    package_str = str(package_yaml).replace('\\', '/')
+
+    conf_content = f"""
+    [flutter]
+    tag = "3.44.0"
+    path = "{flutter_str}"
+    [package]
+    conf = "{package_str}"
+    """
+    conf_path.write_text(conf_content, encoding='utf-8')
+    b = Build(conf=str(conf_path))
+
+    monkeypatch.setattr(b, 'workspace_status', lambda path: {'exists': True, 'dirty': True, 'tag': '3.44.0'})
+    with pytest.raises(RuntimeError, match="Dirty checkout"):
+        b.clone(tag='3.44.0', force=False)

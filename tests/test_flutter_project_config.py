@@ -148,3 +148,39 @@ def test_configurator_syntax():
         text=True,
     )
     assert res.returncode == 0, f"bash -n failed: {res.stderr}"
+
+
+@pytest.mark.parametrize("use_kts, initial_ndk_block", [
+    # Groovy fixtures
+    (False, "    defaultConfig {\n        ndk {\n            abiFilters 'x86'\n        }\n    }\n"),
+    (False, "    defaultConfig {\n        ndk {\n            abiFilters 'armeabi-v7a'\n        }\n    }\n"),
+    (False, "    defaultConfig {\n        ndk {\n            abiFilters 'x86', 'armeabi-v7a'\n        }\n    }\n"),
+    (False, "    defaultConfig {\n        ndk {\n            abiFilters 'arm64-v8a'\n        }\n    }\n"),
+    # Kotlin DSL fixtures
+    (True, "    defaultConfig {\n        ndk {\n            abiFilters += listOf(\"x86\")\n        }\n    }\n"),
+    (True, "    defaultConfig {\n        ndk {\n            abiFilters += listOf(\"armeabi-v7a\")\n        }\n    }\n"),
+    (True, "    defaultConfig {\n        ndk {\n            abiFilters += listOf(\"arm64-v8a\")\n        }\n    }\n"),
+])
+def test_abi_filters_fixtures(tmp_path, use_kts, initial_ndk_block):
+    proj = tmp_path / "app_fixture"
+    android_dir = proj / "android" / "app"
+    android_dir.mkdir(parents=True)
+
+    gradle_props = proj / "android" / "gradle.properties"
+    gradle_props.write_text("org.gradle.jvmargs=-Xmx2048m\n")
+
+    filename = "build.gradle.kts" if use_kts else "build.gradle"
+    target_file = android_dir / filename
+    sdk_line = "    compileSdk = 35\n" if use_kts else "    compileSdkVersion 35\n"
+    target_file.write_text(f"android {{\n{sdk_line}{initial_ndk_block}}}\n")
+
+    res = subprocess.run(
+        ["bash", to_bash_path(CONFIG_SCRIPT), to_bash_path(proj)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, f"Script failed for {filename}: {res.stderr}"
+
+    content = target_file.read_text()
+    assert "arm64-v8a" in content, f"arm64-v8a missing in {filename} after configuration"

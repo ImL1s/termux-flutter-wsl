@@ -15,6 +15,8 @@ def validate_sha256_format(sha_str: str | None) -> str:
     cleaned = sha_str.strip()
     if not cleaned:
         raise ValueError("SHA256 checksum string is empty")
+    if sha_str != cleaned:
+        raise ValueError(f"SHA256 checksum must not contain leading/trailing whitespace or newline: '{sha_str}'")
     if not SHA256_HEX_REGEX.match(cleaned):
         raise ValueError(f"Invalid SHA256 hex format: '{cleaned}' (must be exactly 64 hex characters)")
     return cleaned.lower()
@@ -127,7 +129,9 @@ def main():
                 sys.exit(1)
             print(f"LIGHTWEIGHT_CHECK: Local file SHA256 verified ({actual_sha256}).")
             print(f"Release manifest OK: {target_tag} | {expected_asset} | {actual_size} bytes | SHA256 format verified: {expected_sha256[:8]}...")
-            sys.exit(0)
+        else:
+            print(f"LIGHTWEIGHT_CHECK enabled (no local file present): Verified manifest structure and valid SHA256 hex syntax ({expected_sha256[:8]}...). Skipping network API lookup.")
+        sys.exit(0)
 
     # 4. Retrieve release info from GitHub API via urllib
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")

@@ -370,51 +370,52 @@ class Sysroot:
 
         asyncio.run(_do_lock())
 
-    def verify(self, arch: str = 'arm64'):
+    def verify(self, arch: str = 'arm64') -> bool:
         """驗證現有 sysroot 是否存在並完整"""
         arch_name = utils.termux_arch(arch)
         if not self.path.exists() or not (self.path / 'usr').exists():
             logger.error('Sysroot not found or incomplete.')
-            sys.exit(1)
+            raise ValueError('Sysroot not found or incomplete.')
         if not self.lock_file.exists():
             logger.error('Lock file not found.')
-            sys.exit(1)
+            raise ValueError('Lock file not found.')
         try:
             with open(self.lock_file, 'r', encoding='utf-8') as f:
                 lock_data = json.load(f)
         except Exception as e:
             logger.error(f'Lock file invalid or unparseable: {e}')
-            sys.exit(1)
+            raise ValueError(f'Lock file invalid or unparseable: {e}')
 
         if not isinstance(lock_data, dict):
             logger.error('Lock file root element must be a dictionary.')
-            sys.exit(1)
+            raise ValueError('Lock file root element must be a dictionary.')
 
         if arch not in lock_data and arch_name not in lock_data:
             logger.error(f'Arch {arch} ({arch_name}) not found in lock file.')
-            sys.exit(1)
+            raise ValueError(f'Arch {arch} ({arch_name}) not found in lock file.')
 
         entry = lock_data.get(arch) if arch in lock_data else lock_data.get(arch_name)
         if not isinstance(entry, dict):
             logger.error(f'Lock entry for {arch} is malformed (not a dictionary).')
-            sys.exit(1)
+            raise ValueError(f'Lock entry for {arch} is malformed (not a dictionary).')
 
         packages = entry.get('packages')
         if packages is None or not isinstance(packages, (dict, list)):
             logger.error(f'Lock entry packages field for {arch} is missing or malformed.')
-            sys.exit(1)
+            raise ValueError(f'Lock entry packages field for {arch} is missing or malformed.')
 
         expected_hash = entry.get('tree_hash')
         if not expected_hash or not isinstance(expected_hash, str) or not re.fullmatch(r'[0-9a-f]{64}', expected_hash):
             logger.error(f'Lock entry tree_hash for {arch} is missing, empty, or malformed: {expected_hash!r}')
-            sys.exit(1)
+            raise ValueError(f'Lock entry tree_hash for {arch} is missing, empty, or malformed: {expected_hash!r}')
 
         actual_hash = compute_tree_hash(self.path)
         if actual_hash != expected_hash:
             logger.error(f'Sysroot tree hash mismatch for {arch}: actual={actual_hash} != expected={expected_hash}')
-            sys.exit(1)
+            raise ValueError(f'Sysroot tree hash mismatch for {arch}: actual={actual_hash} != expected={expected_hash}')
 
         logger.info(f'✓ Sysroot for {arch} looks valid (tree_hash verified: {actual_hash}).')
+        return True
 
     def build(self, arch: str = 'arm64', locked: bool = True):
         """建立 sysroot，預設 shadow 啟用 --locked"""

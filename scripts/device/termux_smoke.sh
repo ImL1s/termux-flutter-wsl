@@ -37,14 +37,18 @@ write_evidence_json() {
         overall_status="passed"
     fi
 
-    local apk_launch_bool=false
+    local apk_launch_val="false"
     if [ "${status_APK_LAUNCH_STATUS:-1}" = "0" ]; then
-        apk_launch_bool=true
+        apk_launch_val="true"
+    elif [ "${status_APK_HOST_VERIFY_REQUIRED:-1}" = "0" ]; then
+        apk_launch_val="\"pending_host_verification\""
     fi
 
-    local crash_free_bool=false
+    local crash_free_val="false"
     if [ "${status_APK_CRASH_FREE_STATUS:-1}" = "0" ]; then
-        crash_free_bool=true
+        crash_free_val="true"
+    elif [ "${status_APK_HOST_VERIFY_REQUIRED:-1}" = "0" ]; then
+        crash_free_val="\"pending_host_verification\""
     fi
 
     local mode_a_stat="failed"
@@ -58,8 +62,10 @@ write_evidence_json() {
     fi
 
     local launch_res="failed"
-    if [ "$apk_launch_bool" = "true" ] && [ "$crash_free_bool" = "true" ] && [ "$mode_a_stat" = "passed" ]; then
+    if [ "$apk_launch_val" = "true" ] && [ "$crash_free_val" = "true" ] && [ "$mode_a_stat" = "passed" ]; then
         launch_res="passed"
+    elif [ "$apk_launch_val" = "\"pending_host_verification\"" ]; then
+        launch_res="pending_host_verification"
     fi
 
     local commit_sha_val model_val sdk_val abi_val serial_val
@@ -67,15 +73,15 @@ write_evidence_json() {
     model_val="$(getprop ro.product.model 2>/dev/null || echo 'unknown')"
     sdk_val="$(getprop ro.build.version.sdk 2>/dev/null || echo 'unknown')"
     abi_val="$(getprop ro.product.cpu.abi 2>/dev/null || echo 'unknown')"
-    serial_val="$(getprop ro.serialno 2>/dev/null || echo 'unknown')"
+    serial_val="[REDACTED]"
 
     cat > "$EVIDENCE_JSON" <<EOF
 {
   "status": "$overall_status",
   "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
   "device": "$model_val",
-  "apk_launch": $apk_launch_bool,
-  "crash_free": $crash_free_bool,
+  "apk_launch": $apk_launch_val,
+  "crash_free": $crash_free_val,
   "commit_sha": "$commit_sha_val",
   "device_serial": "$serial_val",
   "device_info": {
@@ -273,13 +279,11 @@ if command -v am >/dev/null 2>&1; then
         am force-stop com.example.flutter_ci_smoke 2>/dev/null || true
     else
         echo "Termux am start failed or unprivileged; delegating launch verification to host ADB"
-        record_status APK_LAUNCH_STATUS 0
-        record_status APK_CRASH_FREE_STATUS 0
+        record_status APK_HOST_VERIFY_REQUIRED 0
     fi
 else
     echo "am command not found; delegating launch verification to host ADB"
-    record_status APK_LAUNCH_STATUS 0
-    record_status APK_CRASH_FREE_STATUS 0
+    record_status APK_HOST_VERIFY_REQUIRED 0
 fi
 
 write_evidence_json

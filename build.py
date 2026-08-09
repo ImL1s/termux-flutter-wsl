@@ -221,6 +221,7 @@ class Build:
             or os.environ.get('ANDROID_NDK_HOME')
             or os.environ.get('ANDROID_NDK_ROOT')
             or cfg.get('ndk', {}).get('path')
+            or ('/opt/android-ndk-r27d' if os.path.exists('/opt/android-ndk-r27d') else None)
         )
 
         api = cfg.get('ndk', {}).get('api', 35)
@@ -440,12 +441,20 @@ class Build:
                 active_branch = repo.active_branch.name
             except TypeError:
                 active_branch = None
+
+            origin_url = None
+            try:
+                origin_url = repo.remotes.origin.url
+            except Exception:
+                pass
+
             return {
                 'exists': True,
                 'dirty': is_dirty,
                 'tag': utils.flutter_tag(str(path)),
                 'branch': active_branch,
-                'head': repo.head.commit.hexsha
+                'head': repo.head.commit.hexsha,
+                'remote': origin_url,
             }
         except Exception as e:
             return {'exists': True, 'dirty': False, 'tag': utils.flutter_tag(str(path)), 'error': str(e)}
@@ -458,7 +467,17 @@ class Build:
 
         if out_path.is_dir():
             status = self.workspace_status(str(out_path))
-            if status.get('exists') and status.get('tag') == tag and not status.get('dirty') and 'error' not in status:
+
+            # Helper to compare git URLs (ignoring trailing .git or slashes)
+            def urls_match(u1, u2):
+                if not u1 or not u2:
+                    return True
+                return u1.rstrip('/').removesuffix('.git') == u2.rstrip('/').removesuffix('.git')
+
+            remote_ok = urls_match(status.get('remote'), url)
+            has_structure = (out_path / 'bin' / 'flutter').exists()
+
+            if status.get('exists') and status.get('tag') == tag and not status.get('dirty') and 'error' not in status and remote_ok and has_structure:
                 logger.info(f'flutter exists at {out_path} with valid tag {tag} and clean workspace status, skipping clone.')
                 return
 
@@ -467,17 +486,18 @@ class Build:
                 raise RuntimeError(f'Dirty checkout at {out_path}')
 
             current_tag = status.get('tag')
-            # Attempt checkout of target tag inside existing repository
-            try:
-                repo = git.Repo(out_path)
-                logger.info(f'Existing flutter checkout tag "{current_tag}" != target "{tag}". Attempting git checkout {tag}...')
-                repo.git.fetch('origin', '--tags')
-                repo.git.checkout(tag)
-                if utils.flutter_tag(str(out_path)) == tag:
-                    logger.success(f'Successfully checked out tag {tag} in {out_path}.')
-                    return
-            except Exception as e:
-                logger.warning(f'Failed to checkout tag {tag} in existing directory {out_path}: {e}')
+            # Attempt checkout of target tag inside existing repository if valid git repo
+            if 'error' not in status and remote_ok:
+                try:
+                    repo = git.Repo(out_path)
+                    logger.info(f'Existing flutter checkout tag "{current_tag}" != target "{tag}". Attempting git checkout {tag}...')
+                    repo.git.fetch('origin', '--tags')
+                    repo.git.checkout(tag)
+                    if utils.flutter_tag(str(out_path)) == tag:
+                        logger.success(f'Successfully checked out tag {tag} in {out_path}.')
+                        return
+                except Exception as e:
+                    logger.warning(f'Failed to checkout tag {tag} in existing directory {out_path}: {e}')
 
         staging_path = out_path.parent / f'{out_path.name}.staging'
         if staging_path.exists():
@@ -1062,11 +1082,7 @@ class Build:
         logger.info(f'✓ preflight completed in {time.time() - t0:.1f}s')
 
         # Step 2: clone
-        run_step_conditional(
-            2, total, 'clone',
-            [self.root / 'bin' / 'flutter'],
-            self.clone
-        )
+        run_step(2, total, 'clone', self.clone, force=force)
 
         # Step 3: sync
         run_step_conditional(
@@ -1084,12 +1100,21 @@ class Build:
                 getattr(self, f'patch_{k}')()
         logger.info(f'✓ patch completed in {time.time() - t0:.1f}s')
 
-        # Step 5: sysroot
-        run_step_conditional(
-            5, total, 'sysroot',
-            [Path(self._sysroot.path) / 'usr'],
-            self.sysroot, arch=arch
-        )
+        # Step 5: sysroot (must run locked verification before skipping)
+        usr_dir = Path(self._sysroot.path) / 'usr'
+        sysroot_valid = False
+        if not force and usr_dir.is_dir():
+            try:
+                sysroot_valid = self._sysroot.verify(arch=arch)
+            except Exception as e:
+                logger.info(f"Sysroot verification failed: {e}. Rebuilding sysroot...")
+                sysroot_valid = False
+
+        if not force and sysroot_valid:
+            logger.info(f'[5/{total}] sysroot verified with lock file, skipping (use --force to rebuild).')
+        else:
+            rebuilt_any_artifact[0] = True
+            run_step(5, total, 'sysroot', self.sysroot, arch=arch)
 
         # Step 6: configure and build debug + dart + impellerc + const_finder
         out_debug = utils.target_output(str(self.root), arch, 'debug')
@@ -1161,7 +1186,9 @@ class Build:
             logger.info(f'✓ android gen_snapshot release completed in {time.time() - t0:.1f}s')
 
         # Step 12: configure and build android gen_snapshot profile
-        android_prof_gen = self.root / 'engine/src/out/android_profile_arm64/clang_arm64/gen_snapshot'
+        android_prof_gen1 = self.root / 'engine/src/out/android_profile_arm64/exe.stripped/gen_snapshot'
+        android_prof_gen2 = self.root / 'engine/src/out/android_profile_arm64/clang_arm64/gen_snapshot'
+        android_prof_gen = android_prof_gen1 if android_prof_gen1.exists() else android_prof_gen2
         if not force and android_prof_gen.exists():
             logger.info(f'[12/{total}] android gen_snapshot profile output already exists, skipping (use --force to rebuild).')
         else:
@@ -1175,16 +1202,26 @@ class Build:
         # Step 13 & 14: debuild
         deb_file = Path(self.output(arch))
         deb_stale = False
-        package_inputs = [
-            Path(__file__).parent / 'package.yaml',
-            Path(__file__).parent / 'build.toml',
-            Path(__file__).parent / 'package.py',
-            Path(__file__).parent / 'build.py',
-            Path(__file__).parent / 'scripts/install/post_install.sh',
-            Path(__file__).parent / 'scripts/install/lib_common.sh',
-            Path(__file__).parent / 'scripts/install/flutter_project_config.sh',
-            Path(__file__).parent / 'install_flutter_complete.sh',
-        ]
+
+        repo_base = Path(__file__).parent
+        package_inputs = {
+            repo_base / 'package.yaml',
+            repo_base / 'build.toml',
+            repo_base / 'package.py',
+            repo_base / 'build.py',
+            repo_base / 'install_flutter_complete.sh',
+        }
+
+        # Dynamically extract all repo-relative script/file sources from package.yaml
+        if isinstance(self.package, dict) and 'resource' in self.package:
+            for res_name, res_def in self.package['resource'].items():
+                if isinstance(res_def, dict) and 'source' in res_def:
+                    src_val = res_def['source']
+                    src_lines = [src_val] if isinstance(src_val, str) else (src_val if isinstance(src_val, list) else [])
+                    for line in src_lines:
+                        if isinstance(line, str) and '$root/../' in line:
+                            rel_path = line.split('$root/../', 1)[1]
+                            package_inputs.add(repo_base / rel_path)
 
         if deb_file.exists():
             deb_mtime = deb_file.stat().st_mtime

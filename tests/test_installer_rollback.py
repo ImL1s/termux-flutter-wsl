@@ -262,3 +262,53 @@ def test_executable_unrelated_user_files_preserved(tmp_path):
 
     assert user_project.exists()
     assert (user_project / "main.dart").read_text() == "void main() {}"
+
+
+@pytest.mark.parametrize("orig_code", [20, 30, 40, 50, 60])
+def test_executable_exit_code_preservation_on_successful_rollback(tmp_path, orig_code):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+    state_file.write_text(json.dumps({}))
+
+    env = os.environ.copy()
+    env["PREFIX"] = str(prefix)
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+    rel_script = script_copy.relative_to(tmp_path)
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"INSTALL_FAILED=true; "
+        f"(exit {orig_code}); "
+        f"cleanup_and_exit"
+    ]
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == orig_code, f"Expected exit {orig_code}, got {res.returncode}"
+
+
+def test_executable_no_failure_exits_0(tmp_path):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+    state_file.write_text(json.dumps({}))
+
+    env = os.environ.copy()
+    env["PREFIX"] = str(prefix)
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+    rel_script = script_copy.relative_to(tmp_path)
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"INSTALL_FAILED=false; "
+        f"(exit 0); "
+        f"cleanup_and_exit"
+    ]
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 0, f"Expected exit 0, got {res.returncode}"

@@ -334,46 +334,45 @@ def test_sysroot_verify_fail_closed_cases(tmp_path):
 
     # 1. Missing architecture
     lock_file.write_text(json.dumps({"x86_64": {"arch": "x86_64", "tree_hash": valid_hash, "packages": {}}}))
-    with pytest.raises(SystemExit):
+    with pytest.raises((ValueError, SystemExit)):
         sysroot.verify(arch="arm64")
 
     # 2. Malformed entry (string instead of dict)
     lock_file.write_text(json.dumps({"arm64": "invalid_entry_type"}))
-    with pytest.raises(SystemExit):
+    with pytest.raises((ValueError, SystemExit)):
         sysroot.verify(arch="arm64")
 
     # 3. Missing packages field
     lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": valid_hash}}))
-    with pytest.raises(SystemExit):
+    with pytest.raises((ValueError, SystemExit)):
         sysroot.verify(arch="arm64")
 
     # 4. Missing tree_hash
     lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "packages": {}}}))
-    with pytest.raises(SystemExit):
+    with pytest.raises((ValueError, SystemExit)):
         sysroot.verify(arch="arm64")
 
     # 5. Empty tree_hash
     lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": "", "packages": {}}}))
-    with pytest.raises(SystemExit):
+    with pytest.raises((ValueError, SystemExit)):
         sysroot.verify(arch="arm64")
 
     # 6. Malformed tree_hash (uppercase or non-64 length)
     lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": valid_hash.upper(), "packages": {}}}))
-    with pytest.raises(SystemExit):
+    with pytest.raises((ValueError, SystemExit)):
         sysroot.verify(arch="arm64")
 
     # 7. Hash mismatch
     lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": "a" * 64, "packages": {}}}))
-    with pytest.raises(SystemExit):
+    with pytest.raises((ValueError, SystemExit)):
         sysroot.verify(arch="arm64")
 
     # 8. Valid match
     lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": valid_hash, "packages": {}}}))
-    sysroot.verify(arch="arm64")  # Should pass cleanly without raising SystemExit
+    assert sysroot.verify(arch="arm64") is True
 
 
-@pytest.mark.asyncio
-async def test_sysroot_download_packages_order_stability(tmp_path):
+def test_sysroot_download_packages_order_stability(tmp_path):
     """Prove that random completion order in _download_packages returns packages in exact lock order."""
     pkgs_info = [
         {"name": "pkg1", "url": "http://example.com/pkg1.deb"},
@@ -381,7 +380,6 @@ async def test_sysroot_download_packages_order_stability(tmp_path):
         {"name": "pkg3", "url": "http://example.com/pkg3.deb"},
     ]
 
-    # Create dummy download task that resolves in REVERSE or RANDOM delay
     async def mock_download(sess, url, sha256_expected, dst):
         if "pkg1" in url:
             await asyncio.sleep(0.05)  # Slowest
@@ -391,10 +389,11 @@ async def test_sysroot_download_packages_order_stability(tmp_path):
             await asyncio.sleep(0.001) # Fastest
         return pathlib.Path(dst) / pathlib.Path(url).name
 
-    with patch("sysroot._download", side_effect=mock_download):
-        results = await sysroot._download_packages(tmp_path, pkgs_info)
+    async def _run():
+        with patch("sysroot._download", side_effect=mock_download):
+            results = await sysroot._download_packages(tmp_path, pkgs_info)
+        names = [p.name for p in results]
+        assert names == ["pkg1.deb", "pkg2.deb", "pkg3.deb"], f"Order mismatch: {names}"
 
-    # Must be returned in the EXACT original lock order: [pkg1, pkg2, pkg3]
-    names = [p.name for p in results]
-    assert names == ["pkg1.deb", "pkg2.deb", "pkg3.deb"], f"Order mismatch: {names}"
+    asyncio.run(_run())
 
