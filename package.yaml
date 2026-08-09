@@ -13,8 +13,7 @@ control:
   Architecture: $architecture
   Maintainer: Termux Flutter WSL <termux-flutter-wsl@github.com>
   Pre-Depends: x11-repo
-  Depends: git, which, openjdk-21, wget, unzip, p7zip, binutils
-  Recommends: gtk3, xorgproto, ninja, cmake, clang, pkg-config
+  Depends: git, which, openjdk-21, wget, unzip, p7zip, binutils, gtk3, xorgproto, ninja, cmake, clang, pkg-config
   Homepage: https://github.com/ImL1s/termux-flutter-wsl
   Description: Flutter makes it easy and fast to build beautiful apps for mobile and beyond
 
@@ -54,6 +53,8 @@ resource:
   dart_bin:
     source: $debug/exe.unstripped/dart
     output: $out/dart-sdk/bin/dart
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       debug: output.debug
       out: *cache
@@ -63,6 +64,8 @@ resource:
   dartvm_bin:
     source: $debug/exe.unstripped/dart
     output: $out/dart-sdk/bin/dartvm
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       debug: output.debug
       out: *cache
@@ -72,6 +75,8 @@ resource:
   dart_snapshots:
     source: $debug/dart-sdk/bin/snapshots
     output: $out/dart-sdk/bin/snapshots
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       debug: output.debug
       out: *cache
@@ -80,6 +85,8 @@ resource:
   dartaotruntime:
     source: $any/dartaotruntime_product
     output: $out/dart-sdk/bin/dartaotruntime
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       any: *any
       out: *cache
@@ -90,6 +97,8 @@ resource:
   dartdev_aot:
     source: $release/dartdev_aot.dart.snapshot
     output: $out/dart-sdk/bin/snapshots/dartdev_aot.dart.snapshot
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       release: output.release
       out: *cache
@@ -100,10 +109,13 @@ resource:
   frontend_server_aot:
     source: $any/frontend_server_aot_product.dart.snapshot
     output: $out/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       any: *any
       out: *cache
     mode: 0o644
+
 
   artifacts:
     source:

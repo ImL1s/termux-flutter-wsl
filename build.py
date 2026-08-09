@@ -1097,6 +1097,7 @@ class Build:
             Path(out_debug) / 'libflutter_linux_gtk.so',
             Path(out_debug) / 'dart-sdk/bin/dart',
             Path(out_debug) / 'impellerc',
+            Path(out_debug) / 'gen/const_finder.dart.snapshot',
         ]
         if not force and all(p.exists() for p in debug_outputs):
             logger.info(f'[6/{total}] debug tools output already exists, skipping (use --force to rebuild).')
@@ -1174,18 +1175,28 @@ class Build:
         # Step 13 & 14: debuild
         deb_file = Path(self.output(arch))
         deb_stale = False
+        package_inputs = [
+            Path(self.root) / '..' / 'package.yaml',
+            Path(self.root) / '..' / 'build.toml',
+            Path(self.root) / '..' / 'package.py',
+            Path(self.root) / '..' / 'build.py',
+            Path(self.root) / '..' / 'scripts/install/post_install.sh',
+        ]
+
         if deb_file.exists():
             deb_mtime = deb_file.stat().st_mtime
-            all_build_outputs = debug_outputs + release_outputs + profile_outputs + [android_rel_gen, android_prof_gen]
-            for artifact in all_build_outputs:
+            all_tracked_inputs = debug_outputs + release_outputs + profile_outputs + [android_rel_gen, android_prof_gen] + package_inputs
+            for artifact in all_tracked_inputs:
                 if artifact.exists() and artifact.stat().st_mtime > deb_mtime:
                     deb_stale = True
+                    logger.info(f'Detected newer input artifact or configuration ({artifact}), triggering debuild.')
                     break
 
         if force or rebuilt_any_artifact[0] or deb_stale or not deb_file.exists():
             run_step(14, total, 'debuild', self.debuild, arch=arch, output=self.output(arch))
         else:
             logger.info(f'[14/{total}] debuild output already up-to-date, skipping (use --force to rebuild).')
+
 
 
         logger.info(f'=== Build complete in {time.time() - start_time:.1f}s ===')

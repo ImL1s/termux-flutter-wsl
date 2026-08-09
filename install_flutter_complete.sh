@@ -127,34 +127,145 @@ INSTALL_FAILED=false
 # Snapshot existing package state for rollback
 FLUTTER_WAS_INSTALLED=false
 ANDROID_SDK_WAS_INSTALLED=false
-if dpkg -l flutter 2>/dev/null | grep -q '^ii'; then
+FLUTTER_OLD_VER=""
+ANDROID_SDK_OLD_VER=""
+
+if dpkg-query -W -f='${Status} ${Version}' flutter 2>/dev/null | grep -q 'ok installed'; then
     FLUTTER_WAS_INSTALLED=true
+    FLUTTER_OLD_VER=$(dpkg-query -W -f='${Version}' flutter 2>/dev/null || true)
 fi
-if dpkg -l android-sdk 2>/dev/null | grep -q '^ii'; then
+if dpkg-query -W -f='${Status} ${Version}' android-sdk 2>/dev/null | grep -q 'ok installed'; then
     ANDROID_SDK_WAS_INSTALLED=true
+    ANDROID_SDK_OLD_VER=$(dpkg-query -W -f='${Version}' android-sdk 2>/dev/null || true)
 fi
 
+ANDROID_HOME="$PREFIX/opt/android-sdk"
+NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
+NDK_PREEXISTING=false
+if [ -d "$NDK_PATH" ]; then
+    NDK_PREEXISTING=true
+fi
+
+BACKUP_DIR="$WORK_DIR/backup"
+mkdir -p "$BACKUP_DIR"
+
+if [ "$FLUTTER_WAS_INSTALLED" = true ]; then
+    if command -v dpkg-repack >/dev/null 2>&1; then
+        (cd "$BACKUP_DIR" && dpkg-repack flutter 2>/dev/null) || true
+    fi
+    if ! ls "$BACKUP_DIR"/flutter*.deb 1>/dev/null 2>&1; then
+        if [ "${ALLOW_NO_ROLLBACK:-false}" != "true" ]; then
+            echo -e "${RED}[ERROR] Cannot backup existing Flutter package for rollback restoration.${NC}"
+            INSTALL_FAILED=false
+            exit 35
+        fi
+    fi
+fi
+if [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
+    if command -v dpkg-repack >/dev/null 2>&1; then
+        (cd "$BACKUP_DIR" && dpkg-repack android-sdk 2>/dev/null) || true
+    fi
+    if ! ls "$BACKUP_DIR"/android-sdk*.deb 1>/dev/null 2>&1; then
+        if [ "${ALLOW_NO_ROLLBACK:-false}" != "true" ]; then
+            echo -e "${RED}[ERROR] Cannot backup existing Android SDK package for rollback restoration.${NC}"
+            INSTALL_FAILED=false
+            exit 35
+        fi
+    fi
+fi
+
+ROLLBACK_FAILED=false
 rollback_packages() {
-    echo -e "${RED}[ROLLBACK] Install failed — preserving existing environment.${NC}"
-    if [ "$FLUTTER_WAS_INSTALLED" = true ]; then
-        echo -e "${RED}[ROLLBACK] Flutter was previously installed. State preserved.${NC}"
-    fi
-    if [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
-        echo -e "${RED}[ROLLBACK] Android SDK was previously installed. State preserved.${NC}"
-    fi
+    echo -e "${RED}[ROLLBACK] Install failed — executing truthful environment rollback...${NC}"
     record_stage rollback triggered
+
+    # 1. Rollback Flutter
+    if [ "$FLUTTER_WAS_INSTALLED" = true ]; then
+        echo -e "${YELLOW}[ROLLBACK] Restoring previous Flutter version ($FLUTTER_OLD_VER)...${NC}"
+        local flutter_bak=$(ls "$BACKUP_DIR"/flutter*.deb 2>/dev/null | head -n 1 || true)
+        if [ -n "$flutter_bak" ] && [ -f "$flutter_bak" ]; then
+            if dpkg -i "$flutter_bak" >/dev/null 2>&1; then
+                local restored_ver=$(dpkg-query -W -f='${Version}' flutter 2>/dev/null || true)
+                if [ "$restored_ver" = "$FLUTTER_OLD_VER" ]; then
+                    echo -e "${GREEN}[ROLLBACK] Flutter successfully restored to $FLUTTER_OLD_VER.${NC}"
+                else
+                    echo -e "${RED}[ROLLBACK ERROR] Flutter restored version mismatch ($restored_ver != $FLUTTER_OLD_VER).${NC}"
+                    ROLLBACK_FAILED=true
+                fi
+            else
+                echo -e "${RED}[ROLLBACK ERROR] Failed to reinstall previous Flutter package from $flutter_bak.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+        else
+            echo -e "${RED}[ROLLBACK ERROR] Restorable Flutter package artifact not found in backup.${NC}"
+            ROLLBACK_FAILED=true
+        fi
+    else
+        if dpkg -l flutter 2>/dev/null | grep -q '^ii'; then
+            echo -e "${YELLOW}[ROLLBACK] Removing newly installed Flutter package...${NC}"
+            dpkg -r flutter >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 2. Rollback Android SDK
+    if [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
+        echo -e "${YELLOW}[ROLLBACK] Restoring previous Android SDK version ($ANDROID_SDK_OLD_VER)...${NC}"
+        local sdk_bak=$(ls "$BACKUP_DIR"/android-sdk*.deb 2>/dev/null | head -n 1 || true)
+        if [ -n "$sdk_bak" ] && [ -f "$sdk_bak" ]; then
+            if dpkg -i "$sdk_bak" >/dev/null 2>&1; then
+                local restored_ver=$(dpkg-query -W -f='${Version}' android-sdk 2>/dev/null || true)
+                if [ "$restored_ver" = "$ANDROID_SDK_OLD_VER" ]; then
+                    echo -e "${GREEN}[ROLLBACK] Android SDK successfully restored to $ANDROID_SDK_OLD_VER.${NC}"
+                else
+                    echo -e "${RED}[ROLLBACK ERROR] Android SDK restored version mismatch ($restored_ver != $ANDROID_SDK_OLD_VER).${NC}"
+                    ROLLBACK_FAILED=true
+                fi
+            else
+                echo -e "${RED}[ROLLBACK ERROR] Failed to reinstall previous Android SDK package from $sdk_bak.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+        else
+            echo -e "${RED}[ROLLBACK ERROR] Restorable Android SDK package artifact not found in backup.${NC}"
+            ROLLBACK_FAILED=true
+        fi
+    else
+        if dpkg -l android-sdk 2>/dev/null | grep -q '^ii'; then
+            echo -e "${YELLOW}[ROLLBACK] Removing newly installed Android SDK package...${NC}"
+            dpkg -r android-sdk >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 3. Rollback NDK
+    if [ "$NDK_PREEXISTING" = false ] && [ -d "$NDK_PATH" ]; then
+        echo -e "${YELLOW}[ROLLBACK] Removing newly extracted NDK directory...${NC}"
+        rm -rf "$NDK_PATH"
+    fi
+
+    if [ "$ROLLBACK_FAILED" = true ]; then
+        echo -e "${RED}[ROLLBACK FAILED] Environment restoration could not be fully completed.${NC}"
+        record_stage rollback failed
+        return 1
+    else
+        echo -e "${GREEN}[ROLLBACK SUCCESS] Environment successfully restored to original state.${NC}"
+        record_stage rollback success
+        return 0
+    fi
 }
 
 cleanup_and_exit() {
-    local exit_code=$?
+    local orig_code=$?
+    local exit_code=$orig_code
     if [ "$INSTALL_FAILED" = true ]; then
-        rollback_packages
+        if ! rollback_packages; then
+            exit_code=70
+        fi
     fi
     rm -rf "$WORK_DIR"
     print_summary
     exit $exit_code
 }
 trap cleanup_and_exit EXIT
+
 
 FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
 ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"

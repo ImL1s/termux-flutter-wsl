@@ -289,6 +289,8 @@ class Package(object):
         bin = data.get('binary', False)
         mod = data.get('mode')
         dep = data.get('define', {})
+        replace = data.get('replace', False)
+        replace_scope = data.get('replace_scope', None)
         ext = {}
 
         for k, v in dep.items():
@@ -316,6 +318,11 @@ class Package(object):
             src = [Path(self.__format__(it, **dep)) for it in src]
         elif not isinstance(src, (bytes, Path)):
             raise ValueError(f'bad source type: "{type(src)}"')
+
+        ext['rule'] = name
+        ext['replace'] = replace
+        if replace_scope:
+            ext['replace_scope'] = self.__format__(replace_scope, **dep)
 
         for out in out:
             for it in emit(out, src, git):
@@ -367,18 +374,37 @@ class Package(object):
             with open(info, 'wb+') as f:
                 f.write(b'2.0\n')
             inventory = []
-            seen_outputs = set()
+            seen_outputs = {}
+
             def track_resources():
                 for it in self.gen_resource(section):
                     src = it.get('src')
                     out = it.get('out')
                     mod = it.get('mod')
+                    rule = it.get('rule', 'unknown')
+                    replace = it.get('replace', False)
+                    replace_scope = it.get('replace_scope', None)
 
-                    # 1. Target path collision detection
                     out_str = str(out)
+                    src_str = str(src)
+
+                    # 1. Target path collision & overlay detection
                     if out_str in seen_outputs:
-                        raise ValueError(f"Duplicate target output path collision detected in package: '{out_str}'")
-                    seen_outputs.add(out_str)
+                        prev = seen_outputs[out_str]
+                        if not replace:
+                            raise ValueError(
+                                f"Duplicate target output path collision detected in package: '{out_str}'. "
+                                f"Rule '{rule}' (source: '{src_str}') collides with earlier rule '{prev['rule']}' (source: '{prev['src']}'). "
+                                f"If intentional, declare 'replace: true' on resource '{rule}'."
+                            )
+                        if replace_scope:
+                            scope_path = str(Path(replace_scope))
+                            if not out_str.startswith(scope_path):
+                                raise ValueError(
+                                    f"Overlay scope violation for resource '{rule}': target path '{out_str}' "
+                                    f"is outside declared replace_scope '{scope_path}'"
+                                )
+                        logger.info(f"Overlaying '{out_str}': rule '{rule}' replaces earlier entry from rule '{prev['rule']}'")
 
                     # 2. Symlink validation
                     if isinstance(src, Path):
@@ -406,8 +432,17 @@ class Package(object):
                         size = 0
                         sha = "-"
 
-                    inventory.append(f"{out}\t{sha}\t{size}\t{mod if mod else '-'}")
-                    yield it
+                    seen_outputs[out_str] = {
+                        'rule': rule,
+                        'src': src_str,
+                        'item': it,
+                        'inv': f"{out}\t{sha}\t{size}\t{mod if mod else '-'}"
+                    }
+
+                for out_str, data_info in seen_outputs.items():
+                    inventory.append(data_info['inv'])
+                    yield data_info['item']
+
 
 
             tar(ctrl, self.gen_control())
