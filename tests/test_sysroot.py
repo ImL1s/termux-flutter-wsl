@@ -5,14 +5,17 @@ import pytest
 import shutil
 import pathlib
 import tempfile
+import asyncio
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
+import sysroot
 from sysroot import (
     Sysroot,
     _parse_deps,
     _resolve_packages,
+    _download_packages,
     _is_file_uncommitted,
     compute_tree_hash,
 )
@@ -317,25 +320,81 @@ def test_sysroot_lock_generation(tmp_path):
     assert arm64_entry["packages"] == mock_resolved
 
 
-def test_sysroot_verify_tree_hash_mismatch_fails(tmp_path):
+def test_sysroot_verify_fail_closed_cases(tmp_path):
     sysroot_dir = tmp_path / "sysroot"
     sysroot_dir.mkdir()
     (sysroot_dir / "usr").mkdir()
-    (sysroot_dir / "usr" / "file.txt").write_text("corrupted_content")
+    (sysroot_dir / "usr" / "file.txt").write_text("good_content")
 
     lock_file = tmp_path / "sysroot.lock.json"
-    lock_data = {
-        "arm64": {
-            "arch": "arm64",
-            "tree_hash": "0" * 64,
-            "packages": {}
-        }
-    }
-    lock_file.write_text(json.dumps(lock_data))
+    valid_hash = compute_tree_hash(sysroot_dir)
 
     sysroot = Sysroot(path=str(sysroot_dir))
     sysroot.lock_file = lock_file
 
+    # 1. Missing architecture
+    lock_file.write_text(json.dumps({"x86_64": {"arch": "x86_64", "tree_hash": valid_hash, "packages": {}}}))
     with pytest.raises(SystemExit):
         sysroot.verify(arch="arm64")
+
+    # 2. Malformed entry (string instead of dict)
+    lock_file.write_text(json.dumps({"arm64": "invalid_entry_type"}))
+    with pytest.raises(SystemExit):
+        sysroot.verify(arch="arm64")
+
+    # 3. Missing packages field
+    lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": valid_hash}}))
+    with pytest.raises(SystemExit):
+        sysroot.verify(arch="arm64")
+
+    # 4. Missing tree_hash
+    lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "packages": {}}}))
+    with pytest.raises(SystemExit):
+        sysroot.verify(arch="arm64")
+
+    # 5. Empty tree_hash
+    lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": "", "packages": {}}}))
+    with pytest.raises(SystemExit):
+        sysroot.verify(arch="arm64")
+
+    # 6. Malformed tree_hash (uppercase or non-64 length)
+    lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": valid_hash.upper(), "packages": {}}}))
+    with pytest.raises(SystemExit):
+        sysroot.verify(arch="arm64")
+
+    # 7. Hash mismatch
+    lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": "a" * 64, "packages": {}}}))
+    with pytest.raises(SystemExit):
+        sysroot.verify(arch="arm64")
+
+    # 8. Valid match
+    lock_file.write_text(json.dumps({"arm64": {"arch": "arm64", "tree_hash": valid_hash, "packages": {}}}))
+    sysroot.verify(arch="arm64")  # Should pass cleanly without raising SystemExit
+
+
+@pytest.mark.asyncio
+async def test_sysroot_download_packages_order_stability(tmp_path):
+    """Prove that random completion order in _download_packages returns packages in exact lock order."""
+    pkgs_info = [
+        {"name": "pkg1", "url": "http://example.com/pkg1.deb"},
+        {"name": "pkg2", "url": "http://example.com/pkg2.deb"},
+        {"name": "pkg3", "url": "http://example.com/pkg3.deb"},
+    ]
+
+    # Create dummy download task that resolves in REVERSE or RANDOM delay
+    async def mock_download(sess, url, sha256_expected, dst):
+        if "pkg1" in url:
+            await asyncio.sleep(0.05)  # Slowest
+        elif "pkg2" in url:
+            await asyncio.sleep(0.02)  # Medium
+        else:
+            await asyncio.sleep(0.001) # Fastest
+        return pathlib.Path(dst) / pathlib.Path(url).name
+
+    with patch("sysroot._download", side_effect=mock_download):
+        results = await sysroot._download_packages(tmp_path, pkgs_info)
+
+    # Must be returned in the EXACT original lock order: [pkg1, pkg2, pkg3]
+    names = [p.name for p in results]
+    assert names == ["pkg1.deb", "pkg2.deb", "pkg3.deb"], f"Order mismatch: {names}"
 

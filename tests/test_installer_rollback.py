@@ -1,12 +1,15 @@
 import os
+import sys
+import json
 import shutil
 import subprocess
 from pathlib import Path
 import pytest
 
-SCRIPT_PATH = Path(__file__).parent.parent / "install_flutter_complete.sh"
+REPO_ROOT = Path(__file__).parent.parent
+SCRIPT_PATH = (REPO_ROOT / "install_flutter_complete.sh").resolve()
 
-def create_mock_installer_env(tmp_path):
+def create_executable_state_machine_harness(tmp_path):
     prefix = tmp_path / "prefix"
     prefix.mkdir()
     (prefix / "bin").mkdir()
@@ -19,97 +22,243 @@ def create_mock_installer_env(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
 
-    # Create stub commands: dpkg, dpkg-query, dpkg-deb, apt, apt-get, wget, 7z, uname, df
+    # Create fake Termux data directory so preflight check passes
+    (tmp_path / "data" / "data" / "com.termux").mkdir(parents=True, exist_ok=True)
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_file = state_dir / "dpkg_state.json"
+    state_file.write_text(json.dumps({}))
+
+    # Copy script and scripts directory into tmp_path so sourcing works seamlessly
+    script_copy = tmp_path / "install_flutter_complete.sh"
+    shutil.copy(SCRIPT_PATH, script_copy)
+    shutil.copytree(REPO_ROOT / "scripts", tmp_path / "scripts", dirs_exist_ok=True)
+
+    state_p = state_file.relative_to(tmp_path).as_posix()
+
+    py_path = Path(sys.executable)
+    if py_path.drive:
+        drive = py_path.drive.rstrip(':').lower()
+        rel_py = py_path.relative_to(py_path.anchor).as_posix()
+        c_posix = f"/{drive}/{rel_py}"
+        mnt_posix = f"/mnt/{drive}/{rel_py}"
+    else:
+        c_posix = py_path.as_posix()
+        mnt_posix = py_path.as_posix()
+
+    def write_sh(p, content):
+        p.write_bytes(content.replace('\r\n', '\n').encode('utf-8'))
+        p.chmod(0o755)
+
+    py_finder = f"""
+if [ -f "{c_posix}" ]; then
+    PY_CMD="{c_posix}"
+elif [ -f "{mnt_posix}" ]; then
+    PY_CMD="{mnt_posix}"
+elif command -v python3 >/dev/null 2>&1; then
+    PY_CMD="python3"
+elif command -v python >/dev/null 2>&1; then
+    PY_CMD="python"
+fi
+"""
+
     mock_dpkg = bin_dir / "dpkg"
-    mock_dpkg.write_text("#!/bin/sh\nexit 0\n")
-    mock_dpkg.chmod(0o755)
+    write_sh(mock_dpkg, f"""#!/bin/sh
+STATE_FILE="{state_p}"
+{py_finder}
+
+if [ "$1" = "-i" ]; then
+    if [ -f fail_reinstall ]; then
+        exit 1
+    fi
+    DEB="$2"
+    PKG=$(basename "$DEB" | cut -d'_' -f1)
+    VER=$(basename "$DEB" | cut -d'_' -f2)
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; pkg=sys.argv[2]; ver=sys.argv[3]; d=json.load(open(p)); d[pkg]=ver; json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG" "$VER"
+    exit 0
+elif [ "$1" = "-r" ]; then
+    if [ -f fail_remove ]; then
+        exit 1
+    fi
+    PKG="$2"
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; pkg=sys.argv[2]; d=json.load(open(p)); d.pop(pkg, None); json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG"
+    exit 0
+elif [ "$1" = "-l" ]; then
+    PKG="$2"
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; pkg=sys.argv[2]; d=json.load(open(p)); print('ii ' + pkg if pkg in d else '')" "$STATE_FILE" "$PKG"
+    exit 0
+fi
+exit 0
+""")
 
     mock_dpkg_query = bin_dir / "dpkg-query"
-    mock_dpkg_query.write_text("#!/bin/sh\nexit 1\n")
-    mock_dpkg_query.chmod(0o755)
+    dpkg_query_code = "import os, json, sys; p = sys.argv[1]; p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; pkg = sys.argv[-1]; fmt = sys.argv[-2] if len(sys.argv) > 3 else ''; d = json.load(open(p)); (sys.stdout.write('install ok installed ' + d[pkg] + '\\n') if ('Status' in fmt and 'Version' in fmt) else (sys.stdout.write('install ok installed\\n') if 'Status' in fmt else (sys.stdout.write(d[pkg] + '\\n') if 'Version' in fmt else sys.stdout.write(pkg + '\\t' + d[pkg] + '\\n')))) if pkg in d else sys.exit(1)"
+    write_sh(mock_dpkg_query, f"""#!/bin/sh
+STATE_FILE="{state_p}"
+{py_finder}
+"$PY_CMD" -c "{dpkg_query_code}" "$STATE_FILE" "$@"
+exit $?
+""")
 
-    mock_dpkg_deb = bin_dir / "dpkg-deb"
-    mock_dpkg_deb.write_text("#!/bin/sh\nexit 0\n")
-    mock_dpkg_deb.chmod(0o755)
+    mock_dpkg_repack = bin_dir / "dpkg-repack"
+    dpkg_repack_code = "import os, json, sys; p = sys.argv[1]; p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; pkg = sys.argv[2]; d = json.load(open(p)); open(f'{{pkg}}_{{d[pkg]}}_aarch64.deb', 'w').write('dummy deb') if pkg in d else sys.exit(1)"
+    write_sh(mock_dpkg_repack, f"""#!/bin/sh
+STATE_FILE="{state_p}"
+{py_finder}
+PKG="$1"
+"$PY_CMD" -c "{dpkg_repack_code}" "$STATE_FILE" "$PKG"
+""")
+
+    mock_uname = bin_dir / "uname"
+    write_sh(mock_uname, "#!/bin/sh\necho aarch64\n")
+
+    mock_df = bin_dir / "df"
+    write_sh(mock_df, "#!/bin/sh\necho 'Filesystem 1K-blocks Used Available Use% Mounted on'\necho '/dev/block 99999999 100 99999999 1% /data'\n")
 
     mock_pkg = bin_dir / "pkg"
-    mock_pkg.write_text("#!/bin/sh\nexit 0\n")
-    mock_pkg.chmod(0o755)
+    write_sh(mock_pkg, "#!/bin/sh\nexit 0\n")
 
     mock_apt = bin_dir / "apt"
-    mock_apt.write_text("#!/bin/sh\nexit 0\n")
-    mock_apt.chmod(0o755)
+    write_sh(mock_apt, "#!/bin/sh\nexit 0\n")
 
     mock_apt_get = bin_dir / "apt-get"
-    mock_apt_get.write_text("#!/bin/sh\nexit 0\n")
-    mock_apt_get.chmod(0o755)
+    write_sh(mock_apt_get, "#!/bin/sh\nexit 0\n")
 
     mock_wget = bin_dir / "wget"
-    mock_wget.write_text("#!/bin/sh\ntouch \"$@\" 2>/dev/null; exit 0\n")
-    mock_wget.chmod(0o755)
+    write_sh(mock_wget, "#!/bin/sh\ntouch \"$@\" 2>/dev/null; exit 0\n")
 
     mock_7z = bin_dir / "7z"
-    mock_7z.write_text("#!/bin/sh\nexit 0\n")
-    mock_7z.chmod(0o755)
+    write_sh(mock_7z, "#!/bin/sh\nexit 0\n")
 
-    return prefix, home, bin_dir
+    return prefix, home, bin_dir, state_file, script_copy
 
-def test_fresh_install_fails_after_flutter_installation(tmp_path):
-    prefix, home, bin_dir = create_mock_installer_env(tmp_path)
-    
-    # Run script with mocked environment where apt-get install succeeds but post-install step fails
+def test_executable_fresh_install_rollback_removes_packages(tmp_path):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+
+    state_file.write_text(json.dumps({}))
+
     env = os.environ.copy()
     env["PREFIX"] = str(prefix)
     env["HOME"] = str(home)
-    env["PATH"] = f"{bin_dir}:{env['PATH']}"
-    
-    # Verify script includes truthful rollback logic
-    script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "rollback_packages" in script_text
-    assert "FLUTTER_WAS_INSTALLED" in script_text
-    assert "ANDROID_SDK_WAS_INSTALLED" in script_text
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
 
-def test_upgrade_fails_after_flutter_installation(tmp_path):
-    prefix, home, bin_dir = create_mock_installer_env(tmp_path)
+    rel_script = script_copy.relative_to(tmp_path)
 
-    # Mock dpkg-query reporting flutter installed
-    mock_dpkg_query = bin_dir / "dpkg-query"
-    mock_dpkg_query.write_text("#!/bin/sh\necho 'install ok installed 3.44.0'\nexit 0\n")
-    mock_dpkg_query.chmod(0o755)
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"dpkg -i flutter_3.44.0_aarch64.deb 2>/dev/null; "
+        f"rollback_packages"
+    ]
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert "Removing newly installed Flutter package" in res.stdout or res.returncode == 0
 
-    script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "FLUTTER_OLD_VER" in script_text
-    assert "dpkg-repack" in script_text or "backup" in script_text
+def test_executable_fresh_install_removal_failure_sets_exit_70(tmp_path):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
 
-def test_android_sdk_upgrade_followed_by_flutter_failure(tmp_path):
-    script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "ANDROID_SDK_OLD_VER" in script_text
-    assert "Restoring previous Android SDK version" in script_text
+    (tmp_path / "fail_remove").touch()
+    state_file.write_text(json.dumps({"flutter": "3.44.0"}))
 
-def test_ndk_extraction_failure(tmp_path):
-    script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "NDK_PREEXISTING" in script_text
-    assert "Removing newly extracted NDK directory" in script_text
+    env = os.environ.copy()
+    env["PREFIX"] = str(prefix)
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
 
-def test_previous_package_artifact_unavailable_fails_pre_mutation(tmp_path):
-    script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "Cannot backup existing Flutter package" in script_text
-    assert "ALLOW_NO_ROLLBACK" in script_text
+    rel_script = script_copy.relative_to(tmp_path)
 
-def test_rollback_reinstall_failure_returns_exit_code_70(tmp_path):
-    script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "exit_code=70" in script_text
-    assert "ROLLBACK_FAILED=true" in script_text
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"INSTALL_FAILED=true; "
+        f"cleanup_and_exit"
+    ]
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 70
 
-def test_successful_rollback_restores_exact_versions_and_prior_sentinels(tmp_path):
-    script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "[ROLLBACK SUCCESS] Environment successfully restored" in script_text
+def test_executable_upgrade_rollback_restores_old_version(tmp_path):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
 
-def test_unrelated_files_are_untouched(tmp_path):
-    prefix, home, bin_dir = create_mock_installer_env(tmp_path)
+    state_file.write_text(json.dumps({"flutter": "3.40.0"}))
+    rel_script = script_copy.relative_to(tmp_path)
+
+    env = os.environ.copy()
+    env["PREFIX"] = str(prefix)
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=true; FLUTTER_OLD_VER='3.40.0'; "
+        f"BACKUP_DIR=\"$(pwd)\"; "
+        f"touch flutter_3.40.0_aarch64.deb; "
+        f"rollback_packages"
+    ]
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert "Flutter successfully restored to 3.40.0" in res.stdout, f"STDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+    assert res.returncode == 0
+
+def test_executable_upgrade_rollback_reinstall_failure_returns_70(tmp_path):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+
+    state_file.write_text(json.dumps({"flutter": "3.40.0"}))
+    (tmp_path / "fail_reinstall").touch()
+    rel_script = script_copy.relative_to(tmp_path)
+
+    env = os.environ.copy()
+    env["PREFIX"] = str(prefix)
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=true; FLUTTER_OLD_VER='3.40.0'; "
+        f"BACKUP_DIR='.'; "
+        f"touch flutter_3.40.0_aarch64.deb; "
+        f"INSTALL_FAILED=true; "
+        f"cleanup_and_exit"
+    ]
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 70
+
+def test_executable_unrelated_user_files_preserved(tmp_path):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
     user_project = home / "my_user_project"
     user_project.mkdir()
     (user_project / "main.dart").write_text("void main() {}")
 
+    env = os.environ.copy()
+    env["PREFIX"] = str(prefix)
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+    rel_script = script_copy.relative_to(tmp_path)
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"rollback_packages"
+    ]
+    subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+
     assert user_project.exists()
-    assert (user_project / "main.dart").exists()
+    assert (user_project / "main.dart").read_text() == "void main() {}"

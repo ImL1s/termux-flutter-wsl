@@ -94,8 +94,16 @@ inject_abi_filters() {
         abi_line="            abiFilters 'arm64-v8a'"
     fi
 
+    if grep -q "arm64-v8a" "$file"; then
+        echo "arm64-v8a ABI filter already present in $file"
+        return 0
+    fi
+
     if grep -q "ndk {" "$file"; then
-        if ! grep -q "abiFilters" "$file"; then
+        if grep -q "abiFilters" "$file"; then
+            sed -i "/abiFilters/a \\$abi_line" "$file"
+            echo "Added arm64-v8a to existing abiFilters block in $file"
+        else
             sed -i "/ndk {/a \\$abi_line" "$file"
             echo "Added abiFilters to existing ndk block in $file"
         fi

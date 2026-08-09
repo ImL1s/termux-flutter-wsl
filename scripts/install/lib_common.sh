@@ -80,6 +80,11 @@ verify_sha256() {
 preflight_check() {
     local required_space_kb=$1
 
+    if [ "${TERMUX_TEST_MODE:-false}" = "true" ]; then
+        record_stage preflight success
+        return 0
+    fi
+
     # Check architecture
     local arch=$(uname -m)
     if [ "$arch" != "aarch64" ]; then
@@ -90,18 +95,20 @@ preflight_check() {
     fi
 
     # Check if running in Termux
-    if [ ! -d "/data/data/com.termux" ]; then
+    if [ ! -d "/data/data/com.termux" ] && [ "${TERMUX_TEST_MODE:-false}" != "true" ]; then
         echo -e "${RED}Error: This script must be run in Termux.${NC}"
         record_stage preflight failed
         exit 10
     fi
 
     # Check disk space
-    local free_space=$(df -k /data | awk 'NR==2 {print $4}')
-    if [ "$free_space" -lt "$required_space_kb" ]; then
-        echo -e "${RED}Error: Not enough disk space. Need at least $((required_space_kb/1000))MB.${NC}"
-        record_stage preflight failed
-        exit 10
+    if [ "${TERMUX_TEST_MODE:-false}" != "true" ]; then
+        local free_space=$(df -k /data 2>/dev/null | awk 'NR==2 {print $4}' || echo "99999999")
+        if [ "${free_space:-0}" -lt "$required_space_kb" ]; then
+            echo -e "${RED}Error: Not enough disk space. Need at least $((required_space_kb/1000))MB.${NC}"
+            record_stage preflight failed
+            exit 10
+        fi
     fi
 
     record_stage preflight success

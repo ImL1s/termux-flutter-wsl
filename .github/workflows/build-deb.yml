@@ -92,6 +92,7 @@ jobs:
             VERSION="$TOML_VERSION"
           fi
           echo "FLUTTER_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD_START_EPOCH=$(date +%s)" >> $GITHUB_ENV
           python -m py_compile build.py package.py sysroot.py utils.py
           bash -n scripts/install/post_install.sh
           python scripts/ci/check_repo.py
@@ -143,7 +144,9 @@ jobs:
           dpkg-deb -c "$DEB" > inventory.txt
 
           TREE_SHA=$(git log -1 --format='%T' HEAD)
-          BUILD_DURATION="${SECONDS:-0}"
+          NOW_EPOCH=$(date +%s)
+          START_EPOCH="${BUILD_START_EPOCH:-$NOW_EPOCH}"
+          BUILD_DURATION=$((NOW_EPOCH - START_EPOCH))
 
           cat <<EOF > "$METADATA_FILE"
           {

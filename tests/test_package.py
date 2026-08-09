@@ -191,3 +191,73 @@ def test_package_no_git_traversal(tmp_path):
     
     # Verify .git directory files are NOT traversed or emitted into resources
     assert not any('.git' in path for path in outputs)
+
+
+def test_package_real_archive_exclusion_fixture(tmp_path):
+    """Build a real package archive fixture and verify giant build trees (.git, engine/src, out) are excluded."""
+    root = tmp_path / 'flutter'
+    root.mkdir()
+
+    # Normal SDK files
+    (root / 'bin').mkdir()
+    (root / 'bin' / 'flutter').write_text('#!/bin/sh\necho flutter')
+    (root / 'packages' / 'flutter' / 'lib').mkdir(parents=True)
+    (root / 'packages' / 'flutter' / 'lib' / 'flutter.dart').write_text('// flutter lib')
+
+    # Excluded giant build trees
+    (root / 'engine' / 'src' / 'out' / 'linux_debug_arm64').mkdir(parents=True)
+    (root / 'engine' / 'src' / 'BUILD.gn').write_text('# engine build')
+    (root / 'engine' / 'src' / 'out' / 'linux_debug_arm64' / 'libflutter.so').write_bytes(b'so binary')
+    (root / '.git').mkdir()
+    (root / '.git' / 'config').write_text('[core]')
+
+    # Intended explicit engine artifact
+    (root / 'custom_bin').mkdir()
+    (root / 'custom_bin' / 'dart').write_text('custom dart binary')
+
+    control = {
+        'Package': 'flutter',
+        'Version': '3.44.0',
+        'Architecture': 'aarch64',
+        'Maintainer': 'Test <test@example.com>',
+        'Description': 'Test package',
+    }
+
+    resource = {
+        'flutter': {
+            'source': str(root),
+            'output': 'opt/flutter',
+        },
+        'dart_bin': {
+            'source': str(root / 'custom_bin' / 'dart'),
+            'output': 'opt/flutter/bin/cache/dart-sdk/bin/dart',
+            'replace': True,
+            'replace_scope': 'opt/flutter'
+        }
+    }
+
+    pkg = package.Package(root=root, arch='arm64', control=control, resource=resource)
+    outputs = [str(item['out']) for item in pkg.gen_resource('flutter')]
+
+    # Assert outputs do NOT contain any excluded path components
+    for path in outputs:
+        assert '.git' not in path
+        assert 'engine' not in path
+        assert 'out' not in path
+
+    # Debuild real tar archive (testing tarfile generation directly)
+    tmp_data_tar = tmp_path / 'data.tar.xz'
+    package.tar(tmp_data_tar, pkg.gen_resource(None))
+
+    import tarfile
+    with tarfile.open(tmp_data_tar, 'r:xz') as tar_ar:
+        members = tar_ar.getnames()
+
+    assert any('bin/flutter' in m for m in members)
+    assert any('flutter.dart' in m for m in members)
+    assert any('cache/dart-sdk/bin/dart' in m for m in members)
+
+    assert not any('.git' in m for m in members)
+    assert not any('engine/src' in m for m in members)
+    assert not any('BUILD.gn' in m for m in members)
+    assert not any('libflutter.so' in m for m in members)

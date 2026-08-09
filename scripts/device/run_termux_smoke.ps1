@@ -252,6 +252,12 @@ if (Test-Path $localApk) {
 Write-Host "Pulling built APK to host..."
 Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
 
+$apkSha256 = Get-Sha256Hex -Path $localApk
+Write-Host "Pulled APK SHA-256: $apkSha256"
+
+Write-Host "Clearing ADB logcat buffer before launch..."
+Invoke-AdbAllowFail -Args @("logcat", "-c") | Out-Null
+
 Write-Host "Installing pulled APK from host..."
 Invoke-Adb -Args @("install", "-r", $localApk)
 

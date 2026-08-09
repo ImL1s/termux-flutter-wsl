@@ -21,11 +21,17 @@ from pathlib import Path
 def explore_file(src: Path):
     assert src.exists()
 
+    EXCLUDED_DIR_NAMES = {'.git', 'engine', 'depot_tools', 'staging', 'out', '.build'}
+
     if src.is_dir():
         for root, dirs, files in os.walk(src):
-            # Exclude .git directories to prevent git object bloat in package
-            dirs[:] = [d for d in dirs if d != '.git']
             rel = Path(root).relative_to(src)
+            # Exclude giant build trees, .git, engine, depot_tools, staging from general SDK traversal
+            dirs[:] = [
+                d for d in dirs
+                if d not in EXCLUDED_DIR_NAMES
+                and not (d == 'src' and rel.as_posix().endswith('engine'))
+            ]
             for it in dirs:
                 yield rel / it
             for it in files:
@@ -363,105 +369,109 @@ class Package(object):
 
     def debuild(self, output, section=None):
         output = Path(output or '.').expanduser().resolve()
-        if not output.parent.is_dir() or output.is_dir():
-            raise ValueError(f'bad output path: "{output}"')
+        if output.is_dir():
+            output = output / f"{self.control['Package']}_{self.control['Version']}_{self.control['Architecture']}.deb"
+        output.parent.mkdir(parents=True, exist_ok=True)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            info = Path(tmp, 'debian-binary')
-            ctrl = Path(tmp, 'control.tar.xz')
-            data = Path(tmp, 'data.tar.xz')
+        inventory = []
+        seen_outputs = {}
+
+        def track_resources():
+            for it in self.gen_resource(section):
+                src = it.get('src')
+                out = it.get('out')
+                mod = it.get('mod')
+                rule = it.get('rule', 'unknown')
+                replace = it.get('replace', False)
+                replace_scope = it.get('replace_scope', None)
+
+                out_str = str(out)
+                src_str = str(src)
+
+                # 1. Target path collision & overlay detection
+                if out_str in seen_outputs:
+                    prev = seen_outputs[out_str]
+                    if not replace:
+                        raise ValueError(
+                            f"Duplicate target output path collision detected in package: '{out_str}'. "
+                            f"Rule '{rule}' (source: '{src_str}') collides with earlier rule '{prev['rule']}' (source: '{prev['src']}'). "
+                            f"If intentional, declare 'replace: true' on resource '{rule}'."
+                        )
+                    if replace_scope:
+                        scope_path = Path(replace_scope)
+                        out_path = Path(out_str)
+                        try:
+                            out_path.relative_to(scope_path)
+                        except ValueError:
+                            raise ValueError(
+                                f"Overlay scope violation for resource '{rule}': target path '{out_str}' "
+                                f"is outside declared replace_scope '{scope_path}'"
+                            )
+                    logger.info(f"Overlaying '{out_str}': rule '{rule}' replaces earlier entry from rule '{prev['rule']}'")
+
+                # 2. Symlink validation
+                if isinstance(src, Path):
+                    try:
+                        target = os.readlink(src)
+                        target_path = Path(target)
+                        if not target_path.is_absolute():
+                            target_path = src.parent / target_path
+                        if not target_path.exists():
+                            raise ValueError(f"Invalid or broken symlink mapping: '{src}' points to '{target}' which does not exist")
+                    except OSError:
+                        pass
+
+                if isinstance(src, bytes):
+                    size = len(src)
+                    sha = hashlib.sha256(src).hexdigest()
+                elif not src or src.is_dir():
+                    size = 0
+                    sha = "-"
+                elif src.exists():
+                    size = src.stat().st_size
+                    with open(src, 'rb') as f:
+                        sha = hashlib.file_digest(f, 'sha256').hexdigest()
+                else:
+                    size = 0
+                    sha = "-"
+
+                seen_outputs[out_str] = {
+                    'rule': rule,
+                    'src': src_str,
+                    'item': it,
+                    'inv': f"{out}\t{sha}\t{size}\t{mod if mod else '-'}"
+                }
+
+            for out_str, data_info in seen_outputs.items():
+                inventory.append(data_info['inv'])
+                yield data_info['item']
+
+        with tempfile.TemporaryDirectory(dir=output.parent) as tmp_dir:
+            tmp = Path(tmp_dir)
+            ctrl = tmp / 'control.tar.xz'
+            data = tmp / 'data.tar.xz'
+            info = tmp / 'debian-binary'
 
             with open(info, 'wb+') as f:
                 f.write(b'2.0\n')
-            inventory = []
-            seen_outputs = {}
-
-            def track_resources():
-                for it in self.gen_resource(section):
-                    src = it.get('src')
-                    out = it.get('out')
-                    mod = it.get('mod')
-                    rule = it.get('rule', 'unknown')
-                    replace = it.get('replace', False)
-                    replace_scope = it.get('replace_scope', None)
-
-                    out_str = str(out)
-                    src_str = str(src)
-
-                    # 1. Target path collision & overlay detection
-                    if out_str in seen_outputs:
-                        prev = seen_outputs[out_str]
-                        if not replace:
-                            raise ValueError(
-                                f"Duplicate target output path collision detected in package: '{out_str}'. "
-                                f"Rule '{rule}' (source: '{src_str}') collides with earlier rule '{prev['rule']}' (source: '{prev['src']}'). "
-                                f"If intentional, declare 'replace: true' on resource '{rule}'."
-                            )
-                        if replace_scope:
-                            scope_path = str(Path(replace_scope))
-                            if not out_str.startswith(scope_path):
-                                raise ValueError(
-                                    f"Overlay scope violation for resource '{rule}': target path '{out_str}' "
-                                    f"is outside declared replace_scope '{scope_path}'"
-                                )
-                        logger.info(f"Overlaying '{out_str}': rule '{rule}' replaces earlier entry from rule '{prev['rule']}'")
-
-                    # 2. Symlink validation
-                    if isinstance(src, Path):
-                        try:
-                            target = os.readlink(src)
-                            target_path = Path(target)
-                            if not target_path.is_absolute():
-                                target_path = src.parent / target_path
-                            if not target_path.exists():
-                                raise ValueError(f"Invalid or broken symlink mapping: '{src}' points to '{target}' which does not exist")
-                        except OSError:
-                            pass
-
-                    if isinstance(src, bytes):
-                        size = len(src)
-                        sha = hashlib.sha256(src).hexdigest()
-                    elif not src or src.is_dir():
-                        size = 0
-                        sha = "-"
-                    elif src.exists():
-                        size = src.stat().st_size
-                        with open(src, 'rb') as f:
-                            sha = hashlib.file_digest(f, 'sha256').hexdigest()
-                    else:
-                        size = 0
-                        sha = "-"
-
-                    seen_outputs[out_str] = {
-                        'rule': rule,
-                        'src': src_str,
-                        'item': it,
-                        'inv': f"{out}\t{sha}\t{size}\t{mod if mod else '-'}"
-                    }
-
-                for out_str, data_info in seen_outputs.items():
-                    inventory.append(data_info['inv'])
-                    yield data_info['item']
-
-
 
             tar(ctrl, self.gen_control())
             tar(data, track_resources())
 
-            tmp_deb = Path(tmp, output.name)
+            tmp_deb = tmp / output.name
             subprocess.run(
-                    ['ar', 'rc', tmp_deb, info, ctrl, data],
-                    check=True,
-                    stderr=True,
-                    stdout=True)
+                ['ar', 'rc', tmp_deb, info, ctrl, data],
+                check=True,
+                stderr=True,
+                stdout=True
+            )
 
-            os.rename(tmp_deb, output)
+            os.replace(tmp_deb, output)
 
-
-            inv_path = output.with_name(output.name + '.inventory')
-            with open(inv_path, 'w', encoding='utf-8') as f:
-                f.write("Path\tSHA256\tSize\tMode\n")
-                f.write("\n".join(inventory))
+        inv_path = output.with_name(output.name + '.inventory')
+        with open(inv_path, 'w', encoding='utf-8') as f:
+            f.write("Path\tSHA256\tSize\tMode\n")
+            f.write("\n".join(inventory))
 
         logger.info(f'✓ 构建完成 {output}')
 

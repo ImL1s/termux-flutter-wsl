@@ -106,7 +106,30 @@ def main():
 
     print(f"Verifying release tag: {target_tag}")
 
-    # 3. Retrieve release info from GitHub API via urllib
+    # 3. Check LIGHTWEIGHT_CHECK before published-release API lookup
+    if os.environ.get("LIGHTWEIGHT_CHECK") == "1":
+        runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
+        download_path = Path(runner_temp) / expected_asset
+        if not download_path.is_file():
+            download_path = Path(".") / expected_asset
+        if download_path.is_file():
+            sha256_hash = hashlib.sha256()
+            with open(download_path, "rb") as f:
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            actual_sha256 = sha256_hash.hexdigest().lower()
+            if actual_sha256 != expected_sha256.lower():
+                print(f"Error: Local file SHA256 mismatch in lightweight check mode!\nExpected: {expected_sha256}\nActual:   {actual_sha256}")
+                sys.exit(1)
+            actual_size = download_path.stat().st_size
+            if expected_size is not None and actual_size != expected_size:
+                print(f"Error: Local file size mismatch in lightweight check mode!\nExpected: {expected_size}\nActual:   {actual_size}")
+                sys.exit(1)
+            print(f"LIGHTWEIGHT_CHECK: Local file SHA256 verified ({actual_sha256}).")
+            print(f"Release manifest OK: {target_tag} | {expected_asset} | {actual_size} bytes | SHA256 format verified: {expected_sha256[:8]}...")
+            sys.exit(0)
+
+    # 4. Retrieve release info from GitHub API via urllib
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY", "ImL1s/termux-flutter-wsl")
     req_url = f"https://api.github.com/repos/{repo}/releases/tags/{target_tag}"

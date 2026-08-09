@@ -457,12 +457,11 @@ class Build:
         progress = GitProgress()
 
         if out_path.is_dir():
-            current_tag = utils.flutter_tag(str(out_path))
-            if current_tag == tag:
-                logger.info(f'flutter exists at {out_path} with tag {tag}, skipping clone.')
+            status = self.workspace_status(str(out_path))
+            if status.get('exists') and status.get('tag') == tag and not status.get('dirty') and 'error' not in status:
+                logger.info(f'flutter exists at {out_path} with valid tag {tag} and clean workspace status, skipping clone.')
                 return
 
-            status = self.workspace_status(str(out_path))
             if status.get('dirty') and not force:
                 logger.error(f'Checkout at {out_path} has uncommitted changes. Use --force to override.')
                 raise RuntimeError(f'Dirty checkout at {out_path}')
@@ -1176,11 +1175,14 @@ class Build:
         deb_file = Path(self.output(arch))
         deb_stale = False
         package_inputs = [
-            Path(self.root) / '..' / 'package.yaml',
-            Path(self.root) / '..' / 'build.toml',
-            Path(self.root) / '..' / 'package.py',
-            Path(self.root) / '..' / 'build.py',
-            Path(self.root) / '..' / 'scripts/install/post_install.sh',
+            Path(__file__).parent / 'package.yaml',
+            Path(__file__).parent / 'build.toml',
+            Path(__file__).parent / 'package.py',
+            Path(__file__).parent / 'build.py',
+            Path(__file__).parent / 'scripts/install/post_install.sh',
+            Path(__file__).parent / 'scripts/install/lib_common.sh',
+            Path(__file__).parent / 'scripts/install/flutter_project_config.sh',
+            Path(__file__).parent / 'install_flutter_complete.sh',
         ]
 
         if deb_file.exists():
