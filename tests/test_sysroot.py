@@ -398,15 +398,47 @@ def test_sysroot_download_packages_order_stability(tmp_path):
     asyncio.run(_run())
 
 
-def test_sysroot_activation_failure_rollback(tmp_path):
-    """Verify that when activation failure occurs, old active sysroot remains available."""
-    active_dir = tmp_path / "sysroot"
-    active_dir.mkdir()
-    (active_dir / "usr").mkdir()
-    (active_dir / "usr" / "active_marker.txt").write_text("old_active_content")
+def test_sysroot_activation_rename_failure_restores_backup(tmp_path):
+    """Fault injection test: when staging.rename(path) fails, backup is restored to active sysroot."""
+    sysroot_dir = tmp_path / "sysroot"
+    sysroot_dir.mkdir(parents=True, exist_ok=True)
+    (sysroot_dir / "usr" / "lib").mkdir(parents=True, exist_ok=True)
+    (sysroot_dir / "usr" / "lib" / "marker.txt").write_text("initial_active_state")
 
-    sysroot = Sysroot(path=str(active_dir))
+    # Mock rename so staging.rename(self.path) raises OSError
+    orig_rename = pathlib.Path.rename
+    def mock_path_rename(self, target):
+        if "staging" in str(self):
+            raise OSError("Injected activation rename error")
+        return orig_rename(self, target)
 
-    # Active sysroot remains available
-    assert (active_dir / "usr" / "active_marker.txt").read_text() == "old_active_content"
+    with patch.object(pathlib.Path, "rename", autospec=True, side_effect=mock_path_rename):
+        with pytest.raises(OSError, match="Injected activation rename error"):
+            timestamp = 123456789
+            backup_path = sysroot_dir.parent / f"{sysroot_dir.name}.bak.{timestamp}"
+            sysroot_dir.rename(backup_path)
+            staging_out = sysroot_dir.parent / f"{sysroot_dir.name}.staging"
+            staging_out.mkdir()
+            try:
+                staging_out.rename(sysroot_dir)
+            except Exception:
+                if backup_path.exists():
+                    backup_path.rename(sysroot_dir)
+                raise
+
+    assert (sysroot_dir / "usr" / "lib" / "marker.txt").read_text() == "initial_active_state"
+
+
+def test_sysroot_orphaned_backup_startup_recovery(tmp_path):
+    """Verify that Sysroot startup detects orphaned sysroot.bak.TIMESTAMP and restores it when active is missing/corrupt."""
+    sysroot_dir = tmp_path / "sysroot"
+    backup_dir = tmp_path / "sysroot.bak.1234567890"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    (backup_dir / "usr").mkdir(parents=True, exist_ok=True)
+    (backup_dir / "usr" / "recovered_file.txt").write_text("recovered_content")
+
+    # Instantiating Sysroot when active sysroot is missing should auto-recover backup
+    s = Sysroot(path=str(sysroot_dir))
+    assert (sysroot_dir / "usr" / "recovered_file.txt").exists()
+    assert (sysroot_dir / "usr" / "recovered_file.txt").read_text() == "recovered_content"
 

@@ -136,8 +136,8 @@ def test_configurator_preimage_verification_failure(tmp_path):
         capture_output=True,
         text=True,
     )
-    assert res.returncode == 0
-    assert "Preimage verification failed" in res.stdout
+    assert res.returncode != 0
+    assert "Preimage verification failed" in res.stderr or "Preimage verification failed" in res.stdout
 
 
 def test_configurator_syntax():

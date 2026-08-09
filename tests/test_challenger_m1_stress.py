@@ -295,8 +295,8 @@ android {
 """)
     
     res = subprocess.run(["bash", to_bash_path(CONFIG_SCRIPT), to_bash_path(proj)], capture_output=True, text=True)
-    assert res.returncode == 0
-    assert "Warning: Preimage verification failed" in res.stdout
+    assert res.returncode != 0
+    assert "Preimage verification failed" in res.stderr or "Preimage verification failed" in res.stdout
     assert "compileSdk" not in (android_dir / "build.gradle").read_text()
 
 

@@ -75,3 +75,17 @@ def test_mode_b_failure_fails_overall_status():
     ps_script = (REPO_ROOT / "scripts" / "device" / "run_termux_smoke.ps1").read_text(encoding="utf-8")
     assert 'BUILD_AAB_STATUS=0' in ps_script
     assert 'overallStatus = if ($launchPassed -and $modeA -eq "passed" -and $modeB -eq "passed") { "passed" } else { "failed" }' in ps_script
+
+
+def test_host_adb_pid_liveness_and_crash_parsing_logic():
+    """Verify PID liveness state machine and scoped crash detection rules in run_termux_smoke.ps1."""
+    ps1_text = (REPO_ROOT / "scripts" / "device" / "run_termux_smoke.ps1").read_text(encoding="utf-8")
+
+    assert "$initialPid" in ps1_text
+    assert "$pidCurrent -ne $initialPid" in ps1_text
+    assert "$livenessPassed = $false" in ps1_text
+    assert "com.example.flutter_ci_smoke" in ps1_text
+    assert "initial_pid" in ps1_text
+    assert "app_pid" in ps1_text
+    assert "artifact_source_commit" in ps1_text
+    assert "verifier_commit" in ps1_text

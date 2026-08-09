@@ -664,35 +664,8 @@ class Build:
     def sysroot(self, arch: str = 'arm64', locked: bool = True):
         """Assemble Termux sysroot and apply fixes."""
         self._sysroot(arch=arch, locked=locked)
-
-        sysroot_path = Path(self._sysroot.path)
-
-        # Fix #3: Remove c++/v1 headers from sysroot (avoid libcxx conflict)
-        cxx_dir = sysroot_path / 'usr' / 'include' / 'c++'
-        if cxx_dir.is_dir():
-            cxx_bak = sysroot_path / 'usr' / 'include' / 'c++.bak'
-            if cxx_bak.exists():
-                shutil.rmtree(cxx_bak)
-            os.rename(cxx_dir, cxx_bak)
-            logger.success("Fixed #3: Renamed sysroot c++ headers to c++.bak")
-
-        # Fix #4: Patch glib-typeof.h to wrap <type_traits> with extern "C++"
-        glib_typeof = sysroot_path / 'usr' / 'include' / 'glib-2.0' / 'glib' / 'glib-typeof.h'
-        if glib_typeof.exists():
-            content = glib_typeof.read_text(encoding='utf-8')
-            extern_type_traits = 'extern "C++" {\n#include <type_traits>\n}'
-            literal_newline_wrapper = r'extern "C++" {\n#include <type_traits>\n}'
-            if literal_newline_wrapper in content:
-                content = content.replace(literal_newline_wrapper, extern_type_traits)
-                glib_typeof.write_text(content, encoding='utf-8')
-                logger.success("Fixed #4: Repaired glib-typeof.h extern C++ wrapper newlines")
-            elif '<type_traits>' in content and 'extern "C++"' not in content:
-                content = content.replace(
-                    '#include <type_traits>',
-                    extern_type_traits
-                )
-                glib_typeof.write_text(content, encoding='utf-8')
-                logger.success("Fixed #4: Patched glib-typeof.h with extern C++ wrapper")
+        from sysroot import _apply_sysroot_transformations
+        _apply_sysroot_transformations(self._sysroot.path)
 
     def sysroot_lock(self, arch: str = 'arm64'):
         """Generate or refresh sysroot.lock.json."""

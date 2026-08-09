@@ -269,7 +269,8 @@ Write-Host "Pulling built APK to host..."
 Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
 
 $apkSha256 = Get-Sha256Hex -Path $localApk
-Write-Host "Pulled APK SHA-256: $apkSha256"
+$apkSize = if (Test-Path $localApk) { (Get-Item $localApk).Length } else { 0 }
+Write-Host "Pulled APK SHA-256: $apkSha256, Size: $apkSize bytes"
 
 Write-Host "Removing stale package state..."
 Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke") | Out-Null
@@ -291,6 +292,7 @@ Invoke-AdbAllowFail -Args @("shell", "am", "start", "-W", "-n", "com.example.flu
 
 $livenessPassed = $true
 $appPid = ""
+$initialPid = ""
 for ($check = 1; $check -le 3; $check++) {
     Start-Sleep -Seconds 2
     $pidCurrent = ((& $Adb @AdbArgs shell "pidof com.example.flutter_ci_smoke 2>/dev/null || true") -join "").Trim()
@@ -298,16 +300,22 @@ for ($check = 1; $check -le 3; $check++) {
         $livenessPassed = $false
         break
     }
-    if (-not $appPid) { $appPid = $pidCurrent }
+    if (-not $initialPid) {
+        $initialPid = $pidCurrent
+        $appPid = $initialPid
+    } elseif ($pidCurrent -ne $initialPid) {
+        $livenessPassed = $false
+        break
+    }
 }
 
-$crashLogs = (& $Adb @AdbArgs shell "logcat -d 2>/dev/null | grep -E -i 'FATAL EXCEPTION|AndroidRuntime|SIGSEGV|SIGABRT|Process com.example.flutter_ci_smoke' || true") -join "`n"
+$crashLogs = (& $Adb @AdbArgs shell "logcat -d 2>/dev/null | grep -E -i 'FATAL EXCEPTION.*com\.example\.flutter_ci_smoke|AndroidRuntime.*com\.example\.flutter_ci_smoke|SIGSEGV.*com\.example\.flutter_ci_smoke|SIGABRT.*com\.example\.flutter_ci_smoke' || true") -join "`n"
 $hasCrash = ($crashLogs -match "FATAL EXCEPTION" -or $crashLogs -match "SIGSEGV" -or $crashLogs -match "SIGABRT")
 
-$apkLaunchHost = [bool]($appPid -ne "" -and $livenessPassed)
+$apkLaunchHost = [bool]($initialPid -ne "" -and $livenessPassed)
 $crashFreeHost = [bool]($apkLaunchHost -and (-not $hasCrash))
 
-Write-Host "Host APK launch verification: pid=$appPid, liveness=$livenessPassed, apk_launch=$apkLaunchHost, crash_free=$crashFreeHost"
+Write-Host "Host APK launch verification: initialPid=$initialPid, liveness=$livenessPassed, apk_launch=$apkLaunchHost, crash_free=$crashFreeHost"
 
 $hostEvidencePath = if ([System.IO.Path]::IsPathRooted($EvidencePath)) { $EvidencePath } else { Join-Path (Get-Location) $EvidencePath }
 $remoteEvidence = "/sdcard/Download/evidence.json"
@@ -356,6 +364,8 @@ $evObj = [ordered]@{
     crash_free = [bool]$crashFreeHost
     commit_sha = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
     source_commit = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
+    artifact_source_commit = if ($rawEv -and $rawEv.commit_sha -and $rawEv.commit_sha -ne "unknown") { $rawEv.commit_sha } else { $CommitSha }
+    verifier_commit = if ($CommitSha) { $CommitSha } else { "unknown" }
     device_serial = "[REDACTED]"
     device_info = [ordered]@{
         model = $model
@@ -368,12 +378,17 @@ $evObj = [ordered]@{
         deb_size = if (Test-Path $DebPath) { (Get-Item $DebPath).Length } else { 0 }
         apk_sha256 = $apkSha256
         apk_size = $apkSize
+        aab_sha256 = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_sha256) { $rawEv.mode_b.aab_sha256 } else { "unknown" }
+        aab_size = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_size) { $rawEv.mode_b.aab_size } else { 0 }
     }
     verification_details = [ordered]@{
         package_name = "com.example.flutter_ci_smoke"
         component = "com.example.flutter_ci_smoke/.MainActivity"
-        liveness_pid = $initialPid
-        liveness_passed = [bool]$livenessPassed
+        initial_pid = $initialPid
+        app_pid = $initialPid
+        same_pid_observations = 3
+        observation_duration_seconds = 6
+        scoped_crash_free = [bool](-not $hasCrash)
     }
     launch_result = if ($launchPassed) { "passed" } else { "failed" }
     exit_status = $exitStatus

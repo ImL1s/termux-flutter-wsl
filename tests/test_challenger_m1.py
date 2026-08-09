@@ -231,7 +231,7 @@ def test_configurator_preimage_failure(tmp_path):
         ["bash", to_bash_path(CONFIG_SCRIPT), to_bash_path(proj)],
         cwd=str(REPO_ROOT), capture_output=True, text=True
     )
-    assert res.returncode == 0
-    assert "Preimage verification failed" in res.stdout
+    assert res.returncode != 0
+    assert "Preimage verification failed" in res.stderr or "Preimage verification failed" in res.stdout
     # build.gradle should not have been modified
     assert (android_dir / "build.gradle").read_text() == "// Empty build gradle file\n"

@@ -107,15 +107,50 @@ jobs:
           INVENTORY="${INVENTORIES[0]}"
 
           ACTUAL_SHA=$(sha256sum "$DEB" | awk '{print $1}')
+          ACTUAL_SIZE=$(stat -c%s "$DEB" 2>/dev/null || stat -f%z "$DEB")
           EXPECTED_CLEAN=$(echo "$EXPECTED_SHA256" | tr '[:upper:]' '[:lower:]' | xargs)
           if [ "$ACTUAL_SHA" != "$EXPECTED_CLEAN" ]; then
             echo "SHA256 MISMATCH: expected $EXPECTED_CLEAN, got $ACTUAL_SHA" >&2
             exit 1
           fi
 
+          # 1. Companion .sha256 file content
+          SHA_FILE_CONTENT=$(cat "$SHA_FILE" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+          if [ "$SHA_FILE_CONTENT" != "$ACTUAL_SHA" ]; then
+            echo "Error: Companion .sha256 content ($SHA_FILE_CONTENT) != actual deb SHA256 ($ACTUAL_SHA)" >&2
+            exit 1
+          fi
+
+          # 2. Companion .size.txt file content
+          SIZE_FILE_CONTENT=$(cat "$SIZE_FILE" | tr -d '[:space:]')
+          if [ "$SIZE_FILE_CONTENT" != "$ACTUAL_SIZE" ]; then
+            echo "Error: Companion .size.txt content ($SIZE_FILE_CONTENT) != actual deb size ($ACTUAL_SIZE)" >&2
+            exit 1
+          fi
+
+          # 3-6. Metadata fields verification
+          META_SHA=$(python3 -c "import json; v=json.load(open('$METADATA')).get('sha256',''); print(v.lower().strip())")
+          META_SIZE=$(python3 -c "import json; print(json.load(open('$METADATA')).get('size_bytes',''))")
+          META_RUN_ID=$(python3 -c "import json; print(json.load(open('$METADATA')).get('run_id',''))")
           META_COMMIT=$(python3 -c "import json; v=json.load(open('$METADATA')).get('source_commit'); print(v if v is not None else '')")
-          if [ -z "$META_COMMIT" ]; then
-            echo "Error: build_metadata.json missing source_commit" >&2
+
+          if [ "$META_SHA" != "$ACTUAL_SHA" ]; then
+            echo "Error: build_metadata.json sha256 ($META_SHA) != actual deb SHA256 ($ACTUAL_SHA)" >&2
+            exit 1
+          fi
+
+          if [ "$META_SIZE" != "$ACTUAL_SIZE" ]; then
+            echo "Error: build_metadata.json size_bytes ($META_SIZE) != actual deb size ($ACTUAL_SIZE)" >&2
+            exit 1
+          fi
+
+          if [ -n "$ARTIFACT_RUN_ID" ] && [ "$META_RUN_ID" != "$ARTIFACT_RUN_ID" ]; then
+            echo "Error: build_metadata.json run_id ($META_RUN_ID) != artifact_run_id ($ARTIFACT_RUN_ID)" >&2
+            exit 1
+          fi
+
+          if ! echo "$META_COMMIT" | grep -E -q '^[0-9a-f]{40}$'; then
+            echo "Error: build_metadata.json source_commit ($META_COMMIT) is not a valid 40-hex commit" >&2
             exit 1
           fi
 
@@ -128,7 +163,7 @@ jobs:
           echo "RESOLVED_INVENTORY=$INVENTORY" >> $GITHUB_ENV
           echo "RESOLVED_COMMIT=$SOURCE_COMMIT" >> $GITHUB_ENV
           echo "SOURCE_COMMIT=$SOURCE_COMMIT" >> $GITHUB_ENV
-          echo "✓ Candidate set resolved: DEB=$DEB, SHA256=$ACTUAL_SHA, COMMIT=$SOURCE_COMMIT"
+          echo "✓ Candidate set cryptographically bound and verified: DEB=$DEB, SHA256=$ACTUAL_SHA, COMMIT=$SOURCE_COMMIT"
 
       - name: Run Termux smoke through ADB
         shell: pwsh
@@ -208,9 +243,19 @@ jobs:
             echo "Error: source_commit is required" >&2
             exit 1
           fi
-          CMD="gh release create \"$TAG\" \"$RESOLVED_DEB\" \"$RESOLVED_SHA_FILE\" \"$RESOLVED_SIZE_FILE\" \"$RESOLVED_METADATA\" \"$RESOLVED_INVENTORY\" --target \"$SOURCE_COMMIT\" --title \"Flutter Termux $TAG\""
+
+          RELEASE_ARGS=(
+            "$TAG"
+            "$RESOLVED_DEB"
+            "$RESOLVED_SHA_FILE"
+            "$RESOLVED_SIZE_FILE"
+            "$RESOLVED_METADATA"
+            "$RESOLVED_INVENTORY"
+            "--target" "$SOURCE_COMMIT"
+            "--title" "Flutter Termux $TAG"
+          )
           if [ -n "$NOTES_FILE" ]; then
-            CMD="$CMD --notes-file \"$NOTES_FILE\""
+            RELEASE_ARGS+=("--notes-file" "$NOTES_FILE")
           fi
 
-          eval "$CMD"
+          gh release create "${RELEASE_ARGS[@]}"

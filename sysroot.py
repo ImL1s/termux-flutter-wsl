@@ -256,6 +256,28 @@ def _extract(out: pathlib.Path, deb: pathlib.Path):
     logger.info(f'✓ 成功安裝 {deb.name}')
 
 
+def _apply_sysroot_transformations(target_dir: pathlib.Path):
+    """Apply deterministic C++ header rename and glib-typeof.h extern wrapper fixes before tree_hash calculation."""
+    target_dir = pathlib.Path(target_dir)
+
+    cxx_dir = target_dir / 'usr' / 'include' / 'c++'
+    if cxx_dir.is_dir():
+        cxx_bak = target_dir / 'usr' / 'include' / 'c++.bak'
+        _safe_rmtree(cxx_bak)
+        cxx_dir.rename(cxx_bak)
+
+    glib_typeof = target_dir / 'usr' / 'include' / 'glib-2.0' / 'glib' / 'glib-typeof.h'
+    if glib_typeof.exists():
+        content = glib_typeof.read_text(encoding='utf-8')
+        extern_wrapper = 'extern "C++" {\n#include <type_traits>\n}'
+        if r'extern "C++" {\n#include <type_traits>\n}' in content:
+            content = content.replace(r'extern "C++" {\n#include <type_traits>\n}', extern_wrapper)
+            glib_typeof.write_text(content, encoding='utf-8')
+        elif '<type_traits>' in content and 'extern "C++"' not in content:
+            content = content.replace('#include <type_traits>', extern_wrapper)
+            glib_typeof.write_text(content, encoding='utf-8')
+
+
 def _safe_rmtree(path: pathlib.Path):
     path = pathlib.Path(path)
     if not path.exists() and not path.is_symlink():
@@ -298,6 +320,34 @@ class Sysroot:
         for k, v in kwargs.items():
             if isinstance(v, dict):
                 self.__include__(k, **v)
+        self._recover_orphaned_backups()
+
+    def _recover_orphaned_backups(self):
+        """Recover from abrupt process termination if an orphaned backup exists and active sysroot is missing or corrupt."""
+        parent = self.path.parent
+        if not parent.exists():
+            return
+        backups = sorted(parent.glob(f"{self.path.name}.bak.*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not backups:
+            return
+
+        needs_recovery = not self.path.exists()
+        if self.path.exists():
+            try:
+                if self.lock_file.exists():
+                    self.verify()
+            except Exception:
+                needs_recovery = True
+
+        if needs_recovery and backups:
+            latest_bak = backups[0]
+            logger.warning(f'Orphaned backup detected at {latest_bak}. Restoring to active sysroot {self.path}...')
+            try:
+                _safe_rmtree(self.path)
+                latest_bak.rename(self.path)
+                logger.success(f'Successfully restored orphaned backup {latest_bak} to {self.path}')
+            except Exception as e:
+                logger.error(f'Failed to restore orphaned backup {latest_bak}: {e}')
 
     def __include__(self, name, repo, dist, pkgs):
         assert name and repo and dist and pkgs
@@ -342,6 +392,7 @@ class Sysroot:
                         if pthread.exists():
                             pthread.write_bytes(b'INPUT(-lc)')
 
+                        _apply_sysroot_transformations(staging_tmp)
                         tree_hash = compute_tree_hash(staging_tmp)
                     finally:
                         _safe_rmtree(staging_tmp)
@@ -493,6 +544,8 @@ class Sysroot:
                 pthread = staging_out / 'usr/lib/libpthread.a'
                 if pthread.exists():
                     pthread.write_bytes(b'INPUT(-lc)')
+
+                _apply_sysroot_transformations(staging_out)
 
                 # Validate tree_hash if locked
                 actual_tree_hash = compute_tree_hash(staging_out)

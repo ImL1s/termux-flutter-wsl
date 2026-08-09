@@ -105,13 +105,15 @@ apply_patches() {
         fi
 
         if [ "$MODE" == "status" ] || [ "$MODE" == "check" ]; then
-            cp "$target_file" "$target_file.tmp" 2>/dev/null || true
-            if $patch_func "$target_file.tmp" 2>/dev/null && cmp -s "$target_file" "$target_file.tmp"; then
+            local tmp_check
+            tmp_check=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/patch_check_${$}_${RANDOM}")
+            cp "$target_file" "$tmp_check" 2>/dev/null || true
+            if $patch_func "$tmp_check" 2>/dev/null && cmp -s "$target_file" "$tmp_check"; then
                 echo "  ✓ $patch_name: already correct"
-                rm -f "$target_file.tmp"
+                rm -f "$tmp_check"
                 continue
             fi
-            rm -f "$target_file.tmp"
+            rm -f "$tmp_check"
             echo "  + $patch_name: pending"
             continue
         fi
@@ -498,6 +500,24 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
 
     echo "    ✓ NDK $NDK_NAME configured"
 }
+
+# Handle read-only modes (--status, --check) and rollback mode (--rollback) immediately
+if [ "$MODE" == "status" ] || [ "$MODE" == "check" ]; then
+    echo "=== Post-install read-only report ($MODE) ==="
+    apply_patches
+    echo "=== Post-install read-only report finished ==="
+    exit 0
+fi
+
+if [ "$MODE" == "rollback" ]; then
+    echo "=== Rolling back post-install patches ==="
+    rollback_patches
+    echo "=== Rollback finished ==="
+    exit 0
+fi
+
+# Run apply_patches for --apply
+apply_patches
 
 # Get engine version for downloads
 ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "4c525dac5ebe5971c5708ef73558ed8edcf4a362")

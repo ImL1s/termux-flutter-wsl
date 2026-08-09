@@ -58,9 +58,8 @@ fi
 # Preimage verification: check that build.gradle contains compileSdk or defaultConfig
 TARGET_CONTENT=$(cat "$TARGET_GRADLE")
 if ! echo "$TARGET_CONTENT" | grep -E -q "compileSdk|compileSdkVersion|defaultConfig"; then
-    echo "Warning: Preimage verification failed for $TARGET_GRADLE: missing compileSdk/compileSdkVersion/defaultConfig"
-    echo "Done. $PROJ is configured for Termux."
-    exit 0
+    echo "Error: Preimage verification failed for $TARGET_GRADLE: missing compileSdk/compileSdkVersion/defaultConfig block." >&2
+    exit 1
 fi
 
 MODIFIED_FILES=()

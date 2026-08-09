@@ -308,3 +308,40 @@ def test_mode_b_validation_failure_reverts_to_mode_a(tmp_path):
     res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
     assert res.returncode == 0
     assert "Mode B toolchain validation failed" in res.stdout or "Reverting Mode B activation to Mode A" in res.stdout
+
+
+def compute_dir_tree_hash(root_dir):
+    """Compute deterministic SHA-256 hash of all files and structure in a directory."""
+    hasher = hashlib.sha256()
+    for root, dirs, files in os.walk(root_dir):
+        dirs.sort()
+        for f in sorted(files):
+            full_path = Path(root) / f
+            rel_path = full_path.relative_to(root_dir).as_posix()
+            hasher.update(rel_path.encode('utf-8'))
+            if full_path.is_file() and not full_path.is_symlink():
+                hasher.update(full_path.read_bytes())
+    return hasher.hexdigest()
+
+
+def test_post_install_read_only_tree_byte_identical(tmp_path):
+    """Verify post_install --status and --check do not modify any files in mock trees (byte-identical tree hashes)."""
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    hash_flut_before = compute_dir_tree_hash(flutter_root)
+    hash_sdk_before = compute_dir_tree_hash(android_sdk)
+    hash_pref_before = compute_dir_tree_hash(prefix)
+
+    res_status = run_post_install(flutter_root, android_sdk, prefix, ["--status"])
+    assert res_status.returncode == 0, f"--status failed: {res_status.stderr}"
+
+    assert compute_dir_tree_hash(flutter_root) == hash_flut_before, "flutter_root tree mutated during --status"
+    assert compute_dir_tree_hash(android_sdk) == hash_sdk_before, "android_sdk tree mutated during --status"
+    assert compute_dir_tree_hash(prefix) == hash_pref_before, "prefix tree mutated during --status"
+
+    res_check = run_post_install(flutter_root, android_sdk, prefix, ["--check"])
+    assert res_check.returncode == 0, f"--check failed: {res_check.stderr}"
+
+    assert compute_dir_tree_hash(flutter_root) == hash_flut_before, "flutter_root tree mutated during --check"
+    assert compute_dir_tree_hash(android_sdk) == hash_sdk_before, "android_sdk tree mutated during --check"
+    assert compute_dir_tree_hash(prefix) == hash_pref_before, "prefix tree mutated during --check"
