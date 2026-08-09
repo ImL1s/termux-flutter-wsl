@@ -1,0 +1,27 @@
+﻿{
+    "status":  "passed",
+    "timestamp":  "2026-08-08T06:44:24Z",
+    "device":  "SM-G9960",
+    "apk_launch":  true,
+    "crash_free":  true,
+    "commit_sha":  "c6dce643210e853c546dd4dd799ee268a3a1aaee",
+    "device_serial":  "RFCNC0WNT9H",
+    "device_info":  {
+                        "model":  "SM-G9960",
+                        "sdk":  "35",
+                        "abi":  "arm64-v8a",
+                        "serial":  "RFCNC0WNT9H"
+                    },
+    "launch_result":  "passed",
+    "exit_status":  0,
+    "mode_a_status":  "passed",
+    "mode_b_status":  "passed",
+    "mode_a":  {
+                   "status":  "passed",
+                   "apk_build":  "passed"
+               },
+    "mode_b":  {
+                   "status":  "passed",
+                   "aab_build":  "passed"
+               }
+}

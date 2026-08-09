@@ -884,6 +884,86 @@ else
     echo "  ✓ api-level.h already exists"
 fi
 
+# 13. Recompile flutter_tools.snapshot and stamp to guarantee offline flutter CLI execution
+finalize_flutter_tools_cache() {
+    echo "[13/13] Finalizing flutter_tools.snapshot and stamp..."
+    local FLUTTER_TOOLS_DIR="$FLUTTER_ROOT/packages/flutter_tools"
+    local SNAPSHOT_PATH="$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot"
+    local STAMP_PATH="$FLUTTER_ROOT/bin/cache/flutter_tools.stamp"
+    local DART_BIN="$DART_SDK/bin/dart"
+    local ENTRY_POINT="$FLUTTER_TOOLS_DIR/bin/flutter_tools.dart"
+    local PKG_CONFIG="$FLUTTER_TOOLS_DIR/.dart_tool/package_config.json"
+    local PUBSPEC_LOCK="$FLUTTER_TOOLS_DIR/pubspec.lock"
+    local PUBSPEC_YAML="$FLUTTER_TOOLS_DIR/pubspec.yaml"
+
+    # Remove any existing snapshot and stamp before generating
+    rm -f "$SNAPSHOT_PATH" "$STAMP_PATH"
+
+    if [ ! -f "$DART_BIN" ] && [ ! -x "$DART_BIN" ]; then
+        echo "  ❌ Error: Dart compiler missing at $DART_BIN" >&2
+        return 1
+    fi
+    if [ ! -f "$ENTRY_POINT" ]; then
+        echo "  ❌ Error: flutter_tools entry point missing at $ENTRY_POINT" >&2
+        return 1
+    fi
+
+    local REVISION=""
+    if command -v git >/dev/null 2>&1 && [ -d "$FLUTTER_ROOT/.git" ]; then
+        REVISION=$(git -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || true)
+    fi
+    if [ -z "$REVISION" ] && [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
+        REVISION=$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | tr -d '\n\r')
+    fi
+    if [ -z "$REVISION" ]; then
+        echo "  ❌ Error: Failed to determine Flutter SDK revision" >&2
+        return 1
+    fi
+
+    local COMPILE_KEY="${REVISION}:"
+
+    # Ensure pubspec.lock exists and is strictly newer than pubspec.yaml
+    if [ -f "$PUBSPEC_YAML" ]; then
+        touch "$PUBSPEC_LOCK"
+        if [ "$PUBSPEC_YAML" -nt "$PUBSPEC_LOCK" ]; then
+            sleep 1
+            touch "$PUBSPEC_LOCK"
+        fi
+    fi
+
+    # Compile snapshot without ignoring errors
+    local COMPILE_OK=0
+    if [ -f "$PKG_CONFIG" ]; then
+        if "$DART_BIN" --snapshot="$SNAPSHOT_PATH" --packages="$PKG_CONFIG" "$ENTRY_POINT" >/dev/null 2>&1; then
+            COMPILE_OK=1
+        fi
+    fi
+    if [ "$COMPILE_OK" -ne 1 ]; then
+        if "$DART_BIN" --snapshot="$SNAPSHOT_PATH" "$ENTRY_POINT" >/dev/null 2>&1; then
+            COMPILE_OK=1
+        fi
+    fi
+
+    if [ "$COMPILE_OK" -ne 1 ] || [ ! -s "$SNAPSHOT_PATH" ]; then
+        echo "  ❌ Error: Failed to compile flutter_tools.snapshot" >&2
+        rm -f "$SNAPSHOT_PATH" "$STAMP_PATH"
+        return 1
+    fi
+
+    # Write stamp ONLY after snapshot compilation and size verification succeeds
+    echo -n "$COMPILE_KEY" > "$STAMP_PATH"
+    if [ ! -s "$STAMP_PATH" ] || [ "$(< "$STAMP_PATH")" != "$COMPILE_KEY" ]; then
+        echo "  ❌ Error: Failed to write valid flutter_tools.stamp" >&2
+        rm -f "$SNAPSHOT_PATH" "$STAMP_PATH"
+        return 1
+    fi
+
+    echo "  ✓ flutter_tools.snapshot and flutter_tools.stamp finalized (key=$COMPILE_KEY)"
+    return 0
+}
+
+finalize_flutter_tools_cache || { echo "❌ Failed to finalize flutter_tools cache" >&2; exit 1; }
+
 echo ""
 echo "=========================================="
 echo "Post-install configuration complete!"

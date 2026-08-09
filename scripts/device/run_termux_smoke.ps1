@@ -261,7 +261,7 @@ Start-Sleep -Seconds 3
 
 $appPid = (& $Adb @AdbArgs shell "pidof com.example.flutter_ci_smoke 2>/dev/null || true") -join ""
 $appPid = $appPid.Trim()
-$crashCheck = (& $Adb @AdbArgs shell "logcat -d 2>/dev/null | grep -i 'FATAL EXCEPTION.*com.example.flutter_ci_smoke' || true") -join ""
+$crashCheck = (& $Adb @AdbArgs shell "logcat -d -t 1000 2>/dev/null | grep -i 'FATAL EXCEPTION.*com.example.flutter_ci_smoke' || true") -join ""
 $crashCheck = $crashCheck.Trim()
 
 $apkLaunchHost = ($appPid -ne "")

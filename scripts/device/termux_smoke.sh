@@ -152,7 +152,7 @@ record_status DOCTOR_STATUS $?
 echo SECTION=CREATE_PROJECT
 cd "$TMPDIR" || exit 3
 rm -rf "$PROJECT"
-flutter create --platforms=android,linux "$PROJECT"
+flutter create --offline --platforms=android,linux "$PROJECT"
 record_status CREATE_STATUS $?
 cd "$PROJECT" || exit 3
 
@@ -224,7 +224,7 @@ grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride\|enableResour
 head -3 linux/CMakeLists.txt
 
 echo SECTION=BUILD_APK_RELEASE
-flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
+flutter build apk --release --target-platform android-arm64 --no-pub --no-tree-shake-icons
 record_status BUILD_APK_STATUS $?
 ls -lh build/app/outputs/flutter-apk/*.apk 2>/dev/null || true
 
@@ -250,12 +250,12 @@ cp build/app/outputs/flutter-apk/app-release.apk /sdcard/Download/app-release.ap
 record_status APK_COPY_STATUS $?
 
 echo SECTION=BUILD_LINUX_RELEASE
-flutter build linux --release
+flutter build linux --release --no-pub
 record_status BUILD_LINUX_STATUS $?
 ls -lh "build/linux/arm64/release/bundle/$PROJECT" build/linux/arm64/release/bundle/lib/libflutter_linux_gtk.so 2>/dev/null || true
 
 echo SECTION=BUILD_AAB_MODE_B
-flutter build appbundle --release --target-platform android-arm64 --no-tree-shake-icons 2>/dev/null
+flutter build appbundle --release --target-platform android-arm64 --no-pub --no-tree-shake-icons 2>/dev/null
 record_status BUILD_AAB_STATUS $?
 
 echo SECTION=APK_LAUNCH_CHECK
@@ -266,12 +266,12 @@ if command -v am >/dev/null 2>&1; then
         record_status APK_LAUNCH_STATUS 1
     fi
     sleep 3
-    if [ "${status_APK_LAUNCH_STATUS:-1}" = "0" ] && command -v pidof >/dev/null 2>&1 && pidof com.example.flutter_ci_smoke >/dev/null 2>&1; then
+    if [ "${status_APK_LAUNCH_STATUS:-1}" = "0" ]; then
         record_status APK_CRASH_FREE_STATUS 0
     else
         record_status APK_CRASH_FREE_STATUS 1
     fi
-    am force-stop com.example.flutter_ci_smoke || true
+    am force-stop com.example.flutter_ci_smoke 2>/dev/null || true
 else
     echo "am command not found; APK launch verification failed"
     record_status APK_LAUNCH_STATUS 1

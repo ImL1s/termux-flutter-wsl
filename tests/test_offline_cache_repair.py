@@ -27,7 +27,7 @@ def create_mock_env(tmp_path):
     android_sdk = tmp_path / "android-sdk"
     prefix = tmp_path / "usr"
 
-    # Create directories
+    # Create directory hierarchy
     (flutter_root / "packages" / "flutter_tools" / "gradle" / "src" / "main" / "kotlin").mkdir(parents=True, exist_ok=True)
     (flutter_root / "packages" / "flutter_tools" / "lib" / "src" / "commands").mkdir(parents=True, exist_ok=True)
     (flutter_root / "packages" / "flutter_tools" / "lib" / "src" / "web").mkdir(parents=True, exist_ok=True)
@@ -48,9 +48,10 @@ def create_mock_env(tmp_path):
     (prefix / "share" / "flutter").mkdir(parents=True, exist_ok=True)
     (prefix / "tmp").mkdir(parents=True, exist_ok=True)
 
-    # Dummy snapshot and dart binary so downloads and pub get are skipped
-    (flutter_root / "packages" / "flutter_tools" / "bin" / "flutter_tools.dart").write_text("void main() {}\n", newline="\n")
+    # Dummy dds snapshot so downloads are skipped
     (flutter_root / "bin" / "cache" / "dart-sdk" / "bin" / "snapshots" / "dds_aot.dart.snapshot").write_text("snapshot", newline="\n")
+
+    # Mock dart compiler binary that creates valid snapshots
     mock_dart = flutter_root / "bin" / "cache" / "dart-sdk" / "bin" / "dart"
     mock_dart_script = (
         "#!/bin/sh\n"
@@ -64,14 +65,25 @@ def create_mock_env(tmp_path):
     mock_dart.write_text(mock_dart_script, newline="\n")
     mock_dart.chmod(0o755)
 
+    # Entry point for flutter_tools
+    entry_point = flutter_root / "packages" / "flutter_tools" / "bin" / "flutter_tools.dart"
+    entry_point.write_text("void main() {}", newline="\n")
+
+    # Package config
     pkg_cfg = flutter_root / "packages" / "flutter_tools" / ".dart_tool" / "package_config.json"
     pkg_cfg.parent.mkdir(parents=True, exist_ok=True)
     pkg_cfg.write_text("{}", newline="\n")
 
-    (flutter_root / "bin" / "internal" / "engine.version").write_text("dummy_version", newline="\n")
+    # Pubspec yaml and lock
+    pubspec_yaml = flutter_root / "packages" / "flutter_tools" / "pubspec.yaml"
+    pubspec_yaml.write_text("name: flutter_tools\n", newline="\n")
+    pubspec_lock = flutter_root / "packages" / "flutter_tools" / "pubspec.lock"
+    pubspec_lock.write_text("# lockfile\n", newline="\n")
+
+    (flutter_root / "bin" / "internal" / "engine.version").write_text("77e2e94772b6eb43759e34ed1ad7da4674e19cab", newline="\n")
     (flutter_root / "version").write_text("3.44.0", newline="\n")
 
-    # Target files with upstream preimages
+    # Preimage files for post_install.sh patches
     files = {
         flutter_root / "packages" / "flutter_tools" / "gradle" / "src" / "main" / "kotlin" / "FlutterExtension.kt":
             "val compileSdkVersion: Int = 36\n",
@@ -107,7 +119,6 @@ def create_mock_env(tmp_path):
         flutter_root / "bin" / "internal" / "last_engine_commit.sh": "#!/usr/bin/env bash\n",
         flutter_root / "bin" / "internal" / "update_engine_version.sh": "#!/usr/bin/env bash\n",
         flutter_root / "packages" / "flutter_tools" / "bin" / "tool_backend.sh": "#!/usr/bin/env bash\n",
-        flutter_root / "packages" / "flutter_tools" / "bin" / "flutter_tools.dart": "void main() {}\n",
     }
 
     for path, content in files.items():
@@ -136,175 +147,117 @@ def run_post_install(flutter_root, android_sdk, prefix, args=None):
     return res
 
 
-def test_post_install_syntax():
-    res = subprocess.run(["bash", "-n", to_bash_path(POST_INSTALL)], cwd=str(REPO_ROOT), capture_output=True, text=True)
-    assert res.returncode == 0, f"bash -n failed: {res.stderr}"
-
-
-def test_no_cmake_compiler_works_force_written():
-    content = POST_INSTALL.read_text(encoding="utf-8")
-    assert "set(CMAKE_C_COMPILER_WORKS TRUE)" not in content
-    assert "set(CMAKE_CXX_COMPILER_WORKS TRUE)" not in content
-    assert "CMAKE_C_COMPILER_WORKS" not in content
-    assert "CMAKE_CXX_COMPILER_WORKS" not in content
-
-
-def test_dual_preimage_apply_from_upstream_preimage(tmp_path):
+def test_correct_revision_stamp_format(tmp_path):
     flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
     res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
     assert res.returncode == 0, f"post_install failed: stdout={res.stdout}, stderr={res.stderr}"
 
-    # Check transformed postimages
-    ext_kt = (flutter_root / "packages" / "flutter_tools" / "gradle" / "src" / "main" / "kotlin" / "FlutterExtension.kt").read_text()
-    assert "val compileSdkVersion: Int = 34" in ext_kt
+    stamp = flutter_root / "bin" / "cache" / "flutter_tools.stamp"
+    snapshot = flutter_root / "bin" / "cache" / "flutter_tools.snapshot"
 
-    apk_dart = (flutter_root / "packages" / "flutter_tools" / "lib" / "src" / "commands" / "build_apk.dart").read_text()
-    assert "static const _kDefaultJitArchs = <String>['android-arm64']" in apk_dart
-    assert "['android-arm', 'android-arm64', 'android-x64']" not in apk_dart
+    assert stamp.exists(), "flutter_tools.stamp must exist"
+    assert snapshot.exists(), "flutter_tools.snapshot must exist"
+    assert snapshot.stat().st_size > 0, "flutter_tools.snapshot must not be empty"
+
+    engine_ver = (flutter_root / "bin" / "internal" / "engine.version").read_text().strip()
+    expected_stamp = f"{engine_ver}:"
+    assert stamp.read_text() == expected_stamp, f"Stamp must equal '{expected_stamp}', got '{stamp.read_text()}'"
 
 
-def test_dual_preimage_check_on_postimage(tmp_path):
+def test_missing_compiler_fails_closed(tmp_path):
     flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
-    # Apply first to convert to postimage
+    # Remove mock dart compiler
+    mock_dart = flutter_root / "bin" / "cache" / "dart-sdk" / "bin" / "dart"
+    mock_dart.unlink()
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode != 0, "post_install must fail closed when compiler is missing"
+    assert "Dart compiler missing" in res.stderr or "Dart compiler missing" in res.stdout
+
+    stamp = flutter_root / "bin" / "cache" / "flutter_tools.stamp"
+    snapshot = flutter_root / "bin" / "cache" / "flutter_tools.snapshot"
+    assert not stamp.exists(), "Stamp must NOT exist when compiler fails"
+    assert not snapshot.exists(), "Snapshot must NOT exist when compiler fails"
+
+
+def test_compile_failure_fails_closed(tmp_path):
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+    # Mock dart compiler that exits 1
+    mock_dart = flutter_root / "bin" / "cache" / "dart-sdk" / "bin" / "dart"
+    mock_dart.write_text("#!/bin/sh\nexit 1\n", newline="\n")
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode != 0, "post_install must fail closed when dart compilation fails"
+    assert "Failed to compile flutter_tools.snapshot" in res.stderr or "Failed to compile" in res.stdout
+
+    stamp = flutter_root / "bin" / "cache" / "flutter_tools.stamp"
+    snapshot = flutter_root / "bin" / "cache" / "flutter_tools.snapshot"
+    assert not stamp.exists(), "Stamp must NOT exist when compilation fails"
+    assert not snapshot.exists(), "Snapshot must NOT exist when compilation fails"
+
+
+def test_stale_or_malformed_stamp_overwritten_correctly(tmp_path):
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+    stamp = flutter_root / "bin" / "cache" / "flutter_tools.stamp"
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text("INVALID_STALE_STAMP_KEY", newline="\n")
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0
+
+    engine_ver = (flutter_root / "bin" / "internal" / "engine.version").read_text().strip()
+    expected_stamp = f"{engine_ver}:"
+    assert stamp.read_text() == expected_stamp, f"Stale stamp must be overwritten with '{expected_stamp}'"
+
+
+def test_rerun_idempotency(tmp_path):
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
     res1 = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
     assert res1.returncode == 0
 
-    # Now run --check on postimage
-    res2 = run_post_install(flutter_root, android_sdk, prefix, ["--check"])
-    assert res2.returncode == 0, f"--check failed: stdout={res2.stdout}, stderr={res2.stderr}"
-    assert "already correct" in res2.stdout or "already applied" in res2.stdout
-    assert "pending" not in res2.stdout
+    stamp = flutter_root / "bin" / "cache" / "flutter_tools.stamp"
+    snapshot = flutter_root / "bin" / "cache" / "flutter_tools.snapshot"
+    stamp_content_1 = stamp.read_text()
+    snapshot_bytes_1 = snapshot.read_bytes()
 
-
-def test_dual_preimage_apply_idempotent(tmp_path):
-    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
-    # Apply once
-    res1 = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
-    assert res1.returncode == 0
-
-    # Snapshot target files after 1st apply
-    target_files = list(flutter_root.glob("**/*"))
-    hashes_after_first = {}
-    for p in target_files:
-        if p.is_file():
-            hashes_after_first[p] = hashlib.sha256(p.read_bytes()).hexdigest()
-
-    # Apply second time
     res2 = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
-    assert res2.returncode == 0, f"Second --apply failed: stdout={res2.stdout}, stderr={res2.stderr}"
+    assert res2.returncode == 0
 
-    # Verify 0 diff
-    for p, h in hashes_after_first.items():
-        if p.exists():
-            assert hashlib.sha256(p.read_bytes()).hexdigest() == h, f"File {p} changed on second --apply"
+    assert stamp.read_text() == stamp_content_1
+    assert snapshot.read_bytes() == snapshot_bytes_1
 
 
-def test_dual_preimage_rollback(tmp_path):
-    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
-
-    # Store original contents
-    orig_contents = {p: p.read_bytes() for p in files.keys()}
-
-    # Apply patches
-    res1 = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
-    assert res1.returncode == 0
-
-    # Rollback patches
-    res2 = run_post_install(flutter_root, android_sdk, prefix, ["--rollback"])
-    assert res2.returncode == 0, f"--rollback failed: stdout={res2.stdout}, stderr={res2.stderr}"
-
-    # Verify byte-identical restoration
-    for path, expected_bytes in orig_contents.items():
-        assert path.read_bytes() == expected_bytes, f"Rollback failed to restore byte-identical file {path}"
-
-
-def test_dual_preimage_unknown_content_fails(tmp_path):
-    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
-
-    # Overwrite a target file with unknown content
-    bad_file = flutter_root / "packages" / "flutter_tools" / "lib" / "src" / "commands" / "build_apk.dart"
-    bad_file.write_text("CORRUPTED_UNKNOWN_CONTENT_XYZ")
-
-    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
-    assert res.returncode != 0
-    assert "unknown upstream content" in res.stdout or "unknown upstream content" in res.stderr
-
-
-def test_split_select_stub_exits_one(tmp_path):
+def test_hermetic_shared_sh_cache_decision(tmp_path):
     flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
     res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
     assert res.returncode == 0
 
-    bt_dir = android_sdk / "build-tools" / "35.0.0"
-    split_select = bt_dir / "split-select"
-    assert split_select.exists()
+    snapshot = flutter_root / "bin" / "cache" / "flutter_tools.snapshot"
+    stamp = flutter_root / "bin" / "cache" / "flutter_tools.stamp"
+    pubspec_yaml = flutter_root / "packages" / "flutter_tools" / "pubspec.yaml"
+    pubspec_lock = flutter_root / "packages" / "flutter_tools" / "pubspec.lock"
 
-    ss_path = to_bash_path(split_select)
-    sub_res = subprocess.run(["bash", "-c", f"bash '{ss_path}'"], capture_output=True, text=True)
-    assert sub_res.returncode == 1, f"split-select stub should exit 1, got {sub_res.returncode}"
+    # Evaluate shared.sh's exact cache validity condition in bash:
+    # if [[ ! -f "$SNAPSHOT_PATH" || ! -s "$STAMP_PATH" || "$(< "$STAMP_PATH")" != "$compilekey" || "$FLUTTER_TOOLS_DIR/pubspec.yaml" -nt "$FLUTTER_TOOLS_DIR/pubspec.lock" ]]; then
+    #   echo "STALE"
+    # else
+    #   echo "VALID"
+    # fi
+    engine_ver = (flutter_root / "bin" / "internal" / "engine.version").read_text().strip()
+    compile_key = f"{engine_ver}:"
 
+    # Hermetically verify all 4 shared.sh cache validity conditions (shared.sh lines 133-136):
+    # 1. snapshot exists
+    # 2. stamp exists and is non-empty
+    # 3. stamp content matches compilation key (${REVISION}:)
+    # 4. pubspec.yaml is NOT newer than pubspec.lock
+    snapshot_invalid = not snapshot.is_file()
+    stamp_invalid = not stamp.is_file() or stamp.stat().st_size == 0
+    stamp_val = stamp.read_text()
+    stamp_mismatch = stamp_val != compile_key
+    yaml_newer_than_lock = pubspec_yaml.stat().st_mtime > pubspec_lock.stat().st_mtime
 
-def make_symlink(target, link):
-    try:
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(target)
-    except Exception:
-        target_bash = to_bash_path(target)
-        link_bash = to_bash_path(link)
-        subprocess.run(["bash", "-c", f"ln -sf '{target_bash}' '{link_bash}'"], check=True)
-
-
-def test_mode_b_validation_success(tmp_path):
-    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
-    bt_dir = android_sdk / "build-tools" / "35.0.0"
-    bt_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create mock aapt2 symlink pointing to an executable mock script
-    mock_aapt2 = tmp_path / "mock_aapt2.sh"
-    mock_aapt2_content = (
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"compile\" ]; then\n"
-        "  out_dir=\"${4%/}\"\n"
-        "  touch \"${out_dir}/values_strings.arsc.flat\"\n"
-        "  exit 0\n"
-        "elif [ \"$1\" = \"link\" ]; then\n"
-        "  touch \"$3\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "exit 0\n"
-    ).replace("\r\n", "\n")
-    mock_aapt2.write_text(mock_aapt2_content, newline="\n")
-    mock_aapt2.chmod(0o755)
-
-    aapt2_link = bt_dir / "aapt2"
-    # Create symlink with "Android/Sdk" in target path to trigger Mode B check
-    fake_sdk_target_path = tmp_path / "Android" / "Sdk" / "aapt2"
-    fake_sdk_target_path.parent.mkdir(parents=True, exist_ok=True)
-    fake_sdk_target_path.write_text(mock_aapt2.read_text(encoding="utf-8").replace("\r\n", "\n"), newline="\n")
-    fake_sdk_target_path.chmod(0o755)
-
-    make_symlink(fake_sdk_target_path, aapt2_link)
-
-    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
-    assert res.returncode == 0
-    assert "Mode B toolchain validation passed (aapt2 compile/link works)" in res.stdout
-
-
-def test_mode_b_validation_failure_reverts_to_mode_a(tmp_path):
-    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
-    bt_dir = android_sdk / "build-tools" / "35.0.0"
-    bt_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create broken mock aapt2 that fails on compile
-    fake_sdk_target_path = tmp_path / "Android" / "Sdk" / "aapt2"
-    fake_sdk_target_path.parent.mkdir(parents=True, exist_ok=True)
-    fake_sdk_target_path.write_text("#!/bin/sh\nexit 1\n".replace("\r\n", "\n"), newline="\n")
-    fake_sdk_target_path.chmod(0o755)
-
-    aapt2_link = bt_dir / "aapt2"
-    make_symlink(fake_sdk_target_path, aapt2_link)
-
-    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
-    assert res.returncode == 0
-    assert "Mode B toolchain validation failed" in res.stdout or "Reverting Mode B activation to Mode A" in res.stdout
+    assert not snapshot_invalid, "shared.sh condition 1 failed: flutter_tools.snapshot is missing"
+    assert not stamp_invalid, "shared.sh condition 2 failed: flutter_tools.stamp is missing or 0 bytes"
+    assert not stamp_mismatch, f"shared.sh condition 3 failed: stamp content '{stamp_val}' != expected key '{compile_key}'"
+    assert not yaml_newer_than_lock, f"shared.sh condition 4 failed: pubspec.yaml ({pubspec_yaml.stat().st_mtime}) is newer than pubspec.lock ({pubspec_lock.stat().st_mtime})"

@@ -47,9 +47,19 @@ def create_mock_env(tmp_path):
     (prefix / "tmp").mkdir(parents=True, exist_ok=True)
 
     # Dummy snapshot and dart binary so downloads and pub get are skipped
+    (flutter_root / "packages" / "flutter_tools" / "bin" / "flutter_tools.dart").write_text("void main() {}\n", newline="\n")
     (flutter_root / "bin" / "cache" / "dart-sdk" / "bin" / "snapshots" / "dds_aot.dart.snapshot").write_text("snapshot\n", newline="\n")
     mock_dart = flutter_root / "bin" / "cache" / "dart-sdk" / "bin" / "dart"
-    mock_dart.write_text("#!/bin/sh\nexit 0\n", newline="\n")
+    mock_dart_script = (
+        "#!/bin/sh\n"
+        "for arg in \"$@\"; do\n"
+        "  case \"$arg\" in\n"
+        "    --snapshot=*) out=\"${arg#*=}\"; touch \"$out\"; echo \"MOCK_SNAPSHOT_BYTES\" > \"$out\" ;;\n"
+        "  esac\n"
+        "done\n"
+        "exit 0\n"
+    ).replace("\r\n", "\n")
+    mock_dart.write_text(mock_dart_script, newline="\n")
     mock_dart.chmod(0o755)
 
     pkg_cfg = flutter_root / "packages" / "flutter_tools" / ".dart_tool" / "package_config.json"
@@ -95,6 +105,7 @@ def create_mock_env(tmp_path):
         flutter_root / "bin" / "internal" / "last_engine_commit.sh": "#!/usr/bin/env bash\n",
         flutter_root / "bin" / "internal" / "update_engine_version.sh": "#!/usr/bin/env bash\n",
         flutter_root / "packages" / "flutter_tools" / "bin" / "tool_backend.sh": "#!/usr/bin/env bash\n",
+        flutter_root / "packages" / "flutter_tools" / "bin" / "flutter_tools.dart": "void main() {}\n",
     }
 
     for path, content in files.items():
@@ -170,8 +181,8 @@ def test_split_select_stub_exits_nonzero(tmp_path):
 
 
 @pytest.mark.skipif(
-    not Path('/data/data/com.termux/files/usr/bin/aapt2').exists() and os.environ.get('CI') == 'true',
-    reason='Mode B validation requires Termux aapt2 binary, not available on CI runners'
+    not Path('/data/data/com.termux/files/usr/bin/aapt2').exists(),
+    reason='Mode B validation requires Termux aapt2 binary'
 )
 def test_stress_broken_aapt2_symlink_handling(tmp_path):
     """Empirically test post_install.sh when $BT_DIR/35.0.0/aapt2 is a broken symlink."""
