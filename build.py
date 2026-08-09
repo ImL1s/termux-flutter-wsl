@@ -1031,6 +1031,8 @@ class Build:
         start_time = time.time()
         logger.info('=== Starting complete Flutter Termux build ===')
 
+        rebuilt_any_artifact = [False]
+
         def run_step(step, total, name, func, **kwargs):
             logger.info(f'[{step}/{total}] {name}...')
             t0 = time.time()
@@ -1047,6 +1049,7 @@ class Build:
                 if all_exist:
                     logger.info(f'[{step}/{total}] {name} output already exists, skipping (use --force to rebuild).')
                     return
+            rebuilt_any_artifact[0] = True
             run_step(step, total, name, func, **kwargs)
 
         total = 14
@@ -1098,6 +1101,7 @@ class Build:
         if not force and all(p.exists() for p in debug_outputs):
             logger.info(f'[6/{total}] debug tools output already exists, skipping (use --force to rebuild).')
         else:
+            rebuilt_any_artifact[0] = True
             logger.info(f'[6/{total}] configure and build debug tools...')
             t0 = time.time()
             self.configure(arch=arch, mode='debug')
@@ -1122,6 +1126,7 @@ class Build:
         if not force and all(p.exists() for p in release_outputs):
             logger.info(f'[8/{total}] build release output already exists, skipping (use --force to rebuild).')
         else:
+            rebuilt_any_artifact[0] = True
             run_step(8, total, 'build release', self.build, arch=arch, mode='release', jobs=jobs)
 
         # Step 9: configure profile
@@ -1139,6 +1144,7 @@ class Build:
         if not force and all(p.exists() for p in profile_outputs):
             logger.info(f'[10/{total}] build profile output already exists, skipping (use --force to rebuild).')
         else:
+            rebuilt_any_artifact[0] = True
             run_step(10, total, 'build profile', self.build, arch=arch, mode='profile', jobs=jobs)
 
         # Step 11: configure and build android gen_snapshot release
@@ -1146,6 +1152,7 @@ class Build:
         if not force and android_rel_gen.exists():
             logger.info(f'[11/{total}] android gen_snapshot release output already exists, skipping (use --force to rebuild).')
         else:
+            rebuilt_any_artifact[0] = True
             logger.info(f'[11/{total}] configure and build android gen_snapshot release...')
             t0 = time.time()
             self.configure_android(arch='arm64', mode='release')
@@ -1157,6 +1164,7 @@ class Build:
         if not force and android_prof_gen.exists():
             logger.info(f'[12/{total}] android gen_snapshot profile output already exists, skipping (use --force to rebuild).')
         else:
+            rebuilt_any_artifact[0] = True
             logger.info(f'[12/{total}] configure and build android gen_snapshot profile...')
             t0 = time.time()
             self.configure_android(arch='arm64', mode='profile')
@@ -1164,11 +1172,21 @@ class Build:
             logger.info(f'✓ android gen_snapshot profile completed in {time.time() - t0:.1f}s')
 
         # Step 13 & 14: debuild
-        run_step_conditional(
-            14, total, 'debuild',
-            [self.output(arch)],
-            self.debuild, arch=arch, output=self.output(arch)
-        )
+        deb_file = Path(self.output(arch))
+        deb_stale = False
+        if deb_file.exists():
+            deb_mtime = deb_file.stat().st_mtime
+            all_build_outputs = debug_outputs + release_outputs + profile_outputs + [android_rel_gen, android_prof_gen]
+            for artifact in all_build_outputs:
+                if artifact.exists() and artifact.stat().st_mtime > deb_mtime:
+                    deb_stale = True
+                    break
+
+        if force or rebuilt_any_artifact[0] or deb_stale or not deb_file.exists():
+            run_step(14, total, 'debuild', self.debuild, arch=arch, output=self.output(arch))
+        else:
+            logger.info(f'[14/{total}] debuild output already up-to-date, skipping (use --force to rebuild).')
+
 
         logger.info(f'=== Build complete in {time.time() - start_time:.1f}s ===')
         logger.info(f'Output: {self.output(arch)}')
