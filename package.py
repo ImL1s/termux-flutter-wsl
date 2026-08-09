@@ -105,7 +105,7 @@ def explore(src, git=False):
 def reset(info):
     info.uid = 0
     info.gid = 0
-    info.mtime = 0
+    info.mtime = int(os.environ.get('SOURCE_DATE_EPOCH', 0))
     info.uname = 'root'
     info.gname = 'root'
     info.mode |= 0o200

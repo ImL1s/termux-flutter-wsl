@@ -316,3 +316,26 @@ def test_sysroot_lock_generation(tmp_path):
     assert len(arm64_entry["tree_hash"]) == 64
     assert arm64_entry["packages"] == mock_resolved
 
+
+def test_sysroot_verify_tree_hash_mismatch_fails(tmp_path):
+    sysroot_dir = tmp_path / "sysroot"
+    sysroot_dir.mkdir()
+    (sysroot_dir / "usr").mkdir()
+    (sysroot_dir / "usr" / "file.txt").write_text("corrupted_content")
+
+    lock_file = tmp_path / "sysroot.lock.json"
+    lock_data = {
+        "arm64": {
+            "arch": "arm64",
+            "tree_hash": "0" * 64,
+            "packages": {}
+        }
+    }
+    lock_file.write_text(json.dumps(lock_data))
+
+    sysroot = Sysroot(path=str(sysroot_dir))
+    sysroot.lock_file = lock_file
+
+    with pytest.raises(SystemExit):
+        sysroot.verify(arch="arm64")
+

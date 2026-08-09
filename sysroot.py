@@ -388,10 +388,14 @@ class Sysroot:
             sys.exit(1)
         with open(self.lock_file, 'r', encoding='utf-8') as f:
             lock_data = json.load(f)
-        if arch not in lock_data and arch_name not in lock_data:
-            logger.error(f'Arch {arch} not found in lock file.')
-            sys.exit(1)
-        logger.info(f'✓ Sysroot for {arch} looks valid.')
+        entry = lock_data.get(arch) or lock_data.get(arch_name)
+        expected_hash = entry.get('tree_hash') if isinstance(entry, dict) else None
+        if expected_hash:
+            actual_hash = compute_tree_hash(self.path)
+            if actual_hash != expected_hash:
+                logger.error(f'Sysroot tree hash mismatch: actual={actual_hash} != expected={expected_hash}')
+                sys.exit(1)
+        logger.info(f'✓ Sysroot for {arch} looks valid (tree_hash verified).')
 
     def build(self, arch: str = 'arm64', locked: bool = True):
         """建立 sysroot，預設 shadow 啟用 --locked"""
