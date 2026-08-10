@@ -58,8 +58,11 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v gclient >/dev/null 2>&1; then
-            git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
-            echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
+            DEPOT_DIR="$RUNNER_TEMP/depot_tools"
+            if [ ! -d "$DEPOT_DIR" ]; then
+              git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_DIR"
+            fi
+            echo "$DEPOT_DIR" >> "$GITHUB_PATH"
           fi
 
       - name: Validate host toolchain contract

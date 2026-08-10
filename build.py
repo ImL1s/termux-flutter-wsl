@@ -346,8 +346,24 @@ class Build:
         for tool in ['git', 'ninja']:
             if not shutil.which(tool):
                 missing_tools.append(tool)
-        gclient_found = bool(shutil.which('gclient')) or (Path(__file__).parent / 'depot_tools' / 'gclient').exists()
-        if not gclient_found:
+        
+        gclient_path = shutil.which('gclient')
+        if not gclient_path:
+            candidate_dirs = [
+                Path(__file__).parent / 'depot_tools',
+                Path.home() / 'depot_tools',
+                Path('/opt/depot_tools'),
+            ]
+            runner_temp = os.environ.get('RUNNER_TEMP')
+            if runner_temp:
+                candidate_dirs.append(Path(runner_temp) / 'depot_tools')
+            for cand in candidate_dirs:
+                if (cand / 'gclient').exists():
+                    os.environ["PATH"] = f"{cand}:{os.environ.get('PATH', '')}"
+                    gclient_path = str(cand / 'gclient')
+                    break
+        
+        if not gclient_path:
             missing_tools.append('gclient (depot_tools)')
 
         if not missing_tools:
