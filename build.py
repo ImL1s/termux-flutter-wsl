@@ -524,13 +524,12 @@ class Build:
             if (
                 status.get('exists')
                 and status.get('tag') == tag
-                and not status.get('dirty')
                 and 'error' not in status
                 and remote_ok
                 and has_structure
                 and head_matches_peeled
             ):
-                logger.info(f'flutter exists at {out_path} with valid tag {tag} (HEAD={status.get("head")[:8]}) and clean workspace status, skipping clone.')
+                logger.info(f'flutter exists at {out_path} with valid tag {tag} (HEAD={status.get("head")[:8]}), skipping clone.')
                 return
 
             if status.get('dirty') and not force:
