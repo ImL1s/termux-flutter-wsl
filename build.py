@@ -635,7 +635,38 @@ class Build:
             except Exception:
                 pass
 
-        shutil.copy(cfg, os.path.join(src, '.gclient'))
+        cfg_path = Path(cfg)
+        if not cfg_path.exists():
+            default_gclient = '''solutions = [
+  {
+    "managed": False,
+    "name": ".",
+    "url": "https://github.com/flutter/flutter",
+    "deps_file": "DEPS",
+    "safesync_url": "",
+    "custom_deps": {
+      "engine/src/fuchsia/sdk/linux": None,
+      "engine/src/third_party/google_fonts_for_unit_tests": None,
+      "engine/src/flutter/third_party/java/openjdk": None,
+    },
+    "custom_vars" : {
+      "setup_githooks" : False,
+      "use_cipd_goma" : False,
+      "download_emsdk" : False,
+      "download_dart_sdk" : False,
+      "download_linux_deps" : False,
+      "download_fuchsia_sdk" : False,
+      "download_android_deps" : False,
+      "download_windows_deps" : False,
+      "download_fuchsia_deps" : False,
+    },
+    "custom_hooks" : []
+  }
+]
+'''
+            cfg_path.write_text(default_gclient, encoding='utf-8')
+
+        shutil.copy(cfg_path, os.path.join(src, '.gclient'))
         cmd = ['gclient', 'sync', '-DR', '--no-history']
         subprocess.run(cmd, cwd=src, check=True)
 

@@ -9,6 +9,7 @@ release/
 depot_tools/
 *.deb
 out/
+!.gclient
 
 # ----- 臨時文件存檔 -----
 _archive/
