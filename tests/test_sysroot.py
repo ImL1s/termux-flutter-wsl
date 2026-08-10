@@ -232,7 +232,7 @@ def test_sysroot_build_locked_success(tmp_path):
     usr_target.mkdir(parents=True, exist_ok=True)
     lib_dir = usr_target / "lib"
     lib_dir.mkdir(parents=True, exist_ok=True)
-    (lib_dir / "libpthread.a").write_bytes(b"INPUT(-lc)")
+    (lib_dir / "libpthread.a").write_bytes(b"!<arch>\n")
     (staging_temp / "usr").symlink_to("data/data/com.termux/files/usr", True)
 
     expected_hash = compute_tree_hash(staging_temp)
@@ -255,7 +255,7 @@ def test_sysroot_build_locked_success(tmp_path):
     def mock_extract(out_dir, deb):
         target_dir = out_dir / "data" / "data" / "com.termux" / "files" / "usr" / "lib"
         target_dir.mkdir(parents=True, exist_ok=True)
-        (target_dir / "libpthread.a").write_bytes(b"INPUT(-lc)")
+        (target_dir / "libpthread.a").write_bytes(b"!<arch>\n")
 
     with patch("sysroot._is_file_uncommitted", return_value=False), \
          patch("sysroot._download_packages", return_value=[pathlib.Path("dummy.deb")]), \
@@ -265,7 +265,7 @@ def test_sysroot_build_locked_success(tmp_path):
     assert sysroot_dir.is_dir()
     assert (sysroot_dir / "usr").is_symlink() or (sysroot_dir / "usr").exists()
     target_pthread = sysroot_dir / "data" / "data" / "com.termux" / "files" / "usr" / "lib" / "libpthread.a"
-    assert target_pthread.read_bytes() == b"INPUT(-lc)"
+    assert target_pthread.read_bytes() == b"!<arch>\n"
 
 
 def test_sysroot_lock_generation(tmp_path):

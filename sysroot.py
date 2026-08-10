@@ -541,9 +541,10 @@ class Sysroot:
                     if not usr.samefile(staging_out / dst):
                         raise
 
-                pthread = staging_out / 'usr/lib/libpthread.a'
-                if pthread.exists():
-                    pthread.write_bytes(b'INPUT(-lc)')
+                termux_usr_lib = staging_out / 'data/data/com.termux/files/usr/lib'
+                termux_usr_lib.mkdir(parents=True, exist_ok=True)
+                pthread = termux_usr_lib / 'libpthread.a'
+                pthread.write_bytes(b'!<arch>\n')
 
                 _apply_sysroot_transformations(staging_out)
 
