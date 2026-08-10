@@ -116,14 +116,14 @@ jobs:
           python scripts/ci/check_repo.py
 
       - name: Build all artifacts
-        run: python3 build.py build_all --arch="$ARCH"
+        run: python build.py build_all --arch="$ARCH"
 
       - name: Collect artifact metadata
         id: artifact
         shell: bash
         run: |
           # Artifact path derived from build output
-          DEB=$(python3 -c "import build; print(build.Build().output('$ARCH'))")
+          DEB=$(python -c "import build; print(build.Build().output('$ARCH'))")
           test -f "$DEB"
           sha256sum "$DEB" | tee "${DEB}.sha256"
           stat -c '%s' "$DEB" | tee "${DEB}.size.txt"
