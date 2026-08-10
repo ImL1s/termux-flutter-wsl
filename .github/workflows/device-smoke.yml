@@ -56,125 +56,95 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download artifact
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
           ARTIFACT_NAME: ${{ inputs.artifact_name }}
         run: |
-          gh run download "$ARTIFACT_RUN_ID" -n "$ARTIFACT_NAME" -D ./candidate
-          ls -la ./candidate
+          $ErrorActionPreference = 'Stop'
+          gh run download $env:ARTIFACT_RUN_ID -n $env:ARTIFACT_NAME -D ./candidate
+          Get-ChildItem -Path ./candidate
 
       - name: Verify artifact SHA256
-        shell: bash
+        shell: pwsh
         env:
           EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
           ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
         run: |
-          set -euo pipefail
+          $ErrorActionPreference = 'Stop'
+          $debs = Get-ChildItem -Path ./candidate -Recurse -Filter "*.deb"
+          $shas = Get-ChildItem -Path ./candidate -Recurse -Filter "*.sha256"
+          $sizes = Get-ChildItem -Path ./candidate -Recurse -Filter "*.size.txt"
+          $metadatas = Get-ChildItem -Path ./candidate -Recurse -Filter "build_metadata.json"
+          $inventories = Get-ChildItem -Path ./candidate -Recurse -Filter "inventory.txt"
 
-          mapfile -t DEBS < <(find ./candidate -type f -name '*.deb')
-          mapfile -t SHAS < <(find ./candidate -type f -name '*.sha256')
-          mapfile -t SIZES < <(find ./candidate -type f -name '*.size.txt')
-          mapfile -t METADATAS < <(find ./candidate -type f -name 'build_metadata.json')
-          mapfile -t INVENTORIES < <(find ./candidate -type f -name 'inventory.txt')
+          if ($debs.Count -ne 1) { throw "Error: Ambiguous or missing candidate .deb file. Expected 1, found $($debs.Count)" }
+          if ($shas.Count -ne 1) { throw "Error: Ambiguous or missing candidate .sha256 file. Expected 1, found $($shas.Count)" }
+          if ($sizes.Count -ne 1) { throw "Error: Ambiguous or missing candidate .size.txt file. Expected 1, found $($sizes.Count)" }
+          if ($metadatas.Count -ne 1) { throw "Error: Ambiguous or missing candidate build_metadata.json file. Expected 1, found $($metadatas.Count)" }
+          if ($inventories.Count -ne 1) { throw "Error: Ambiguous or missing candidate inventory.txt file. Expected 1, found $($inventories.Count)" }
 
-          if [ "${#DEBS[@]}" -ne 1 ]; then
-            echo "Error: Ambiguous or missing candidate .deb file. Expected 1, found ${#DEBS[@]}" >&2
-            exit 1
-          fi
-          if [ "${#SHAS[@]}" -ne 1 ]; then
-            echo "Error: Ambiguous or missing candidate .sha256 file. Expected 1, found ${#SHAS[@]}" >&2
-            exit 1
-          fi
-          if [ "${#SIZES[@]}" -ne 1 ]; then
-            echo "Error: Ambiguous or missing candidate .size.txt file. Expected 1, found ${#SIZES[@]}" >&2
-            exit 1
-          fi
-          if [ "${#METADATAS[@]}" -ne 1 ]; then
-            echo "Error: Ambiguous or missing candidate build_metadata.json file. Expected 1, found ${#METADATAS[@]}" >&2
-            exit 1
-          fi
-          if [ "${#INVENTORIES[@]}" -ne 1 ]; then
-            echo "Error: Ambiguous or missing candidate inventory.txt file. Expected 1, found ${#INVENTORIES[@]}" >&2
-            exit 1
-          fi
+          $deb = $debs[0].FullName
+          $shaFile = $shas[0].FullName
+          $sizeFile = $sizes[0].FullName
+          $metadataFile = $metadatas[0].FullName
+          $inventoryFile = $inventories[0].FullName
 
-          DEB="${DEBS[0]}"
-          SHA_FILE="${SHAS[0]}"
-          SIZE_FILE="${SIZES[0]}"
-          METADATA="${METADATAS[0]}"
-          INVENTORY="${INVENTORIES[0]}"
+          $actualSha = (Get-FileHash -Path $deb -Algorithm SHA256).Hash.ToLower().Trim()
+          $actualSize = (Get-Item $deb).Length
+          $expectedClean = $env:EXPECTED_SHA256.ToLower().Trim()
 
-          ACTUAL_SHA=$(sha256sum "$DEB" | awk '{print $1}')
-          ACTUAL_SIZE=$(stat -c%s "$DEB" 2>/dev/null || stat -f%z "$DEB")
-          EXPECTED_CLEAN=$(echo "$EXPECTED_SHA256" | tr '[:upper:]' '[:lower:]' | xargs)
-          if [ "$ACTUAL_SHA" != "$EXPECTED_CLEAN" ]; then
-            echo "SHA256 MISMATCH: expected $EXPECTED_CLEAN, got $ACTUAL_SHA" >&2
-            exit 1
-          fi
+          if ($actualSha -ne $expectedClean) {
+              throw "SHA256 MISMATCH: expected $expectedClean, got $actualSha"
+          }
 
-          # 1. Companion .sha256 file content
-          SHA_FILE_CONTENT=$(cat "$SHA_FILE" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
-          if [ "$SHA_FILE_CONTENT" != "$ACTUAL_SHA" ]; then
-            echo "Error: Companion .sha256 content ($SHA_FILE_CONTENT) != actual deb SHA256 ($ACTUAL_SHA)" >&2
-            exit 1
-          fi
+          $shaFileContent = (Get-Content $shaFile -Raw).Trim().Split()[0].ToLower()
+          if ($shaFileContent -ne $actualSha) {
+              throw "Error: Companion .sha256 content ($shaFileContent) != actual deb SHA256 ($actualSha)"
+          }
 
-          # 2. Companion .size.txt file content
-          SIZE_FILE_CONTENT=$(cat "$SIZE_FILE" | tr -d '[:space:]')
-          if [ "$SIZE_FILE_CONTENT" != "$ACTUAL_SIZE" ]; then
-            echo "Error: Companion .size.txt content ($SIZE_FILE_CONTENT) != actual deb size ($ACTUAL_SIZE)" >&2
-            exit 1
-          fi
+          $sizeFileContent = (Get-Content $sizeFile -Raw).Trim()
+          if ($sizeFileContent -ne "$actualSize") {
+              throw "Error: Companion .size.txt content ($sizeFileContent) != actual deb size ($actualSize)"
+          }
 
-          # 3-6. Metadata fields verification
-          META_SHA=$(python3 -c "import json; v=json.load(open('$METADATA')).get('sha256',''); print(v.lower().strip())")
-          META_SIZE=$(python3 -c "import json; print(json.load(open('$METADATA')).get('size_bytes',''))")
-          META_RUN_ID=$(python3 -c "import json; print(json.load(open('$METADATA')).get('run_id',''))")
-          META_COMMIT=$(python3 -c "import json; v=json.load(open('$METADATA')).get('source_commit'); print(v if v is not None else '')")
+          $metadata = Get-Content $metadataFile -Raw | ConvertFrom-Json
+          $metaSha = $metadata.sha256.ToLower().Trim()
+          $metaSize = $metadata.size_bytes
+          $metaRunId = "$($metadata.run_id)"
 
-          if [ "$META_SHA" != "$ACTUAL_SHA" ]; then
-            echo "Error: build_metadata.json sha256 ($META_SHA) != actual deb SHA256 ($ACTUAL_SHA)" >&2
-            exit 1
-          fi
+          if ($metaSha -ne $actualSha) {
+              throw "Error: build_metadata.json sha256 ($metaSha) != actual deb SHA256 ($actualSha)"
+          }
+          if ("$metaSize" -ne "$actualSize") {
+              throw "Error: build_metadata.json size_bytes ($metaSize) != actual deb size ($actualSize)"
+          }
+          if ($env:ARTIFACT_RUN_ID -and ($metaRunId -ne $env:ARTIFACT_RUN_ID)) {
+              throw "Error: build_metadata.json run_id ($metaRunId) != artifact_run_id ($($env:ARTIFACT_RUN_ID))"
+          }
 
-          if [ "$META_SIZE" != "$ACTUAL_SIZE" ]; then
-            echo "Error: build_metadata.json size_bytes ($META_SIZE) != actual deb size ($ACTUAL_SIZE)" >&2
-            exit 1
-          fi
+          $artifactSourceCommit = $metadata.source_commit.ToLower().Trim()
+          $verifierCommit = (git rev-parse HEAD).Trim().ToLower()
 
-          if [ -n "$ARTIFACT_RUN_ID" ] && [ "$META_RUN_ID" != "$ARTIFACT_RUN_ID" ]; then
-            echo "Error: build_metadata.json run_id ($META_RUN_ID) != artifact_run_id ($ARTIFACT_RUN_ID)" >&2
-            exit 1
-          fi
+          if ($artifactSourceCommit -notmatch '^[0-9a-f]{40}$') {
+              throw "Error: artifact_source_commit ($artifactSourceCommit) is not a valid 40-hex commit"
+          }
+          if ($verifierCommit -notmatch '^[0-9a-f]{40}$') {
+              throw "Error: verifier_commit ($verifierCommit) is not a valid 40-hex commit"
+          }
+          if ($artifactSourceCommit -ne $verifierCommit) {
+              throw "Error: Commit mismatch! artifact_source_commit ($artifactSourceCommit) != verifier_commit ($verifierCommit)"
+          }
 
-          ARTIFACT_SOURCE_COMMIT=$(python3 -c "import json; v=json.load(open('$METADATA')).get('source_commit',''); print(v.lower().strip())")
-          VERIFIER_COMMIT=$(git rev-parse HEAD | tr '[:upper:]' '[:lower:]' | xargs)
-
-          if ! echo "$ARTIFACT_SOURCE_COMMIT" | grep -E -q '^[0-9a-f]{40}$'; then
-            echo "Error: artifact_source_commit ($ARTIFACT_SOURCE_COMMIT) is not a valid 40-hex commit" >&2
-            exit 1
-          fi
-
-          if ! echo "$VERIFIER_COMMIT" | grep -E -q '^[0-9a-f]{40}$'; then
-            echo "Error: verifier_commit ($VERIFIER_COMMIT) is not a valid 40-hex commit" >&2
-            exit 1
-          fi
-
-          if [ "$ARTIFACT_SOURCE_COMMIT" != "$VERIFIER_COMMIT" ]; then
-            echo "Error: Commit mismatch! artifact_source_commit ($ARTIFACT_SOURCE_COMMIT) != verifier_commit ($VERIFIER_COMMIT)" >&2
-            exit 1
-          fi
-
-          echo "RESOLVED_DEB=$DEB" >> $GITHUB_ENV
-          echo "RESOLVED_SHA_FILE=$SHA_FILE" >> $GITHUB_ENV
-          echo "RESOLVED_SIZE_FILE=$SIZE_FILE" >> $GITHUB_ENV
-          echo "RESOLVED_METADATA=$METADATA" >> $GITHUB_ENV
-          echo "RESOLVED_INVENTORY=$INVENTORY" >> $GITHUB_ENV
-          echo "ARTIFACT_SOURCE_COMMIT=$ARTIFACT_SOURCE_COMMIT" >> $GITHUB_ENV
-          echo "VERIFIER_COMMIT=$VERIFIER_COMMIT" >> $GITHUB_ENV
-          echo "✓ Candidate set cryptographically bound and verified: DEB=$DEB, SHA256=$ACTUAL_SHA, COMMIT=$ARTIFACT_SOURCE_COMMIT"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_DEB=$deb"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_SHA_FILE=$shaFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_SIZE_FILE=$sizeFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_METADATA=$metadataFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_INVENTORY=$inventoryFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "ARTIFACT_SOURCE_COMMIT=$artifactSourceCommit"
+          Add-Content -Path $env:GITHUB_ENV -Value "VERIFIER_COMMIT=$verifierCommit"
+          Write-Host "✓ Candidate set cryptographically bound and verified: DEB=$deb, SHA256=$actualSha, COMMIT=$artifactSourceCommit"
 
       - name: Run Termux smoke through ADB
         shell: pwsh
@@ -207,7 +177,7 @@ jobs:
 
       - name: Promote Release
         if: inputs.promote_release
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
@@ -218,87 +188,38 @@ jobs:
           RESOLVED_INVENTORY: ${{ env.RESOLVED_INVENTORY }}
           ARTIFACT_SOURCE_COMMIT: ${{ env.ARTIFACT_SOURCE_COMMIT }}
         run: |
-          set -euo pipefail
-          command -v gh >/dev/null 2>&1 || { echo "gh CLI is required" >&2; exit 1; }
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:INPUT_RELEASE_TAG) { throw "release_tag is required for promotion" }
+          if (-not (Test-Path "evidence.json")) { throw "Error: evidence.json missing. Cannot promote." }
 
-          TAG="$INPUT_RELEASE_TAG"
-          if [ -z "$TAG" ]; then
-            echo "release_tag is required for promotion" >&2
-            exit 1
-          fi
+          $ev = Get-Content "evidence.json" -Raw | ConvertFrom-Json
+          if ($ev.status -ne "passed" -or $ev.mode_b_status -ne "passed") {
+              throw "Error: Promotion rejected! Evidence status is '$($ev.status)' and mode_b_status is '$($ev.mode_b_status)' (both must be 'passed')"
+          }
+          if ($ev.artifact_source_commit -ne $ev.verifier_commit -or -not $ev.artifact_source_commit) {
+              throw "Error: Promotion rejected! artifact_source_commit ($($ev.artifact_source_commit)) != verifier_commit ($($ev.verifier_commit))"
+          }
 
-          if [ ! -f evidence.json ]; then
-            echo "Error: evidence.json missing. Cannot promote." >&2
-            exit 1
-          fi
+          $debSha = $ev.artifacts.deb_sha256
+          $debSz = $ev.artifacts.deb_size
+          $apkSha = $ev.artifacts.apk_sha256
+          $apkSz = $ev.artifacts.apk_size
+          $aabSha = $ev.artifacts.aab_sha256
+          $aabSz = $ev.artifacts.aab_size
 
-          EV_STATUS=$(python3 -c "import json; print(json.load(open('evidence.json')).get('status', 'failed'))")
-          MODE_B_STATUS=$(python3 -c "import json; print(json.load(open('evidence.json')).get('mode_b_status', 'failed'))")
-          EV_ART_COMMIT=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifact_source_commit', ''))")
-          EV_VER_COMMIT=$(python3 -c "import json; print(json.load(open('evidence.json')).get('verifier_commit', ''))")
+          if ($debSha -notmatch '^[0-9a-f]{64}$' -or $debSz -le 0) { throw "Error: Promotion rejected! Invalid DEB artifact evidence: SHA=$debSha, size=$debSz" }
+          if ($apkSha -notmatch '^[0-9a-f]{64}$' -or $apkSz -le 0) { throw "Error: Promotion rejected! Invalid APK artifact evidence: SHA=$apkSha, size=$apkSz" }
+          if ($aabSha -notmatch '^[0-9a-f]{64}$' -or $aabSz -le 0) { throw "Error: Promotion rejected! Invalid AAB artifact evidence: SHA=$aabSha, size=$aabSz" }
 
-          DEB_SHA=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('deb_sha256', ''))")
-          DEB_SZ=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('deb_size', 0))")
+          $tag = $env:INPUT_RELEASE_TAG
+          $existing = gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists. Cannot clobber existing published assets." }
 
-          APK_SHA=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('apk_sha256', ''))")
-          APK_SZ=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('apk_size', 0))")
+          $notesFile = "docs/releases/RELEASE_NOTES.md"
+          $notesArg = @()
+          if (Test-Path $notesFile) { $notesArg = @("--notes-file", $notesFile) }
 
-          AAB_SHA=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('aab_sha256', ''))")
-          AAB_SZ=$(python3 -c "import json; print(json.load(open('evidence.json')).get('artifacts', {}).get('aab_size', 0))")
+          $sourceCommit = if ($env:ARTIFACT_SOURCE_COMMIT) { $env:ARTIFACT_SOURCE_COMMIT } else { $ev.artifact_source_commit }
+          if (-not $sourceCommit) { throw "Error: source_commit is required" }
 
-          if [ "$EV_STATUS" != "passed" ] || [ "$MODE_B_STATUS" != "passed" ]; then
-            echo "Error: Promotion rejected! Evidence status is '$EV_STATUS' and mode_b_status is '$MODE_B_STATUS' (both must be 'passed')" >&2
-            exit 1
-          fi
-
-          if [ "$EV_ART_COMMIT" != "$EV_VER_COMMIT" ] || [ -z "$EV_ART_COMMIT" ]; then
-            echo "Error: Promotion rejected! artifact_source_commit ($EV_ART_COMMIT) != verifier_commit ($EV_VER_COMMIT)" >&2
-            exit 1
-          fi
-
-          if ! echo "$DEB_SHA" | grep -E -q '^[0-9a-f]{64}$' || [ "$DEB_SZ" -le 0 ]; then
-            echo "Error: Promotion rejected! Invalid DEB artifact evidence: SHA=$DEB_SHA, size=$DEB_SZ" >&2
-            exit 1
-          fi
-
-          if ! echo "$APK_SHA" | grep -E -q '^[0-9a-f]{64}$' || [ "$APK_SZ" -le 0 ]; then
-            echo "Error: Promotion rejected! Invalid APK artifact evidence: SHA=$APK_SHA, size=$APK_SZ" >&2
-            exit 1
-          fi
-
-          if ! echo "$AAB_SHA" | grep -E -q '^[0-9a-f]{64}$' || [ "$AAB_SZ" -le 0 ]; then
-            echo "Error: Promotion rejected! Invalid AAB artifact evidence: SHA=$AAB_SHA, size=$AAB_SZ" >&2
-            exit 1
-          fi
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists. Cannot clobber existing published assets." >&2
-            exit 1
-          fi
-
-          NOTES_FILE="docs/releases/RELEASE_NOTES.md"
-          if [ ! -f "$NOTES_FILE" ]; then
-            NOTES_FILE=""
-          fi
-
-          SOURCE_COMMIT="${ARTIFACT_SOURCE_COMMIT:-$EV_ART_COMMIT}"
-          if [ -z "$SOURCE_COMMIT" ]; then
-            echo "Error: source_commit is required" >&2
-            exit 1
-          fi
-
-          RELEASE_ARGS=(
-            "$TAG"
-            "$RESOLVED_DEB"
-            "$RESOLVED_SHA_FILE"
-            "$RESOLVED_SIZE_FILE"
-            "$RESOLVED_METADATA"
-            "$RESOLVED_INVENTORY"
-            "--target" "$SOURCE_COMMIT"
-            "--title" "Flutter Termux $TAG"
-          )
-          if [ -n "$NOTES_FILE" ]; then
-            RELEASE_ARGS+=("--notes-file" "$NOTES_FILE")
-          fi
-
-          gh release create "${RELEASE_ARGS[@]}"
+          gh release create $tag $env:RESOLVED_DEB $env:RESOLVED_SHA_FILE $env:RESOLVED_SIZE_FILE $env:RESOLVED_METADATA $env:RESOLVED_INVENTORY --target $sourceCommit --title "Flutter Termux $tag" @notesArg
