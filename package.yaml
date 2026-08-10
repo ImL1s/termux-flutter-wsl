@@ -41,6 +41,8 @@ resource:
   dart_sdk:
     source: $any/dart-sdk
     output: $out/dart-sdk
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       any: *any
       out: &cache f'{distro}/bin/cache'
@@ -144,6 +146,8 @@ resource:
       - $out/libflutter_linux_gtk.so
     output:
       - $eng/linux-$arch$fix
+    replace: true
+    replace_scope: $distro/bin/cache/artifacts/engine
     define:
       eng: *eng
       out: output.debug
@@ -282,6 +286,8 @@ resource:
       - $debug/gen/flutter/lib/snapshot/isolate_snapshot.bin
     output:
       - $eng/linux-$arch
+    replace: true
+    replace_scope: $distro/bin/cache/artifacts/engine
     define:
       eng: *eng
       debug: output.debug
