@@ -1259,6 +1259,7 @@ class Build:
         release_outputs = [
             Path(out_release) / 'libflutter_linux_gtk.so',
             Path(out_release) / 'gen_snapshot',
+            Path(out_release) / 'dartdev_aot.dart.snapshot',
         ]
         if not force and all(p.exists() for p in release_outputs):
             logger.info(f'[7/{total}] configure release skipped (output exists).')
