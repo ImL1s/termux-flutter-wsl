@@ -114,7 +114,10 @@ def reset(info):
     info.mtime = int(os.environ.get('SOURCE_DATE_EPOCH', 0))
     info.uname = 'root'
     info.gname = 'root'
-    info.mode |= 0o200
+    if info.isdir():
+        info.mode |= 0o755
+    else:
+        info.mode |= 0o200
 
 
 def add_bin(tar, out, src, mod=None):
