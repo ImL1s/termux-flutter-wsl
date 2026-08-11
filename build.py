@@ -500,6 +500,135 @@ class Build:
         except Exception as e:
             return {'exists': True, 'dirty': False, 'tag': utils.flutter_tag(str(path)), 'error': str(e)}
 
+    def classify_workspace_patch_state(self, path: str = None) -> dict:
+        """
+        Fail-closed patch-state classifier for a repository at `path`.
+        Determines exact tracked diff against configured peeled tag commit.
+        Requires every configured patch to classify as preimage or exact postimage.
+        Rejects extra tracked, staged, or untracked changes.
+        """
+        import hashlib
+        path_obj = Path(path or self.root).resolve()
+        if not path_obj.exists():
+            return {'valid': False, 'state': 'invalid', 'reason': 'Path does not exist', 'patch_digest': ''}
+
+        try:
+            repo = git.Repo(path_obj)
+        except Exception as e:
+            return {'valid': False, 'state': 'invalid', 'reason': f'Not a git repo: {e}', 'patch_digest': ''}
+
+        relevant_patches = []
+        if hasattr(self, 'patches') and isinstance(self.patches, dict):
+            for k, v in self.patches.items():
+                if isinstance(v, dict) and 'file' in v and 'path' in v:
+                    patch_file = Path(v['file']).resolve()
+                    patch_target = Path(v['path']).resolve()
+                    if patch_target == path_obj or path_obj in patch_target.parents:
+                        relevant_patches.append((k, patch_file, patch_target))
+
+        hasher = hashlib.sha256()
+        for k, p_file, _ in sorted(relevant_patches, key=lambda x: str(x[1])):
+            if p_file.exists():
+                hasher.update(p_file.read_bytes())
+        patch_digest = hasher.hexdigest()
+
+        applied_patches = []
+        unapplied_patches = []
+
+        for k, p_file, p_target in relevant_patches:
+            if not p_file.exists():
+                return {
+                    'valid': False,
+                    'state': 'invalid',
+                    'reason': f'Patch file {p_file} missing',
+                    'patch_digest': patch_digest
+                }
+
+            target_repo = git.Repo(p_target) if p_target != path_obj else repo
+
+            is_postimage = False
+            try:
+                target_repo.git.apply(['--reverse', '--check', str(p_file)])
+                is_postimage = True
+            except git.GitCommandError:
+                pass
+
+            is_preimage = False
+            try:
+                target_repo.git.apply(['--check', str(p_file)])
+                is_preimage = True
+            except git.GitCommandError:
+                pass
+
+            if is_postimage and not is_preimage:
+                applied_patches.append((k, p_file, p_target))
+            elif is_preimage and not is_postimage:
+                unapplied_patches.append((k, p_file, p_target))
+            elif is_preimage and is_postimage:
+                unapplied_patches.append((k, p_file, p_target))
+            else:
+                return {
+                    'valid': False,
+                    'state': 'invalid',
+                    'reason': f'Patch {k} ({p_file.name}) is in unknown/partial state',
+                    'patch_digest': patch_digest
+                }
+
+        if not applied_patches:
+            if repo.is_dirty(untracked_files=True):
+                return {
+                    'valid': False,
+                    'state': 'invalid',
+                    'reason': 'Repo is dirty but no configured patches are applied',
+                    'patch_digest': patch_digest
+                }
+            return {
+                'valid': True,
+                'state': 'clean',
+                'reason': 'Repo is clean (preimage state)',
+                'applied_patches': [],
+                'unapplied_patches': [k for k, _, _ in unapplied_patches],
+                'patch_digest': patch_digest
+            }
+
+        reversed_successfully = []
+        try:
+            for k, p_file, p_target in reversed(applied_patches):
+                target_repo = git.Repo(p_target) if p_target != path_obj else repo
+                target_repo.git.apply(['--reverse', str(p_file)])
+                reversed_successfully.append((k, p_file, p_target))
+
+            is_clean_now = not repo.is_dirty(untracked_files=True)
+            if not is_clean_now:
+                return {
+                    'valid': False,
+                    'state': 'invalid',
+                    'reason': 'Repo contains extra modifications beyond configured applied patches',
+                    'patch_digest': patch_digest
+                }
+            return {
+                'valid': True,
+                'state': 'patched',
+                'reason': 'Repo contains exactly the configured applied patches',
+                'applied_patches': [k for k, _, _ in applied_patches],
+                'unapplied_patches': [k for k, _, _ in unapplied_patches],
+                'patch_digest': patch_digest
+            }
+        except Exception as e:
+            return {
+                'valid': False,
+                'state': 'invalid',
+                'reason': f'Failed during patch classification reversal check: {e}',
+                'patch_digest': patch_digest
+            }
+        finally:
+            for k, p_file, p_target in reversed(reversed_successfully):
+                try:
+                    target_repo = git.Repo(p_target) if p_target != path_obj else repo
+                    target_repo.git.apply([str(p_file)])
+                except Exception as restore_err:
+                    logger.error(f'Failed to re-apply patch {k} during restoration: {restore_err}')
+
     def clone(self, *, url: str = None, tag: str = None, out: str = None, force: bool = False):
         url = url or self.repo
         out_path = Path(out or self.root)
@@ -521,6 +650,8 @@ class Build:
                 and status.get('head') == status.get('peeled_sha')
             )
 
+            patch_status = self.classify_workspace_patch_state(str(out_path))
+
             if (
                 status.get('exists')
                 and status.get('tag') == tag
@@ -528,13 +659,24 @@ class Build:
                 and remote_ok
                 and has_structure
                 and head_matches_peeled
+                and patch_status.get('valid')
             ):
-                logger.info(f'flutter exists at {out_path} with valid tag {tag} (HEAD={status.get("head")[:8]}), skipping clone.')
+                logger.info(f'flutter exists at {out_path} with valid tag {tag} (HEAD={status.get("head")[:8]}, patch_state={patch_status.get("state")}), skipping clone.')
+                evidence_file = out_path.parent / 'build_evidence.json'
+                try:
+                    ev_data = {}
+                    if evidence_file.exists():
+                        ev_data = json.loads(evidence_file.read_text(encoding='utf-8'))
+                    ev_data['accepted_patch_set_digest'] = patch_status.get('patch_digest', '')
+                    ev_data['patch_state'] = patch_status.get('state', '')
+                    evidence_file.write_text(json.dumps(ev_data, indent=2), encoding='utf-8')
+                except Exception as e:
+                    logger.warning(f'Failed to record patch evidence: {e}')
                 return
 
-            if status.get('dirty') and not force:
-                logger.error(f'Checkout at {out_path} has uncommitted changes. Use --force to override.')
-                raise RuntimeError(f'Dirty checkout at {out_path}')
+            if not patch_status.get('valid') and not force:
+                logger.error(f'Checkout at {out_path} fails patch state classification: {patch_status.get("reason")}. Use --force to override.')
+                raise RuntimeError(f'Dirty or invalid checkout at {out_path}: {patch_status.get("reason")}')
 
             current_tag = status.get('tag')
             if 'error' not in status and remote_ok:

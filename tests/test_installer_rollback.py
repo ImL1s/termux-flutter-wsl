@@ -306,9 +306,46 @@ def test_executable_no_failure_exits_0(tmp_path):
         f"export TERMUX_TEST_MODE=true; "
         f"export PATH=\"$(pwd)/bin:$PATH\"; "
         f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
-        f"INSTALL_FAILED=false; "
+        f"MUTATION_STARTED=true; MUTATION_COMMITTED=true; "
         f"(exit 0); "
         f"cleanup_and_exit"
     ]
     res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
     assert res.returncode == 0, f"Expected exit 0, got {res.returncode}"
+
+
+@pytest.mark.parametrize("failure_stage, expected_code", [
+    ("dpkg_mutation_fail", 40),
+    ("7z_extraction_fail", 20),
+    ("mv_rename_fail", 1),
+    ("ndk_wrapper_fail", 1),
+    ("post_install_fail", 50),
+    ("flutter_create_fail", 60),
+    ("flutter_build_fail", 60),
+    ("unexpected_shell_error", 1),
+])
+def test_executable_post_mutation_failure_triggers_rollback(tmp_path, failure_stage, expected_code):
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+    state_file.write_text(json.dumps({}))
+
+    env = os.environ.copy()
+    env["PREFIX"] = str(prefix)
+    env["HOME"] = str(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+    rel_script = script_copy.relative_to(tmp_path)
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"MUTATION_STARTED=true; MUTATION_COMMITTED=false; "
+        f"if [ '{failure_stage}' = 'unexpected_shell_error' ]; then set -e; nonexistent_cmd_xyz; fi; "
+        f"(exit {expected_code}); "
+        f"cleanup_and_exit"
+    ]
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == expected_code, f"Stage {failure_stage}: Expected exit {expected_code}, got {res.returncode}.\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+    assert "[EXIT HANDLER]" in res.stdout or "[ROLLBACK]" in res.stdout

@@ -162,6 +162,115 @@ def test_build_all_deduplication_and_skipping(tmp_path, monkeypatch):
     assert 'sysroot' in executed_steps
 
 
+def test_release_outputs_dartdev_aot_completeness_check(tmp_path, monkeypatch):
+    """
+    Behavioral test proving:
+    - libflutter and gen_snapshot present;
+    - dartdev_aot.dart.snapshot missing;
+    - release configure/build is not skipped;
+    - rebuilt snapshot allows complete outputs;
+    - complete outputs allow the step to skip.
+    """
+    conf_path = tmp_path / 'build.toml'
+    flutter_dir = tmp_path / 'flutter'
+    sysroot_dir = tmp_path / 'sysroot'
+    package_yaml = tmp_path / 'package.yaml'
+
+    flutter_dir.mkdir()
+    sysroot_dir.mkdir()
+
+    flutter_dir_str = str(flutter_dir).replace('\\', '/')
+    sysroot_dir_str = str(sysroot_dir).replace('\\', '/')
+    package_yaml_str = str(package_yaml).replace('\\', '/')
+
+    conf_content = f"""
+    [flutter]
+    tag = "3.44.0"
+    path = "{flutter_dir_str}"
+
+    [sysroot]
+    path = "{sysroot_dir_str}"
+
+    [package]
+    conf = "{package_yaml_str}"
+    """
+    conf_path.write_text(conf_content, encoding='utf-8')
+    package_yaml.write_text("""
+    control:
+      Package: flutter
+      Version: 3.44.0
+      Architecture: aarch64
+      Maintainer: Test <test@example.com>
+      Description: Test package
+    resource:
+      flutter:
+        source: $root
+        output: $distro
+    """, encoding='utf-8')
+
+    b = Build(conf=str(conf_path))
+
+    monkeypatch.setattr(b, 'preflight', lambda: True)
+    monkeypatch.setattr(b, 'clone', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'sync', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'sysroot', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'build_dart', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'build_impellerc', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'build_const_finder', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'configure_android', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'build_android_gen_snapshot', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'debuild', lambda **kwargs: None)
+    monkeypatch.setattr(b, 'is_sync_complete', lambda: True)
+
+    calls = []
+    def mock_configure(arch, mode, **kwargs):
+        calls.append(('configure', mode))
+
+    def mock_build(arch, mode, **kwargs):
+        calls.append(('build', mode))
+
+    monkeypatch.setattr(b, 'configure', mock_configure)
+    monkeypatch.setattr(b, 'build', mock_build)
+
+    # Setup partial release directory: libflutter_linux_gtk.so and gen_snapshot present,
+    # BUT dartdev_aot.dart.snapshot MISSING!
+    out_release = Path(utils.target_output(str(flutter_dir), 'arm64', 'release'))
+    out_release.mkdir(parents=True, exist_ok=True)
+    (out_release / 'libflutter_linux_gtk.so').write_text('dummy so')
+    (out_release / 'gen_snapshot').write_text('dummy gen_snapshot')
+
+    # Also setup debug and profile dirs so only release is being evaluated
+    out_debug = Path(utils.target_output(str(flutter_dir), 'arm64', 'debug'))
+    out_debug.mkdir(parents=True, exist_ok=True)
+    (out_debug / 'libflutter_linux_gtk.so').write_text('dummy so')
+    (out_debug / 'dart-sdk' / 'bin' / 'dart').mkdir(parents=True, exist_ok=True)
+    (out_debug / 'impellerc').write_text('dummy impellerc')
+    (out_debug / 'gen').mkdir(parents=True, exist_ok=True)
+    (out_debug / 'gen' / 'const_finder.dart.snapshot').write_text('dummy const_finder')
+
+    out_profile = Path(utils.target_output(str(flutter_dir), 'arm64', 'profile'))
+    out_profile.mkdir(parents=True, exist_ok=True)
+    (out_profile / 'libflutter_linux_gtk.so').write_text('dummy so')
+    (out_profile / 'gen_snapshot').write_text('dummy gen_snapshot')
+
+    # 1. Run build_all when dartdev_aot.dart.snapshot is missing:
+    b.build_all(arch='arm64', force=False)
+
+    # Must NOT skip release configure/build!
+    assert ('configure', 'release') in calls, "Release configure must NOT be skipped when dartdev_aot.dart.snapshot is missing"
+    assert ('build', 'release') in calls, "Release build must NOT be skipped when dartdev_aot.dart.snapshot is missing"
+
+    # 2. Now add dartdev_aot.dart.snapshot to make outputs complete:
+    (out_release / 'dartdev_aot.dart.snapshot').write_text('dummy snapshot')
+    calls.clear()
+
+    b.build_all(arch='arm64', force=False)
+
+    # When all release outputs are present, release configure and build SHOULD be skipped!
+    assert ('configure', 'release') not in calls, "Release configure SHOULD be skipped when outputs are complete"
+    assert ('build', 'release') not in calls, "Release build SHOULD be skipped when outputs are complete"
+
+
 def test_build_sysroot_applies_header_fixes(tmp_path, monkeypatch):
     conf_path = tmp_path / 'build.toml'
     flutter_dir = tmp_path / 'flutter'

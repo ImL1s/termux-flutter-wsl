@@ -142,20 +142,37 @@ rollback_packages() {
     fi
 }
 
+MUTATION_STARTED=false
+MUTATION_COMMITTED=false
+
 cleanup_and_exit() {
     local orig_code=$?
     trap - EXIT
     local exit_code=$orig_code
-    if [ "${INSTALL_FAILED:-false}" = true ]; then
+    local should_rollback=false
+
+    if [ "$orig_code" -ne 0 ]; then
+        if [ "${MUTATION_STARTED:-false}" = true ] && [ "${MUTATION_COMMITTED:-false}" = false ]; then
+            should_rollback=true
+        elif [ "${INSTALL_FAILED:-false}" = true ]; then
+            should_rollback=true
+        fi
+    fi
+
+    if [ "$should_rollback" = true ]; then
+        echo -e "${RED}[EXIT HANDLER] Failure ($orig_code) during mutation phase (MUTATION_STARTED=$MUTATION_STARTED, COMMITTED=$MUTATION_COMMITTED). Triggering rollback...${NC}"
         if ! rollback_packages; then
             exit_code=70
         else
             if [ "$orig_code" -eq 0 ]; then
                 exit_code=1
+            else
+                exit_code=$orig_code
             fi
         fi
     fi
-    if [ -n "${WORK_DIR:-}" ]; then
+
+    if [ -n "${WORK_DIR:-}" ] && [ -d "${WORK_DIR:-}" ]; then
         rm -rf "$WORK_DIR"
     fi
     print_summary
@@ -354,6 +371,7 @@ dpkg-deb --info "$ANDROID_SDK_DEB" >/dev/null 2>&1 || { INSTALL_FAILED=true; rec
 
 # 所有下載與驗證均已成功完成，開始安裝
 echo "所有下載與驗證均已成功完成，開始安裝 SDK..."
+MUTATION_STARTED=true
 
 # ========================================
 # Step 2: 安裝 Android SDK (install-first, never purge-first)
@@ -736,6 +754,7 @@ else
 fi
 
 BUILD_SUCCESS=$APK_BUILD_SUCCESS
+MUTATION_COMMITTED=true
 
 cd $HOME
 
