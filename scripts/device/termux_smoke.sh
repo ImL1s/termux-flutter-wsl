@@ -4,11 +4,15 @@
 
 set -u
 
+HOME_DIR="${HOME:-/data/data/com.termux/files/home}"
 LOG=${TERMUX_SMOKE_LOG:-/sdcard/Download/termux_ci_smoke.txt}
 DEB=${TERMUX_SMOKE_DEB:-/sdcard/Download/flutter_ci_input.deb}
 PROJECT=${TERMUX_SMOKE_PROJECT:-flutter_ci_smoke}
 
-exec > "$LOG" 2>&1
+if ! exec > "$LOG" 2>&1; then
+    LOG="$HOME_DIR/termux_ci_smoke.txt"
+    exec > "$LOG" 2>&1
+fi
 set -x
 
 status=0
@@ -335,6 +339,10 @@ fi
 
 write_evidence_json
 echo "Wrote evidence to $EVIDENCE_JSON"
+rm -f /sdcard/Download/evidence.json /data/local/tmp/evidence.json 2>/dev/null || true
+cp "$EVIDENCE_JSON" /sdcard/Download/evidence.json 2>/dev/null || true
+cp "$EVIDENCE_JSON" /data/local/tmp/evidence.json 2>/dev/null || true
+chmod 666 /data/local/tmp/evidence.json 2>/dev/null || true
 cat "$EVIDENCE_JSON"
 
 date

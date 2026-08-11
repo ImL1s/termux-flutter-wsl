@@ -374,10 +374,21 @@ $verifierCommitMeasured = if ($VerifierCommit) { $VerifierCommit } else {
     try { (git rev-parse HEAD 2>$null).Trim().ToLower() } catch { if ($CommitSha) { $CommitSha } else { "unknown" } }
 }
 
+$remoteEvidenceTmp = "/data/local/tmp/evidence.json"
+$remoteEvidenceSdcard = "/sdcard/Download/evidence.json"
 $rawEv = $null
 try {
     $tempEv = Join-Path $work "evidence_remote.json"
-    Invoke-AdbAllowFail -Args @("pull", $remoteEvidence, $tempEv) | Out-Null
+    Invoke-AdbAllowFail -Args @("pull", $remoteEvidenceTmp, $tempEv) | Out-Null
+    if (-not (Test-Path $tempEv) -or (Get-Item $tempEv).Length -eq 0) {
+        Invoke-AdbAllowFail -Args @("pull", $remoteEvidenceSdcard, $tempEv) | Out-Null
+    }
+    if (-not (Test-Path $tempEv) -or (Get-Item $tempEv).Length -eq 0) {
+        $content = (& $Adb @AdbArgs shell "cat $remoteEvidenceTmp 2>/dev/null || cat $remoteEvidenceSdcard 2>/dev/null || cat /data/data/com.termux/files/home/.termux_smoke/evidence.json 2>/dev/null || true") -join "`n"
+        if ($content -and $content.Trim().StartsWith("{")) {
+            Set-Content -Path $tempEv -Value $content -Encoding UTF8
+        }
+    }
     if (Test-Path $tempEv) {
         $rawEv = Get-Content -Raw -Path $tempEv | ConvertFrom-Json
     }
@@ -397,6 +408,11 @@ $modeB = if ($rawEv -and $rawEv.mode_b_status) { $rawEv.mode_b_status } else { "
 $modeAApkBuild = if ($rawEv -and $rawEv.mode_a -and $rawEv.mode_a.apk_build) { $rawEv.mode_a.apk_build } else { $modeA }
 $modeBAabBuild = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_build) { $rawEv.mode_b.aab_build } else { $modeB }
 $overallStatus = if ($launchPassed -and $modeA -eq "passed" -and $modeB -eq "passed") { "passed" } else { "failed" }
+
+$apkSha256 = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_sha256) { $rawEv.artifacts.apk_sha256 } else { "unknown" }
+$apkSize = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_size) { $rawEv.artifacts.apk_size } else { 0 }
+$aabSha256 = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_sha256) { $rawEv.artifacts.aab_sha256 } else { "unknown" }
+$aabSize = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_size) { $rawEv.artifacts.aab_size } else { 0 }
 
 $evObj = [ordered]@{
     status = $overallStatus
