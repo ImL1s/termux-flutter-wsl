@@ -353,6 +353,7 @@ def test_clone_tag_mismatch_defines_current_tag(tmp_path, monkeypatch):
     import git
     monkeypatch.setattr(git, 'Repo', lambda path: mock_repo)
     monkeypatch.setattr(utils, 'flutter_tag', lambda path: '3.44.0')
+    monkeypatch.setattr(b, 'classify_workspace_patch_state', lambda path: {'valid': True, 'state': 'clean'})
 
     # Calling clone should successfully log current_tag without raising NameError
     b.clone(tag='3.44.0')

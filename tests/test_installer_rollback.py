@@ -322,7 +322,7 @@ def test_executable_no_failure_exits_0(tmp_path):
     ("post_install_fail", 50),
     ("flutter_create_fail", 60),
     ("flutter_build_fail", 60),
-    ("unexpected_shell_error", 1),
+    ("unexpected_shell_error", 127),
 ])
 def test_executable_post_mutation_failure_triggers_rollback(tmp_path, failure_stage, expected_code):
     prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)

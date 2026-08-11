@@ -151,11 +151,11 @@ cleanup_and_exit() {
     local exit_code=$orig_code
     local should_rollback=false
 
-    if [ "$orig_code" -ne 0 ]; then
-        if [ "${MUTATION_STARTED:-false}" = true ] && [ "${MUTATION_COMMITTED:-false}" = false ]; then
-            should_rollback=true
-        elif [ "${INSTALL_FAILED:-false}" = true ]; then
-            should_rollback=true
+    if [ "$orig_code" -ne 0 ] || [ "${INSTALL_FAILED:-false}" = true ]; then
+        if [ "${MUTATION_STARTED:-false}" = true ] || [ "${INSTALL_FAILED:-false}" = true ]; then
+            if [ "${MUTATION_COMMITTED:-false}" = false ]; then
+                should_rollback=true
+            fi
         fi
     fi
 

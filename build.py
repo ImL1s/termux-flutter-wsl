@@ -676,7 +676,7 @@ class Build:
 
             if not patch_status.get('valid') and not force:
                 logger.error(f'Checkout at {out_path} fails patch state classification: {patch_status.get("reason")}. Use --force to override.')
-                raise RuntimeError(f'Dirty or invalid checkout at {out_path}: {patch_status.get("reason")}')
+                raise RuntimeError(f'Dirty checkout at {out_path}: {patch_status.get("reason")}')
 
             current_tag = status.get('tag')
             if 'error' not in status and remote_ok:
