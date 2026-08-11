@@ -55,9 +55,12 @@ def compute_tree_hash(dir_path: pathlib.Path) -> str:
         is_symlink = False
         try:
             st = os.lstat(full_path)
-            mode_str = oct(st.st_mode & 0o777)
             import stat as stat_mod
             is_symlink = stat_mod.S_ISLNK(st.st_mode) or os.path.islink(full_path) or full_path.is_symlink()
+            if is_symlink or stat_mod.S_ISDIR(st.st_mode) or (st.st_mode & 0o111 != 0):
+                mode_str = "0755"
+            else:
+                mode_str = "0644"
         except Exception:
             mode_str = "0755"
 
