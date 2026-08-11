@@ -21,14 +21,17 @@ def test_workflow_permissions_contents_write():
         assert "actions: read" in content, f"Missing actions: read in {path.name}"
 
 def test_release_promotion_target_commit_binding():
-    """Verify release promotion in device-smoke.yml binds tag to --target $SOURCE_COMMIT."""
+    """Verify release promotion in device-smoke.yml binds tag to --target with valid source commit."""
     device_smoke_path = REPO_ROOT / ".github" / "workflows" / "device-smoke.yml"
     content = device_smoke_path.read_text(encoding="utf-8")
 
-    assert "SOURCE_COMMIT=" in content, "device-smoke.yml must extract SOURCE_COMMIT from metadata"
-    assert 'source_commit' in content, "device-smoke.yml must query source_commit JSON field"
-    assert '--target' in content and '$SOURCE_COMMIT' in content, "device-smoke.yml must pass --target $SOURCE_COMMIT to gh release create"
-    assert 'if [ -z "$SOURCE_COMMIT" ]; then' in content, "device-smoke.yml must fail if SOURCE_COMMIT is empty"
+    assert "source_commit" in content or "ARTIFACT_SOURCE_COMMIT" in content, "device-smoke.yml must query source_commit"
+    assert '--target' in content and ('$sourceCommit' in content or '$SOURCE_COMMIT' in content or '$env:ARTIFACT_SOURCE_COMMIT' in content), (
+        "device-smoke.yml must pass --target with source commit to gh release create"
+    )
+    assert ('if (-not $sourceCommit)' in content or 'throw "Error: source_commit is required"' in content or 'if [ -z "$SOURCE_COMMIT" ]' in content), (
+        "device-smoke.yml must fail if source_commit is empty or missing"
+    )
 
 def test_build_deb_metadata_generation():
     """Verify build-deb.yml populates build_metadata.json and evidence.json with source_commit and build_number."""

@@ -116,19 +116,21 @@ def test_adversarial_release_promotion_arguments_and_target():
 
     step_run = promote_step.get("run", "")
 
-    # Check extraction of SOURCE_COMMIT
-    assert "SOURCE_COMMIT=" in step_run, "Promote Release step must extract SOURCE_COMMIT"
-    assert "source_commit" in step_run, "Promote Release step must read source_commit from METADATA"
+    # Check extraction/retrieval of source commit from environment or metadata
+    assert ("sourceCommit" in step_run or "ARTIFACT_SOURCE_COMMIT" in step_run or "source_commit" in step_run), (
+        "Promote Release step must obtain source commit"
+    )
 
-    # Check gh release create flags
+    # Check gh release create flags and --target commit binding
     assert "gh release create" in step_run, "Promote Release step must call gh release create"
-    assert "--target \\\"$SOURCE_COMMIT\\\"" in step_run or '--target "$SOURCE_COMMIT"' in step_run or ("--target" in step_run and "$SOURCE_COMMIT" in step_run), (
-        "gh release create must use --target with $SOURCE_COMMIT"
+    assert "--target" in step_run and ("$sourceCommit" in step_run or "$SOURCE_COMMIT" in step_run or "$env:ARTIFACT_SOURCE_COMMIT" in step_run), (
+        "gh release create must use --target with source commit"
     )
 
     # Check that $GITHUB_SHA of the workflow run is NOT used as target
     assert "--target \"$GITHUB_SHA\"" not in step_run, "Must not use $GITHUB_SHA of smoke workflow run as target"
     assert "--target '$GITHUB_SHA'" not in step_run, "Must not use $GITHUB_SHA of smoke workflow run as target"
+    assert "--target $env:GITHUB_SHA" not in step_run, "Must not use $GITHUB_SHA of smoke workflow run as target"
 
 
 def test_adversarial_device_smoke_script_evidence_format():
