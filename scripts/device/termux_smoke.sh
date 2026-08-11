@@ -139,6 +139,7 @@ EXPECTED_ARCH=$(dpkg-deb -f "$DEB" Architecture 2>/dev/null || echo "aarch64")
 
 echo "Expected candidate package metadata: Name=$EXPECTED_PACKAGE, Version=$EXPECTED_VERSION, Arch=$EXPECTED_ARCH"
 
+pkg install -y p7zip 2>/dev/null || apt-get install -y p7zip 2>/dev/null || true
 dpkg -i "$DEB" || true
 echo "Running dependency repair..."
 apt-get install -f -y
