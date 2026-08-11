@@ -1,7 +1,7 @@
 {
   "aarch64": {
     "arch": "arm64",
-    "created_at": "2026-08-11T00:59:46.186766+00:00",
+    "created_at": "2026-08-11T05:49:30.877242+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -304,14 +304,14 @@
         "version": "1.5.10-3"
       },
       "libexpat": {
-        "archive_path": "pool/main/libe/libexpat/libexpat_2.8.2_aarch64.deb",
+        "archive_path": "pool/main/libe/libexpat/libexpat_2.8.3_aarch64.deb",
         "dist": "stable",
         "name": "libexpat",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "6f5eb2fd14b6fe4d7bb79bf7f0f3d7fc838fea07402477a172b147304366b372",
-        "size": 95536,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/libe/libexpat/libexpat_2.8.2_aarch64.deb",
-        "version": "2.8.2"
+        "sha256": "86dac6db293a44dc2689d4a28fdba96e38fccd378a9c9ef17b4e840b4cf4d81c",
+        "size": 96240,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/libe/libexpat/libexpat_2.8.3_aarch64.deb",
+        "version": "2.8.3"
       },
       "libffi": {
         "archive_path": "pool/main/libf/libffi/libffi_3.5.2_aarch64.deb",
@@ -854,11 +854,11 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "e117b8e0e02f672c5f2e05ddcb4cc57ed7843f984030e13c273f50121cf4da1e"
+    "tree_hash": "658c2966588c542324cf5dabf98e2ff85a9de40bd678421200f727f046ed408e"
   },
   "arm64": {
     "arch": "arm64",
-    "created_at": "2026-08-11T00:59:46.186766+00:00",
+    "created_at": "2026-08-11T05:49:30.877242+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -1161,14 +1161,14 @@
         "version": "1.5.10-3"
       },
       "libexpat": {
-        "archive_path": "pool/main/libe/libexpat/libexpat_2.8.2_aarch64.deb",
+        "archive_path": "pool/main/libe/libexpat/libexpat_2.8.3_aarch64.deb",
         "dist": "stable",
         "name": "libexpat",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "6f5eb2fd14b6fe4d7bb79bf7f0f3d7fc838fea07402477a172b147304366b372",
-        "size": 95536,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/libe/libexpat/libexpat_2.8.2_aarch64.deb",
-        "version": "2.8.2"
+        "sha256": "86dac6db293a44dc2689d4a28fdba96e38fccd378a9c9ef17b4e840b4cf4d81c",
+        "size": 96240,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/libe/libexpat/libexpat_2.8.3_aarch64.deb",
+        "version": "2.8.3"
       },
       "libffi": {
         "archive_path": "pool/main/libf/libffi/libffi_3.5.2_aarch64.deb",
@@ -1711,6 +1711,6 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "e117b8e0e02f672c5f2e05ddcb4cc57ed7843f984030e13c273f50121cf4da1e"
+    "tree_hash": "658c2966588c542324cf5dabf98e2ff85a9de40bd678421200f727f046ed408e"
   }
 }
