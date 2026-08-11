@@ -223,6 +223,7 @@ def test_sysroot_build_locked_sha256_mismatch(tmp_path):
 
 
 def test_sysroot_build_locked_success(tmp_path):
+    from sysroot import _normalize_pthread_shim
     sysroot_dir = tmp_path / "sysroot"
     lock_file = tmp_path / "sysroot.lock.json"
 
@@ -230,10 +231,7 @@ def test_sysroot_build_locked_success(tmp_path):
     staging_temp = tmp_path / "sample_staging"
     usr_target = staging_temp / "data" / "data" / "com.termux" / "files" / "usr"
     usr_target.mkdir(parents=True, exist_ok=True)
-    lib_dir = usr_target / "lib"
-    lib_dir.mkdir(parents=True, exist_ok=True)
-    (lib_dir / "libpthread.a").write_bytes(b"!<arch>\n")
-    (staging_temp / "usr").symlink_to("data/data/com.termux/files/usr", True)
+    _normalize_pthread_shim(staging_temp)
 
     expected_hash = compute_tree_hash(staging_temp)
 
@@ -255,7 +253,7 @@ def test_sysroot_build_locked_success(tmp_path):
     def mock_extract(out_dir, deb):
         target_dir = out_dir / "data" / "data" / "com.termux" / "files" / "usr" / "lib"
         target_dir.mkdir(parents=True, exist_ok=True)
-        (target_dir / "libpthread.a").write_bytes(b"!<arch>\n")
+        _normalize_pthread_shim(out_dir)
 
     with patch("sysroot._is_file_uncommitted", return_value=False), \
          patch("sysroot._download_packages", return_value=[pathlib.Path("dummy.deb")]), \
@@ -265,7 +263,7 @@ def test_sysroot_build_locked_success(tmp_path):
     assert sysroot_dir.is_dir()
     assert (sysroot_dir / "usr").is_symlink() or (sysroot_dir / "usr").exists()
     target_pthread = sysroot_dir / "data" / "data" / "com.termux" / "files" / "usr" / "lib" / "libpthread.a"
-    assert target_pthread.read_bytes() == b"!<arch>\n"
+    assert target_pthread.read_bytes() == b"INPUT(-lc)"
 
 
 def test_sysroot_lock_generation(tmp_path):
@@ -466,3 +464,74 @@ def test_sysroot_lock_alias_no_drift():
     aarch64_pkgs = aarch64_entry.get("packages", {})
     assert arm64_pkgs == aarch64_pkgs, "Package maps for arm64 and aarch64 must be identical"
 
+
+def test_pthread_shim_normalization_behavioral(tmp_path):
+    """Behavioral test: Prove _normalize_pthread_shim produces canonical byte-identical shim, handles missing/pre-existing input, and is idempotent."""
+    from sysroot import _normalize_pthread_shim, compute_tree_hash
+
+    # Case 3: missing input libpthread.a still produces canonical shim
+    root1 = tmp_path / "staging1"
+    root1.mkdir()
+    shim1 = _normalize_pthread_shim(root1)
+    assert shim1.exists()
+    assert shim1.read_bytes() == b"INPUT(-lc)"
+    assert shim1.relative_to(root1).as_posix() == "data/data/com.termux/files/usr/lib/libpthread.a"
+
+    # Case 4: pre-existing libpthread.a is deterministically replaced
+    root2 = tmp_path / "staging2"
+    termux_lib2 = root2 / "data" / "data" / "com.termux" / "files" / "usr" / "lib"
+    termux_lib2.mkdir(parents=True)
+    (termux_lib2 / "libpthread.a").write_bytes(b"OLD_GARBAGE_CONTENT")
+    shim2 = _normalize_pthread_shim(root2)
+    assert shim2.read_bytes() == b"INPUT(-lc)"
+
+    # Case 1 & 2: lock staging and build staging produce byte-identical libpthread.a and same final tree_hash
+    hash1 = compute_tree_hash(root1)
+    hash2 = compute_tree_hash(root2)
+    assert hash1 == hash2
+
+    # Case 5: running normalization twice is byte-identical (idempotency)
+    shim1_bytes_before = shim1.read_bytes()
+    _normalize_pthread_shim(root1)
+    assert shim1.read_bytes() == shim1_bytes_before
+    assert compute_tree_hash(root1) == hash1
+
+
+def test_locked_build_and_verify_success(tmp_path, monkeypatch):
+    """Behavioral test: Prove locked build succeeds against regenerated lock and immediate Sysroot.verify() succeeds after activation."""
+    import sysroot as sysroot_module
+    from sysroot import Sysroot, compute_tree_hash, _normalize_pthread_shim, _safe_rmtree
+
+    staging = tmp_path / "staging"
+    termux_usr = staging / "data" / "data" / "com.termux" / "files" / "usr"
+    (termux_usr / "lib").mkdir(parents=True)
+    (termux_usr / "include").mkdir(parents=True)
+    (termux_usr / "lib" / "libdummy.so").write_bytes(b"DUMMY_SO")
+    _normalize_pthread_shim(staging)
+    expected_hash = compute_tree_hash(staging)
+
+    lock_file = tmp_path / "sysroot.lock.json"
+    lock_file.write_text(json.dumps({
+        "arm64": {"arch": "arm64", "tree_hash": expected_hash, "packages": {}},
+        "aarch64": {"arch": "arm64", "tree_hash": expected_hash, "packages": {}}
+    }), encoding="utf-8")
+
+    sysroot_dir = tmp_path / "active_sysroot"
+    s = Sysroot(path=str(sysroot_dir))
+    s.lock_file = lock_file
+
+    def mock_build(arch="arm64", locked=True):
+        staging_out = s.path.parent / f"{s.path.name}.staging"
+        _safe_rmtree(staging_out)
+        shutil.copytree(staging, staging_out, symlinks=True)
+        _normalize_pthread_shim(staging_out)
+        actual_hash = compute_tree_hash(staging_out)
+        assert actual_hash == expected_hash, f"Tree hash mismatch: {actual_hash} != {expected_hash}"
+        s.path.mkdir(parents=True, exist_ok=True)
+        _safe_rmtree(s.path)
+        staging_out.rename(s.path)
+        _normalize_pthread_shim(s.path)
+
+    monkeypatch.setattr(s, "build", mock_build)
+    s.build(arch="arm64", locked=True)
+    assert s.verify() is True

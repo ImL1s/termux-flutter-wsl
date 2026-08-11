@@ -52,22 +52,31 @@ def compute_tree_hash(dir_path: pathlib.Path) -> str:
     for rel_path in items:
         full_path = dir_path / rel_path
         posix_path = rel_path.as_posix()
+        is_symlink = False
         try:
             st = os.lstat(full_path)
             mode_str = oct(st.st_mode & 0o777)
+            import stat as stat_mod
+            is_symlink = stat_mod.S_ISLNK(st.st_mode) or os.path.islink(full_path) or full_path.is_symlink()
         except Exception:
             mode_str = "0755"
 
         hasher.update(posix_path.encode('utf-8'))
         hasher.update(f'|mode:{mode_str}'.encode('utf-8'))
-        if full_path.is_symlink():
-            target = os.readlink(full_path)
+        if is_symlink:
+            try:
+                target = os.readlink(full_path)
+            except Exception:
+                target = ""
             hasher.update(f'|symlink:{target}'.encode('utf-8'))
         elif full_path.is_file():
             hasher.update(b'|file:')
-            with open(full_path, 'rb') as f:
-                while chunk := f.read(65536):
-                    hasher.update(chunk)
+            try:
+                with open(full_path, 'rb') as f:
+                    while chunk := f.read(65536):
+                        hasher.update(chunk)
+            except OSError:
+                pass
         elif full_path.is_dir():
             hasher.update(b'|dir:')
 
@@ -278,6 +287,57 @@ def _apply_sysroot_transformations(target_dir: pathlib.Path):
             glib_typeof.write_text(content, encoding='utf-8')
 
 
+def _normalize_pthread_shim(staging_root: pathlib.Path) -> pathlib.Path:
+    """Deterministically normalize canonical data/data/com.termux/files/usr/lib/libpthread.a to b'INPUT(-lc)'."""
+    staging_root = pathlib.Path(staging_root)
+    dst_rel = 'data/data/com.termux/files/usr'
+    termux_usr = staging_root / 'data' / 'data' / 'com.termux' / 'files' / 'usr'
+    termux_usr_lib = termux_usr / 'lib'
+    termux_usr_lib.mkdir(parents=True, exist_ok=True)
+
+    usr = staging_root / 'usr'
+    if (staging_root / dst_rel).is_dir():
+        if not usr.is_symlink() and not usr.exists():
+            try:
+                usr.symlink_to(dst_rel, True)
+            except (FileExistsError, OSError):
+                pass
+        elif usr.is_symlink():
+            try:
+                target = os.readlink(usr)
+                if target.replace('\\', '/') != dst_rel:
+                    usr.unlink()
+                    usr.symlink_to(dst_rel, True)
+            except OSError:
+                pass
+
+    if usr.is_dir() and not usr.is_symlink():
+        usr_pthread = usr / 'lib' / 'libpthread.a'
+        if usr_pthread.exists() or usr_pthread.is_symlink():
+            try:
+                usr_pthread.unlink()
+            except OSError:
+                pass
+
+    pthread_canonical = termux_usr_lib / 'libpthread.a'
+    if pthread_canonical.is_symlink() or pthread_canonical.is_dir():
+        try:
+            if pthread_canonical.is_dir():
+                _safe_rmtree(pthread_canonical)
+            else:
+                pthread_canonical.unlink()
+        except OSError:
+            pass
+
+    pthread_canonical.write_bytes(b'INPUT(-lc)')
+    try:
+        os.chmod(pthread_canonical, 0o644)
+    except Exception:
+        pass
+
+    return pthread_canonical
+
+
 def _safe_rmtree(path: pathlib.Path):
     path = pathlib.Path(path)
     if not path.exists() and not path.is_symlink():
@@ -379,19 +439,7 @@ class Sysroot:
                         for deb in debs:
                             _extract(staging_tmp, deb)
 
-                        usr = staging_tmp / 'usr'
-                        dst = 'data/data/com.termux/files/usr'
-                        if (staging_tmp / dst).is_dir():
-                            try:
-                                usr.symlink_to(dst, True)
-                            except FileExistsError:
-                                if not usr.samefile(staging_tmp / dst):
-                                    raise
-
-                        pthread = staging_tmp / 'usr/lib/libpthread.a'
-                        if pthread.exists():
-                            pthread.write_bytes(b'INPUT(-lc)')
-
+                        _normalize_pthread_shim(staging_tmp)
                         _apply_sysroot_transformations(staging_tmp)
                         tree_hash = compute_tree_hash(staging_tmp)
                     finally:
@@ -425,7 +473,7 @@ class Sysroot:
     def verify(self, arch: str = 'arm64') -> bool:
         """驗證現有 sysroot 是否存在並完整"""
         arch_name = utils.termux_arch(arch)
-        if not self.path.exists() or not (self.path / 'usr').exists():
+        if not self.path.exists() or not ((self.path / 'usr').exists() or (self.path / 'usr').is_symlink()):
             logger.error('Sysroot not found or incomplete.')
             raise ValueError('Sysroot not found or incomplete.')
         if not self.lock_file.exists():
@@ -528,24 +576,7 @@ class Sysroot:
                     for deb in debs:
                         _extract(staging_out, deb)
 
-                # Configure sysroot
-                usr = staging_out / 'usr'
-                dst = 'data/data/com.termux/files/usr'
-
-                if not (staging_out / dst).is_dir():
-                    raise RuntimeError(f'Sysroot structure missing directory: {dst}')
-
-                try:
-                    usr.symlink_to(dst, True)
-                except FileExistsError:
-                    if not usr.samefile(staging_out / dst):
-                        raise
-
-                termux_usr_lib = staging_out / 'data/data/com.termux/files/usr/lib'
-                termux_usr_lib.mkdir(parents=True, exist_ok=True)
-                pthread = termux_usr_lib / 'libpthread.a'
-                pthread.write_bytes(b'!<arch>\n')
-
+                _normalize_pthread_shim(staging_out)
                 _apply_sysroot_transformations(staging_out)
 
                 # Validate tree_hash if locked
