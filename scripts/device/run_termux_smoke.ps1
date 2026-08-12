@@ -155,7 +155,8 @@ function Wake-Device {
 
     Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Host
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "82") | Out-Host
-    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "800", "2200", "800", "300", "300") | Out-Host
+    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "500", "1200", "500", "200", "300") | Out-Host
+    Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "82") | Out-Host
     Start-Sleep -Seconds 2
 }
 
@@ -246,7 +247,11 @@ Wake-Device
 Invoke-AdbAllowFail -Args @("shell", "am", "force-stop", "com.termux") | Out-Host
 Start-Sleep -Seconds 1
 Invoke-Adb -Args @("shell", "am", "start", "-n", "com.termux/.app.TermuxActivity") | Out-Host
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 3
+Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Host
+Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "500", "1200", "500", "200", "300") | Out-Host
+Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "82") | Out-Host
+Start-Sleep -Seconds 2
 # Android input text uses %s for spaces.
 Invoke-Adb -Args @("shell", "input", "text", "sh%s$RemoteScript")
 Start-Sleep -Seconds 3
