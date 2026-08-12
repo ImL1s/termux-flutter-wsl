@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! type -p actionlint &>/dev/null; then
-            bash <(curl -sSfL -H "Authorization: Bearer ${GITHUB_TOKEN:-}" https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+            bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           fi
           # Disable embedded shellcheck (handled by separate ShellCheck step)
           ./actionlint -shellcheck="" .github/workflows/*.yml
