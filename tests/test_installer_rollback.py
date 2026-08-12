@@ -381,7 +381,7 @@ def test_post_install_ndk_backup_and_restore(tmp_path):
     shutil.copy(post_install_script, post_install_copy)
 
     script_posix = to_wsl_posix(post_install_copy)
-    ndk_posix = to_wsl_posix(ndk_bin.parent.parent.parent.parent)
+    ndk_posix = to_wsl_posix(ndk_prebuilt.parent.parent)
 
     env = os.environ.copy()
     env["PREFIX"] = to_wsl_posix(prefix)

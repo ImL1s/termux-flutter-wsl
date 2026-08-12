@@ -14,8 +14,8 @@ ANDROID_SDK="${ANDROID_SDK:-/data/data/com.termux/files/usr/opt/android-sdk}"
 DART_SDK="${DART_SDK:-$FLUTTER_ROOT/bin/cache/dart-sdk}"
 
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-PATCH_STATE_FILE="$PREFIX/share/flutter/patch_state.json"
-BACKUP_DIR="$PREFIX/share/flutter/backups"
+PATCH_STATE_FILE="${PATCH_STATE_FILE:-$PREFIX/share/flutter/patch_state.json}"
+BACKUP_DIR="${BACKUP_DIR:-$PREFIX/share/flutter/backups}"
 
 MODE="${MODE:-apply}"
 if [ "$1" == "--check" ]; then MODE="check"; fi
