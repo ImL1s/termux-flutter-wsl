@@ -150,13 +150,19 @@ fi
 chmod -R u+rwx "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 chmod -R 777 "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 find "$PREFIX/opt/flutter" "$PREFIX/share/flutter" -exec chmod 777 {} + 2>/dev/null || true
-dpkg -r "$EXPECTED_PACKAGE" 2>/dev/null || true
-apt-get update -y 2>/dev/null || true
-apt-get install -y 7zip 2>/dev/null || apt-get install -y p7zip 2>/dev/null || true
+echo "Updating apt package index..."
+apt-get update -y || pkg update -y || true
+
+echo "Pre-installing required 7zip/p7zip dependencies..."
+apt-get install -y 7zip || apt-get install -y p7zip || pkg install -y 7zip || pkg install -y p7zip || true
+
+echo "Installing candidate package $DEB..."
 dpkg -i "$DEB" || true
+
 echo "Running dependency repair..."
-apt-get install -f -y
+apt-get install -f -y --fix-missing || apt-get install -f -y || true
 record_status APT_REPAIR_STATUS $?
+
 if [ "$(dpkg-query -W -f='${Status}' "$EXPECTED_PACKAGE" 2>/dev/null)" != "install ok installed" ]; then
     echo "Re-applying dpkg -i after dependency repair..."
     dpkg -i "$DEB" || true
