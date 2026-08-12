@@ -13,6 +13,7 @@ if ! exec > "$LOG" 2>&1; then
     LOG="$HOME_DIR/termux_ci_smoke.txt"
     exec > "$LOG" 2>&1
 fi
+echo TERMUX_CI_SMOKE
 set -x
 
 status=0
@@ -151,10 +152,10 @@ chmod -R u+rwx "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 chmod -R 777 "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 find "$PREFIX/opt/flutter" "$PREFIX/share/flutter" -exec chmod 777 {} + 2>/dev/null || true
 echo "Updating apt package index..."
-apt-get update -y || pkg update -y || true
+apt-get update -y || true
 
 echo "Pre-installing required 7zip/p7zip dependencies..."
-apt-get install -y 7zip || apt-get install -y p7zip || pkg install -y 7zip || pkg install -y p7zip || true
+apt-get install -y 7zip || apt-get install -y p7zip || true
 
 echo "Installing candidate package $DEB..."
 dpkg -i "$DEB" || true

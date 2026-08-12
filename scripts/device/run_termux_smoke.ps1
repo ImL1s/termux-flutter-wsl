@@ -271,6 +271,8 @@ while ((Get-Date) -lt $startDeadline) {
     Invoke-Adb -Args @("shell", "input", "text", "sh%s$RemoteScript")
     Start-Sleep -Milliseconds 500
     Invoke-Adb -Args @("shell", "input", "keyevent", "66")
+    Start-Sleep -Milliseconds 500
+    Invoke-Adb -Args @("shell", "input", "keyevent", "66")
     Start-Sleep -Seconds 5
     
     $probe = (& $Adb @AdbArgs shell "cat $RemoteLog 2>/dev/null || true") -join "`n"
