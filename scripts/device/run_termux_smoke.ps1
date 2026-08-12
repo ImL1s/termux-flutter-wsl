@@ -258,6 +258,11 @@ Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Host
 $startDeadline = (Get-Date).AddMinutes(2)
 $started = $false
 while ((Get-Date) -lt $startDeadline) {
+    # Ensure screen is awake, unlocked, and accidental touch protection overlay is dismissed
+    Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "224") | Out-Null
+    Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Null
+    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1600", "540", "200", "200") | Out-Null
+    Start-Sleep -Milliseconds 500
     # Ensure soft keyboard/popups are closed and focus is on terminal prompt
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Null
     Start-Sleep -Milliseconds 500
