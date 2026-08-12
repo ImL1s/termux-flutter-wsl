@@ -250,19 +250,21 @@ Invoke-Adb -Args @("shell", "am", "start", "-n", "com.termux/.app.TermuxActivity
 Start-Sleep -Seconds 3
 Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Host
 Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "500", "1200", "500", "200", "300") | Out-Host
-Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "82") | Out-Host
-Start-Sleep -Seconds 2
-# Android input text uses %s for spaces.
-Invoke-Adb -Args @("shell", "input", "text", "sh%s$RemoteScript")
-Start-Sleep -Seconds 3
-Invoke-Adb -Args @("shell", "input", "keyevent", "66")
-Start-Sleep -Seconds 1
-Invoke-Adb -Args @("shell", "input", "keyevent", "66")
+Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Host
 
 $startDeadline = (Get-Date).AddMinutes(2)
 $started = $false
 while ((Get-Date) -lt $startDeadline) {
+    # Ensure soft keyboard/popups are closed and focus is on terminal prompt
+    Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "66") | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-Adb -Args @("shell", "input", "text", "sh%s$RemoteScript")
+    Start-Sleep -Milliseconds 500
+    Invoke-Adb -Args @("shell", "input", "keyevent", "66")
     Start-Sleep -Seconds 5
+    
     $probe = (& $Adb @AdbArgs shell "cat $RemoteLog 2>/dev/null || true") -join "`n"
     if ($probe -match "TERMUX_CI_SMOKE") {
         $started = $true
