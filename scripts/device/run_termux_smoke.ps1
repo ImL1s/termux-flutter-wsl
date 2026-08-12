@@ -70,8 +70,31 @@ function Write-InitialEvidence {
 }
 
 $Adb = Resolve-Adb $AdbPath
+
+if (-not $DeviceSerial) {
+    try {
+        $devicesOutput = & $Adb devices 2>$null | Where-Object { $_ -match "\tdevice$" }
+        $serials = @($devicesOutput | ForEach-Object { ($_ -split "\s+")[0] })
+        if ($serials.Count -eq 1) {
+            $DeviceSerial = $serials[0]
+        } elseif ($serials.Count -gt 1) {
+            $realDevices = @($serials | Where-Object { $_ -notlike "emulator-*" })
+            if ($realDevices.Count -ge 1) {
+                $DeviceSerial = $realDevices[0]
+            } else {
+                $DeviceSerial = $serials[0]
+            }
+        }
+    } catch {
+        # Fall back if adb devices fails
+    }
+}
+
 $AdbArgs = @()
-if ($DeviceSerial) { $AdbArgs += @("-s", $DeviceSerial) }
+if ($DeviceSerial) {
+    Write-Host "Using ADB device serial: $DeviceSerial"
+    $AdbArgs += @("-s", $DeviceSerial)
+}
 
 function Invoke-Adb {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
