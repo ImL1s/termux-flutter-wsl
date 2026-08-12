@@ -17,13 +17,14 @@ PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 PATCH_STATE_FILE="$PREFIX/share/flutter/patch_state.json"
 BACKUP_DIR="$PREFIX/share/flutter/backups"
 
-MODE="apply"
+MODE="${MODE:-apply}"
 if [ "$1" == "--check" ]; then MODE="check"; fi
 if [ "$1" == "--apply" ]; then MODE="apply"; fi
 if [ "$1" == "--status" ]; then MODE="status"; fi
 if [ "$1" == "--rollback" ]; then MODE="rollback"; fi
+if [ "$1" == "--lib" ]; then MODE="lib"; fi
 
-if [ "$MODE" != "status" ] && [ "$MODE" != "check" ]; then
+if [ "$MODE" != "status" ] && [ "$MODE" != "check" ] && [ "$MODE" != "lib" ]; then
     mkdir -p "$BACKUP_DIR"
     if [ ! -f "$PATCH_STATE_FILE" ]; then
         echo "{}" > "$PATCH_STATE_FILE"
@@ -162,6 +163,33 @@ apply_patches() {
     fi
 }
 
+backup_ndk_file() {
+    local file="$1"
+    if [ -f "$file" ] || [ -L "$file" ]; then
+        local rel_path="${file#$ANDROID_SDK/}"
+        local backup_target="$BACKUP_DIR/ndk_backups/$rel_path"
+        if [ ! -f "$backup_target" ] && [ ! -L "$backup_target" ]; then
+            mkdir -p "$(dirname "$backup_target")"
+            cp -a "$file" "$backup_target" 2>/dev/null || true
+        fi
+    fi
+}
+
+restore_ndk_backups() {
+    if [ -d "$BACKUP_DIR/ndk_backups" ]; then
+        echo "  Restoring NDK backups..."
+        (
+            cd "$BACKUP_DIR/ndk_backups"
+            find . -type f -o -type l | while read -r rel; do
+                local dest="$ANDROID_SDK/$rel"
+                mkdir -p "$(dirname "$dest")"
+                cp -a "$rel" "$dest" 2>/dev/null || true
+                echo "  ✓ Restored $dest"
+            done
+        )
+    fi
+}
+
 rollback_patches() {
     for patch_name in "${PATCH_ORDER[@]}"; do
         local target_file="${STATE_TARGET[$patch_name]}"
@@ -175,6 +203,7 @@ rollback_patches() {
             fi
         fi
     done
+    restore_ndk_backups
     save_state
 }
 
@@ -427,6 +456,8 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
 
     # Create wrappers in prebuilt/bin/ (for some toolchain configs)
     mkdir -p "$PREBUILT/bin"
+    backup_ndk_file "$PREBUILT/bin/clang"
+    backup_ndk_file "$PREBUILT/bin/clang++"
     echo "$CLANG_WRAPPER" > "$PREBUILT/bin/clang"
     chmod +x "$PREBUILT/bin/clang"
     echo "$CLANGPP_WRAPPER" > "$PREBUILT/bin/clang++"
@@ -437,6 +468,7 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
     # Remove symlinks/files first (clang -> clang-18, clang++ -> clang chain causes overwrites)
     # Must use unlink to properly remove symlinks before writing
     for f in clang clang++; do
+        backup_ndk_file "$PREBUILT/linux-x86_64/bin/$f"
         if [ -L "$PREBUILT/linux-x86_64/bin/$f" ] || [ -f "$PREBUILT/linux-x86_64/bin/$f" ]; then
             unlink "$PREBUILT/linux-x86_64/bin/$f" 2>/dev/null || rm "$PREBUILT/linux-x86_64/bin/$f" 2>/dev/null || true
         fi
@@ -474,6 +506,7 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
     # returns empty string on Termux, causing sysroot path: prebuilt//sysroot
     local TOOLCHAIN="$NDK_PATH/build/cmake/android-legacy.toolchain.cmake"
     if [ -f "$TOOLCHAIN" ]; then
+        backup_ndk_file "$TOOLCHAIN"
         if grep -q 'list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")' "$TOOLCHAIN" 2>/dev/null; then
             sed -i 's/list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/# Disabled for Termux: list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/' "$TOOLCHAIN"
         fi
@@ -484,6 +517,7 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
     # Also patch the main android.toolchain.cmake
     local MAIN_TOOLCHAIN="$NDK_PATH/build/cmake/android.toolchain.cmake"
     if [ -f "$MAIN_TOOLCHAIN" ]; then
+        backup_ndk_file "$MAIN_TOOLCHAIN"
         if ! grep -q 'ANDROID_HOST_TAG' "$MAIN_TOOLCHAIN" 2>/dev/null; then
             sed -i '1a set(ANDROID_HOST_TAG "linux-x86_64")' "$MAIN_TOOLCHAIN"
         fi
@@ -493,6 +527,8 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
     # (Gradle StripDebugSymbolsRunnable fails with x86_64 binaries on ARM64)
     local LLVM_BIN="$PREBUILT/linux-x86_64/bin"
     if [ -f /data/data/com.termux/files/usr/bin/llvm-objcopy ]; then
+        backup_ndk_file "$LLVM_BIN/llvm-objcopy"
+        backup_ndk_file "$LLVM_BIN/llvm-strip"
         cp /data/data/com.termux/files/usr/bin/llvm-objcopy "$LLVM_BIN/llvm-objcopy" 2>/dev/null || true
         cp /data/data/com.termux/files/usr/bin/llvm-strip "$LLVM_BIN/llvm-strip" 2>/dev/null || true
         echo "    ✓ llvm-objcopy/llvm-strip replaced with ARM64 native"
@@ -500,6 +536,11 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
 
     echo "    ✓ NDK $NDK_NAME configured"
 }
+
+# Handle library mode (for unit testing / function sourcing)
+if [ "$MODE" == "lib" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 # Handle read-only modes (--status, --check) and rollback mode (--rollback) immediately
 if [ "$MODE" == "status" ] || [ "$MODE" == "check" ]; then

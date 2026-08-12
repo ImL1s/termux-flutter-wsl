@@ -279,6 +279,7 @@ $required = @(
     "APK_COPY_STATUS=0",
     "BUILD_LINUX_STATUS=0",
     "BUILD_AAB_STATUS=0",
+    "AAB_COPY_STATUS=0",
     "DONE"
 )
 foreach ($marker in $required) {
@@ -303,7 +304,10 @@ if (Test-Path $localAab) { Remove-Item $localAab -Force }
 
 Write-Host "Pulling built APK and AAB to host..."
 Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.apk", $localApk)
-Invoke-AdbAllowFail -Args @("pull", "/sdcard/Download/app-release.aab", $localAab) | Out-Null
+Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.aab", $localAab)
+if (-not (Test-Path $localAab) -or (Get-Item $localAab).Length -eq 0) {
+    throw "Failed to pull built AAB from device or AAB file is empty: $localAab"
+}
 
 $apkSha256 = if (Test-Path $localApk) { Get-Sha256Hex -Path $localApk } else { "unknown" }
 $apkSize = if (Test-Path $localApk) { (Get-Item $localApk).Length } else { 0 }

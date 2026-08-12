@@ -74,6 +74,8 @@ def test_termux_smoke_delegated_launch_emits_pending_host_marker(tmp_path):
 def test_mode_b_failure_fails_overall_status():
     ps_script = (REPO_ROOT / "scripts" / "device" / "run_termux_smoke.ps1").read_text(encoding="utf-8")
     assert 'BUILD_AAB_STATUS=0' in ps_script
+    assert 'AAB_COPY_STATUS=0' in ps_script
+    assert 'Invoke-Adb -Args @("pull", "/sdcard/Download/app-release.aab", $localAab)' in ps_script
     assert 'overallStatus = if ($launchPassed -and $modeA -eq "passed" -and $modeB -eq "passed") { "passed" } else { "failed" }' in ps_script
 
 

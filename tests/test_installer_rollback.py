@@ -349,3 +349,65 @@ def test_executable_post_mutation_failure_triggers_rollback(tmp_path, failure_st
     res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
     assert res.returncode == expected_code, f"Stage {failure_stage}: Expected exit {expected_code}, got {res.returncode}.\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
     assert "[EXIT HANDLER]" in res.stdout or "[ROLLBACK]" in res.stdout
+
+
+def to_wsl_posix(p):
+    s = p.as_posix() if isinstance(p, Path) else str(p)
+    if len(s) > 1 and s[1:3] == ":/":
+        return f"/mnt/{s[0].lower()}{s[2:]}"
+    return s
+
+
+def test_post_install_ndk_backup_and_restore(tmp_path):
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    flutter_root = prefix / "opt" / "flutter"
+    flutter_root.mkdir(parents=True)
+    (flutter_root / "bin" / "internal").mkdir(parents=True)
+    (flutter_root / "bin" / "internal" / "engine.version").write_text("dummy_version", encoding="utf-8")
+    dart_sdk = flutter_root / "bin" / "cache" / "dart-sdk"
+    dart_sdk.mkdir(parents=True)
+    android_sdk = prefix / "opt" / "android-sdk"
+    ndk_prebuilt = android_sdk / "ndk" / "r27d" / "toolchains" / "llvm" / "prebuilt"
+    ndk_bin = ndk_prebuilt / "linux-x86_64" / "bin"
+    ndk_bin.mkdir(parents=True)
+    (ndk_prebuilt / "linux-x86_64" / "lib" / "clang" / "18" / "lib" / "linux").mkdir(parents=True)
+
+    orig_clang = ndk_bin / "clang"
+    orig_clang.write_text("original_clang_binary", encoding="utf-8")
+
+    post_install_script = REPO_ROOT / "scripts" / "install" / "post_install.sh"
+    post_install_copy = tmp_path / "post_install.sh"
+    shutil.copy(post_install_script, post_install_copy)
+
+    script_posix = to_wsl_posix(post_install_copy)
+    ndk_posix = to_wsl_posix(ndk_bin.parent.parent.parent.parent)
+
+    env = os.environ.copy()
+    env["PREFIX"] = to_wsl_posix(prefix)
+    env["ANDROID_SDK"] = to_wsl_posix(android_sdk)
+    env["FLUTTER_ROOT"] = to_wsl_posix(flutter_root)
+    env["DART_SDK"] = to_wsl_posix(dart_sdk)
+    env["BACKUP_DIR"] = to_wsl_posix(prefix / "backup")
+    env["MODE"] = "lib"
+
+    # 1. Run post_install.sh setup_ndk_clang_wrappers
+    bash_cmd_apply = [
+        "bash", "-c",
+        f"source {script_posix}; "
+        f"setup_ndk_clang_wrappers {ndk_posix}"
+    ]
+    res_apply = subprocess.run(bash_cmd_apply, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res_apply.returncode == 0, f"Apply failed: {res_apply.stderr}"
+    assert orig_clang.read_text(encoding="utf-8") != "original_clang_binary"
+
+    # 2. Run post_install.sh --rollback
+    bash_cmd_rollback = [
+        "bash", "-c",
+        f"bash {script_posix} --rollback"
+    ]
+    res_rollback = subprocess.run(bash_cmd_rollback, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res_rollback.returncode == 0, f"Rollback failed: {res_rollback.stderr}"
+
+    # 3. Assert original clang binary content was restored
+    assert orig_clang.read_text(encoding="utf-8") == "original_clang_binary"

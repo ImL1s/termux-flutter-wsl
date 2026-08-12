@@ -157,3 +157,92 @@ def test_classifier_mixed_expected_patch_plus_unrelated_edit(tmp_path):
     # Case 7: Mixed expected patch plus unrelated edit -> reject
     status = b.classify_workspace_patch_state(str(repo_dir))
     assert status['valid'] is False
+
+
+def test_classifier_nested_repo_dirty_modification(tmp_path):
+    b, repo, repo_dir, patch_file, tag_name = create_git_repo_with_patch(tmp_path)
+
+    # Create nested git repository
+    nested_dir = repo_dir / "nested_repo"
+    nested_dir.mkdir()
+    nested_repo = git.Repo.init(nested_dir)
+    nested_repo.config_writer().set_value("user", "name", "Test Runner").release()
+    nested_repo.config_writer().set_value("user", "email", "test@example.com").release()
+
+    nested_file = nested_dir / "nested.txt"
+    nested_file.write_text("initial\n", encoding="utf-8")
+    nested_repo.git.add("nested.txt")
+    nested_repo.index.commit("Initial nested commit")
+
+    # Add patch targeting nested repo
+    patch_nested = tmp_path / "patches" / tag_name / "nested.patch"
+    nested_file.write_text("initial modified\n", encoding="utf-8")
+    patch_nested.write_text(nested_repo.git.diff() + "\n", encoding="utf-8")
+    nested_repo.git.checkout("--", "nested.txt")
+
+    # Apply nested patch
+    nested_repo.git.apply([str(patch_nested)])
+
+    # Update config to include nested patch
+    conf_path = tmp_path / "build.toml"
+    conf_content = f"""
+[flutter]
+tag = "{tag_name}"
+path = "{repo_dir.as_posix()}"
+
+[build]
+root = "{repo_dir.as_posix()}"
+release = "{repo_dir.as_posix()}"
+
+[patch]
+dir = "{(tmp_path / 'patches').as_posix()}"
+
+[patch.nested]
+file = "nested.patch"
+path = "nested_repo"
+"""
+    conf_path.write_text(conf_content, encoding="utf-8")
+    b_nested = Build(conf=str(conf_path))
+
+    # Add extra edit to nested repo
+    (nested_dir / "unrelated.txt").write_text("unrelated nested edit", encoding="utf-8")
+
+    # Assert patch state classifier detects dirty nested repo and rejects
+    status = b_nested.classify_workspace_patch_state(str(repo_dir))
+    assert status['valid'] is False
+    assert "dirty" in status['reason'] or "extra" in status['reason']
+
+
+def test_classifier_absent_nested_target_clone_only(tmp_path):
+    b, repo, repo_dir, patch_file, tag_name = create_git_repo_with_patch(tmp_path)
+
+    # Configure patch targeting a non-existent nested directory (clone-only workspace before sync)
+    conf_path = tmp_path / "build.toml"
+    conf_content = f"""
+[flutter]
+tag = "{tag_name}"
+path = "{repo_dir.as_posix()}"
+
+[build]
+root = "{repo_dir.as_posix()}"
+release = "{repo_dir.as_posix()}"
+
+[patch]
+dir = "{(tmp_path / 'patches').as_posix()}"
+
+[patch.engine]
+file = "engine.patch"
+path = "engine/src/flutter"
+"""
+    conf_path.write_text(conf_content, encoding="utf-8")
+
+    # Create dummy engine.patch
+    engine_patch = tmp_path / "patches" / tag_name / "engine.patch"
+    engine_patch.write_text("--- a/foo\n+++ b/foo\n", encoding="utf-8")
+
+    b_clone_only = Build(conf=str(conf_path))
+
+    # Assert classifier classifies clean and valid even when nested engine target path does not exist yet
+    status = b_clone_only.classify_workspace_patch_state(str(repo_dir))
+    assert status['valid'] is True
+    assert status['state'] == 'clean'

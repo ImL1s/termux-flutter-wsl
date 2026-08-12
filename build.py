@@ -544,7 +544,19 @@ class Build:
                     'patch_digest': patch_digest
                 }
 
-            target_repo = git.Repo(p_target) if p_target != path_obj else repo
+            if not p_target.exists():
+                unapplied_patches.append((k, p_file, p_target))
+                continue
+
+            try:
+                target_repo = git.Repo(p_target, search_parent_directories=True) if p_target != path_obj else repo
+            except Exception as e:
+                return {
+                    'valid': False,
+                    'state': 'invalid',
+                    'reason': f'Not a git repo at patch target {p_target}: {e}',
+                    'patch_digest': patch_digest
+                }
 
             is_postimage = False
             try:
@@ -561,7 +573,7 @@ class Build:
                 pass
 
             if is_postimage and not is_preimage:
-                applied_patches.append((k, p_file, p_target))
+                applied_patches.append((k, p_file, p_target, target_repo))
             elif is_preimage and not is_postimage:
                 unapplied_patches.append((k, p_file, p_target))
             elif is_preimage and is_postimage:
@@ -574,12 +586,21 @@ class Build:
                     'patch_digest': patch_digest
                 }
 
+        all_repos = {repo}
+        for _, _, p_target in relevant_patches:
+            if p_target.exists():
+                try:
+                    all_repos.add(git.Repo(p_target, search_parent_directories=True))
+                except Exception:
+                    pass
+
         if not applied_patches:
-            if repo.is_dirty(untracked_files=True):
+            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=True)), None)
+            if dirty_repo:
                 return {
                     'valid': False,
                     'state': 'invalid',
-                    'reason': 'Repo is dirty but no configured patches are applied',
+                    'reason': f'Repo {dirty_repo.working_dir} is dirty but no configured patches are applied',
                     'patch_digest': patch_digest
                 }
             return {
@@ -593,24 +614,23 @@ class Build:
 
         reversed_successfully = []
         try:
-            for k, p_file, p_target in reversed(applied_patches):
-                target_repo = git.Repo(p_target) if p_target != path_obj else repo
+            for k, p_file, p_target, target_repo in reversed(applied_patches):
                 target_repo.git.apply(['--reverse', str(p_file)])
-                reversed_successfully.append((k, p_file, p_target))
+                reversed_successfully.append((k, p_file, p_target, target_repo))
 
-            is_clean_now = not repo.is_dirty(untracked_files=True)
-            if not is_clean_now:
+            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=True)), None)
+            if dirty_repo:
                 return {
                     'valid': False,
                     'state': 'invalid',
-                    'reason': 'Repo contains extra modifications beyond configured applied patches',
+                    'reason': f'Repo {dirty_repo.working_dir} contains extra modifications beyond configured applied patches',
                     'patch_digest': patch_digest
                 }
             return {
                 'valid': True,
                 'state': 'patched',
                 'reason': 'Repo contains exactly the configured applied patches',
-                'applied_patches': [k for k, _, _ in applied_patches],
+                'applied_patches': [k for k, _, _ in [item[:3] for item in applied_patches]],
                 'unapplied_patches': [k for k, _, _ in unapplied_patches],
                 'patch_digest': patch_digest
             }
@@ -622,9 +642,8 @@ class Build:
                 'patch_digest': patch_digest
             }
         finally:
-            for k, p_file, p_target in reversed(reversed_successfully):
+            for k, p_file, p_target, target_repo in reversed(reversed_successfully):
                 try:
-                    target_repo = git.Repo(p_target) if p_target != path_obj else repo
                     target_repo.git.apply([str(p_file)])
                 except Exception as restore_err:
                     logger.error(f'Failed to re-apply patch {k} during restoration: {restore_err}')
