@@ -153,10 +153,13 @@ function Wake-Device {
         }
     }
 
+    Invoke-AdbAllowFail -Args @("shell", "settings", "put", "system", "accidental_touch_protection", "0") | Out-Null
+    Invoke-AdbAllowFail -Args @("shell", "settings", "put", "secure", "block_accidental_touches", "0") | Out-Null
     Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Host
+    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1400", "540", "100", "300") | Out-Host
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "82") | Out-Host
-    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "500", "1200", "500", "200", "300") | Out-Host
-    Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "82") | Out-Host
+    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1400", "540", "100", "300") | Out-Host
+    Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Host
     Start-Sleep -Seconds 2
 }
 
