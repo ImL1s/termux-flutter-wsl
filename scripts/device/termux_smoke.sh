@@ -151,11 +151,16 @@ chmod -R u+rwx "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 chmod -R 777 "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 find "$PREFIX/opt/flutter" "$PREFIX/share/flutter" -exec chmod 777 {} + 2>/dev/null || true
 dpkg -r "$EXPECTED_PACKAGE" 2>/dev/null || true
-apt-get install -y 7zip 2>/dev/null || true
+apt-get update -y 2>/dev/null || true
+apt-get install -y 7zip 2>/dev/null || apt-get install -y p7zip 2>/dev/null || true
 dpkg -i "$DEB" || true
 echo "Running dependency repair..."
 apt-get install -f -y
 record_status APT_REPAIR_STATUS $?
+if [ "$(dpkg-query -W -f='${Status}' "$EXPECTED_PACKAGE" 2>/dev/null)" != "install ok installed" ]; then
+    echo "Re-applying dpkg -i after dependency repair..."
+    dpkg -i "$DEB" || true
+fi
 
 PKG_QUERY=$(dpkg-query -W -f='${Status}|${Package}|${Version}|${Architecture}' "$EXPECTED_PACKAGE" 2>/dev/null || echo "not_installed|unknown|unknown|unknown")
 PKG_STATUS=$(echo "$PKG_QUERY" | cut -d'|' -f1)
