@@ -376,13 +376,6 @@ if [ "$MODE" == "status" ] || [ "$MODE" == "check" ]; then
     exit 0
 fi
 
-echo "Applying patches..."
-apply_patches
-# Force flutter_tools rebuild after patching
-rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.stamp" 2>/dev/null
-rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot" 2>/dev/null
-
-
 
 # Helper function to setup NDK clang wrappers for any NDK version
 setup_ndk_clang_wrappers() {
