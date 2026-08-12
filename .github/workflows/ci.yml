@@ -55,14 +55,9 @@ jobs:
           shellcheck --severity=error install_flutter_complete.sh "${SHELL_FILES[@]}"
 
       - name: actionlint workflow lint
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! type -p actionlint &>/dev/null; then
-            bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          fi
-          # Disable embedded shellcheck (handled by separate ShellCheck step)
-          ./actionlint -shellcheck="" .github/workflows/*.yml
+        uses: rhysd/actionlint-action@v1
+        with:
+          flags: -shellcheck=""
 
       - name: Validate build.toml schema
         run: |
