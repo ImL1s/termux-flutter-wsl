@@ -25,7 +25,7 @@ if [ "$1" == "--rollback" ]; then MODE="rollback"; fi
 if [ "$1" == "--lib" ]; then MODE="lib"; fi
 
 if [ "$MODE" != "status" ] && [ "$MODE" != "check" ] && [ "$MODE" != "lib" ]; then
-    mkdir -p "$BACKUP_DIR"
+    mkdir -p "$BACKUP_DIR" "$(dirname "$PATCH_STATE_FILE")"
     if [ ! -f "$PATCH_STATE_FILE" ]; then
         echo "{}" > "$PATCH_STATE_FILE"
     fi

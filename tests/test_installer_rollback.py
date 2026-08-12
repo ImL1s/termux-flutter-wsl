@@ -368,7 +368,8 @@ def test_post_install_ndk_backup_and_restore(tmp_path):
     dart_sdk = flutter_root / "bin" / "cache" / "dart-sdk"
     dart_sdk.mkdir(parents=True)
     android_sdk = prefix / "opt" / "android-sdk"
-    ndk_prebuilt = android_sdk / "ndk" / "r27d" / "toolchains" / "llvm" / "prebuilt"
+    ndk_path = android_sdk / "ndk" / "r27d"
+    ndk_prebuilt = ndk_path / "toolchains" / "llvm" / "prebuilt"
     ndk_bin = ndk_prebuilt / "linux-x86_64" / "bin"
     ndk_bin.mkdir(parents=True)
     (ndk_prebuilt / "linux-x86_64" / "lib" / "clang" / "18" / "lib" / "linux").mkdir(parents=True)
@@ -381,7 +382,7 @@ def test_post_install_ndk_backup_and_restore(tmp_path):
     shutil.copy(post_install_script, post_install_copy)
 
     script_posix = to_wsl_posix(post_install_copy)
-    ndk_posix = to_wsl_posix(ndk_prebuilt.parent.parent)
+    ndk_posix = to_wsl_posix(ndk_path)
 
     env = os.environ.copy()
     env["PREFIX"] = to_wsl_posix(prefix)
@@ -391,11 +392,23 @@ def test_post_install_ndk_backup_and_restore(tmp_path):
     env["BACKUP_DIR"] = to_wsl_posix(prefix / "backup")
     env["MODE"] = "lib"
 
+    prefix_posix = to_wsl_posix(prefix)
+    sdk_posix = to_wsl_posix(android_sdk)
+    flutter_posix = to_wsl_posix(flutter_root)
+    dart_posix = to_wsl_posix(dart_sdk)
+    backup_posix = to_wsl_posix(prefix / "backup")
+
     # 1. Run post_install.sh setup_ndk_clang_wrappers
     bash_cmd_apply = [
         "bash", "-c",
-        f"source {script_posix}; "
-        f"setup_ndk_clang_wrappers {ndk_posix}"
+        f"export PREFIX='{prefix_posix}'; "
+        f"export ANDROID_SDK='{sdk_posix}'; "
+        f"export FLUTTER_ROOT='{flutter_posix}'; "
+        f"export DART_SDK='{dart_posix}'; "
+        f"export BACKUP_DIR='{backup_posix}'; "
+        f"export MODE='lib'; "
+        f"source '{script_posix}'; "
+        f"setup_ndk_clang_wrappers '{ndk_posix}'"
     ]
     res_apply = subprocess.run(bash_cmd_apply, env=env, cwd=tmp_path, capture_output=True, text=True)
     assert res_apply.returncode == 0, f"Apply failed: {res_apply.stderr}"
@@ -404,7 +417,12 @@ def test_post_install_ndk_backup_and_restore(tmp_path):
     # 2. Run post_install.sh --rollback
     bash_cmd_rollback = [
         "bash", "-c",
-        f"bash {script_posix} --rollback"
+        f"export PREFIX='{prefix_posix}'; "
+        f"export ANDROID_SDK='{sdk_posix}'; "
+        f"export FLUTTER_ROOT='{flutter_posix}'; "
+        f"export DART_SDK='{dart_posix}'; "
+        f"export BACKUP_DIR='{backup_posix}'; "
+        f"bash '{script_posix}' --rollback"
     ]
     res_rollback = subprocess.run(bash_cmd_rollback, env=env, cwd=tmp_path, capture_output=True, text=True)
     assert res_rollback.returncode == 0, f"Rollback failed: {res_rollback.stderr}"
