@@ -156,9 +156,9 @@ function Wake-Device {
     Invoke-AdbAllowFail -Args @("shell", "settings", "put", "system", "accidental_touch_protection", "0") | Out-Null
     Invoke-AdbAllowFail -Args @("shell", "settings", "put", "secure", "block_accidental_touches", "0") | Out-Null
     Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Host
-    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1400", "540", "100", "300") | Out-Host
+    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1550", "540", "300", "200") | Out-Host
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "82") | Out-Host
-    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1400", "540", "100", "300") | Out-Host
+    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1550", "540", "300", "200") | Out-Host
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Host
     Start-Sleep -Seconds 2
 }
@@ -252,7 +252,7 @@ Start-Sleep -Seconds 1
 Invoke-Adb -Args @("shell", "am", "start", "-n", "com.termux/.app.TermuxActivity") | Out-Host
 Start-Sleep -Seconds 3
 Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Host
-Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "500", "1200", "500", "200", "300") | Out-Host
+Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1550", "540", "300", "200") | Out-Host
 Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Host
 
 $startDeadline = (Get-Date).AddMinutes(2)
@@ -261,7 +261,7 @@ while ((Get-Date) -lt $startDeadline) {
     # Ensure screen is awake, unlocked, and accidental touch protection overlay is dismissed
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "224") | Out-Null
     Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Null
-    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1600", "540", "200", "200") | Out-Null
+    Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1550", "540", "300", "200") | Out-Null
     Start-Sleep -Milliseconds 500
     # Ensure soft keyboard/popups are closed and focus is on terminal prompt
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Null
