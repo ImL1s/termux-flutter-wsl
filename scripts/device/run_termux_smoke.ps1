@@ -262,6 +262,7 @@ while ((Get-Date) -lt $startDeadline) {
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "224") | Out-Null
     Invoke-AdbAllowFail -Args @("shell", "wm", "dismiss-keyguard") | Out-Null
     Invoke-AdbAllowFail -Args @("shell", "input", "swipe", "540", "1550", "540", "300", "200") | Out-Null
+    Invoke-AdbAllowFail -Args @("shell", "am", "start", "-W", "-n", "com.termux/.app.TermuxActivity") | Out-Null
     Start-Sleep -Milliseconds 500
     # Ensure soft keyboard/popups are closed and focus is on terminal prompt
     Invoke-AdbAllowFail -Args @("shell", "input", "keyevent", "4") | Out-Null
