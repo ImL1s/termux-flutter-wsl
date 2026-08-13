@@ -1,7 +1,7 @@
 {
   "aarch64": {
     "arch": "arm64",
-    "created_at": "2026-08-11T05:49:30.877242+00:00",
+    "created_at": "2026-08-13T09:25:47.909618+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -168,10 +168,10 @@
         "dist": "stable",
         "name": "harfbuzz",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "bba2de01bf1ad28ce6c76a3d0bf6e37cff9238fcb4fe8804be184b6699b3d1f0",
-        "size": 831924,
+        "sha256": "13df22fd4248a684da3e55fcbb7dab29d4d5d75c9d99fa7791b6de252b704c80",
+        "size": 834160,
         "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/h/harfbuzz/harfbuzz_14.3.1_aarch64.deb",
-        "version": "14.3.0"
+        "version": "14.3.1"
       },
       "hicolor-icon-theme": {
         "archive_path": "pool/main/h/hicolor-icon-theme/hicolor-icon-theme_0.18_all.deb",
@@ -854,11 +854,11 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "6b452824eba0f31536d5f72b750aedbaf364d977671b8f1b711104124aa18e1e"
+    "tree_hash": "33d1c01bfa52d5be36d69abacd519bc6203c191cdd8ecab58959d6cd703a790b"
   },
   "arm64": {
     "arch": "arm64",
-    "created_at": "2026-08-11T05:49:30.877242+00:00",
+    "created_at": "2026-08-13T09:25:47.909618+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -1025,10 +1025,10 @@
         "dist": "stable",
         "name": "harfbuzz",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "bba2de01bf1ad28ce6c76a3d0bf6e37cff9238fcb4fe8804be184b6699b3d1f0",
-        "size": 831924,
+        "sha256": "13df22fd4248a684da3e55fcbb7dab29d4d5d75c9d99fa7791b6de252b704c80",
+        "size": 834160,
         "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/h/harfbuzz/harfbuzz_14.3.1_aarch64.deb",
-        "version": "14.3.0"
+        "version": "14.3.1"
       },
       "hicolor-icon-theme": {
         "archive_path": "pool/main/h/hicolor-icon-theme/hicolor-icon-theme_0.18_all.deb",
@@ -1711,6 +1711,6 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "6b452824eba0f31536d5f72b750aedbaf364d977671b8f1b711104124aa18e1e"
+    "tree_hash": "33d1c01bfa52d5be36d69abacd519bc6203c191cdd8ecab58959d6cd703a790b"
   }
 }
