@@ -554,33 +554,9 @@ fi
 # Run apply_patches for --apply
 apply_patches
 
-# Get engine version for downloads
-ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "4c525dac5ebe5971c5708ef73558ed8edcf4a362")
-
-# 0. 下載官方 Dart SDK snapshots (修復 flutter run hot reload)
-echo "[0/13] Downloading official Dart SDK snapshots (for hot reload)..."
-SNAPSHOTS_URL="https://storage.googleapis.com/flutter_infra_release/flutter/${ENGINE_VERSION}/dart-sdk-linux-arm64.zip"
-SNAPSHOTS_DIR=$DART_SDK/bin/snapshots
-
-# Check if key snapshot is missing
-if [ ! -f "$SNAPSHOTS_DIR/dds_aot.dart.snapshot" ]; then
-    echo "  Downloading dart-sdk-linux-arm64.zip..."
-    cd "${TMPDIR:-$PREFIX/tmp}"
-    curl -L -o dart-sdk.zip "$SNAPSHOTS_URL"
-    echo "  Extracting snapshots..."
-    unzip -o -j dart-sdk.zip 'dart-sdk/bin/snapshots/*' -d "$SNAPSHOTS_DIR"
-    rm dart-sdk.zip
-
-    # Create symlinks for non-AOT versions
-    ln -sf frontend_server_aot.dart.snapshot "$SNAPSHOTS_DIR/frontend_server.dart.snapshot" 2>/dev/null || true
-
-    echo "  ✓ Dart SDK snapshots installed"
-else
-    echo "  ✓ Dart SDK snapshots already exist"
-fi
-
 # 1.5b. Fix engine.stamp and engine.realm (required for Maven artifact resolution)
 echo "[1.5b/13] Fixing engine.stamp and engine.realm, and injecting framework version tag..."
+[ -s $FLUTTER_ROOT/bin/internal/engine.version ] || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab" > $FLUTTER_ROOT/bin/internal/engine.version
 cp $FLUTTER_ROOT/bin/internal/engine.version $FLUTTER_ROOT/bin/cache/engine.stamp 2>/dev/null || true
 echo -n > $FLUTTER_ROOT/bin/cache/engine.realm 2>/dev/null || true
 echo "  ✓ engine.stamp=$(cat $FLUTTER_ROOT/bin/cache/engine.stamp 2>/dev/null || echo 'unknown')"
@@ -600,12 +576,39 @@ if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     /data/data/com.termux/files/usr/bin/git init -q >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.email "termux@example.com" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.name "termux" >/dev/null 2>&1 || true
-    [ -s bin/internal/engine.version ] || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab" > bin/internal/engine.version
     /data/data/com.termux/files/usr/bin/git add bin/flutter bin/internal/engine.version >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git commit -q -m "Init framework" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
     echo "  ✓ Dummy tag $FLUTTER_VER created"
+fi
+
+# Get engine version for downloads
+ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab")
+
+# 0. 下載官方 Dart SDK snapshots (修復 flutter run hot reload)
+echo "[0/13] Downloading official Dart SDK snapshots (for hot reload)..."
+SNAPSHOTS_URL="https://storage.googleapis.com/flutter_infra_release/flutter/${ENGINE_VERSION}/dart-sdk-linux-arm64.zip"
+SNAPSHOTS_DIR=$DART_SDK/bin/snapshots
+
+# Check if key snapshot is missing
+if [ ! -f "$SNAPSHOTS_DIR/dds_aot.dart.snapshot" ]; then
+    echo "  Downloading dart-sdk-linux-arm64.zip..."
+    cd "${TMPDIR:-$PREFIX/tmp}"
+    ( set +e; curl -L -o dart-sdk.zip "$SNAPSHOTS_URL" >/dev/null 2>&1 ) || true
+    if [ -f dart-sdk.zip ]; then
+        echo "  Extracting snapshots..."
+        unzip -o -j dart-sdk.zip 'dart-sdk/bin/snapshots/*' -d "$SNAPSHOTS_DIR" 2>/dev/null || true
+        rm -f dart-sdk.zip
+        echo "  ✓ Dart SDK snapshots installed"
+    else
+        echo "  ⚠ Network unavailable, skipping Dart SDK snapshots download"
+    fi
+
+    # Create symlinks for non-AOT versions
+    ln -sf frontend_server_aot.dart.snapshot "$SNAPSHOTS_DIR/frontend_server.dart.snapshot" 2>/dev/null || true
+else
+    echo "  ✓ Dart SDK snapshots already exist"
 fi
 
 # 1. 清理 ELF 二進制的 DT_RPATH (修復 flutter run crash)
