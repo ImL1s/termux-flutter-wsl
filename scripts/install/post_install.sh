@@ -295,7 +295,7 @@ patch_plugin_utils() {
 register_patch "plugin_utils" "$FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/kotlin/FlutterPluginUtils.kt" patch_plugin_utils
 
 patch_flutter_cache() {
-    if grep -F -q "_platform.isAndroid ? 'linux'" "$1"; then return 0; fi
+    if grep -F -q "_platform.isAndroid" "$1"; then return 0; fi
     grep -q "artifacts\[_platform.operatingSystem\]" "$1" || return 1
     sed -i "s|final List<String>? binaryDirs = artifacts\[_platform.operatingSystem\];|final List<String>? binaryDirs = artifacts[_platform.isAndroid ? 'linux' : _platform.operatingSystem]; // Termux: map Android host to Linux artifacts|" "$1"
 }
