@@ -1017,19 +1017,19 @@ finalize_flutter_tools_cache() {
     # Compile snapshot with --snapshot-kind="app-jit" and --no-enable-mirrors matching shared.sh
     local COMPILE_OK=0
     if [ -f "$PKG_CONFIG" ]; then
-        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" >/dev/null 2>&1; then
+        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" < /dev/null >/dev/null 2>&1; then
             COMPILE_OK=1
         fi
     fi
     if [ "$COMPILE_OK" -ne 1 ]; then
-        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --no-enable-mirrors "$ENTRY_POINT" >/dev/null 2>&1; then
+        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --no-enable-mirrors "$ENTRY_POINT" < /dev/null >/dev/null 2>&1; then
             COMPILE_OK=1
         fi
     fi
 
     if [ "$COMPILE_OK" -ne 1 ] || [ ! -s "$SNAPSHOT_PATH" ]; then
         echo "  ❌ Error: Failed to compile flutter_tools.snapshot" >&2
-        "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" || true
+        "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" < /dev/null || true
         rm -f "$SNAPSHOT_PATH" "$STAMP_PATH"
         return 1
     fi
