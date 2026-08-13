@@ -578,28 +578,11 @@ else
     echo "  ✓ Dart SDK snapshots already exist"
 fi
 
-# 1. 清理 ELF 二進制的 DT_RPATH (修復 flutter run crash)
-echo "[1/13] Cleaning ELF binaries (fix flutter run)..."
-pkg install -y termux-elf-cleaner 2>/dev/null || true
-
-# Clean dart binaries to remove DT_RPATH warnings that crash flutter run
-if command -v termux-elf-cleaner &> /dev/null; then
-    echo "  Cleaning dart-sdk binaries..."
-    find $DART_SDK/bin -type f -executable 2>/dev/null | xargs -r termux-elf-cleaner 2>/dev/null || true
-
-    echo "  Cleaning engine artifacts..."
-    find $FLUTTER_ROOT/bin/cache/artifacts/engine -name "*.so" -o -name "gen_snapshot" -o -name "dart" 2>/dev/null | xargs -r termux-elf-cleaner 2>/dev/null || true
-
-    echo "  ✓ ELF binaries cleaned"
-else
-    echo "  ⚠ termux-elf-cleaner not found, skipping"
-fi
-
 # 1.5b. Fix engine.stamp and engine.realm (required for Maven artifact resolution)
 echo "[1.5b/13] Fixing engine.stamp and engine.realm, and injecting framework version tag..."
 cp $FLUTTER_ROOT/bin/internal/engine.version $FLUTTER_ROOT/bin/cache/engine.stamp 2>/dev/null || true
 echo -n > $FLUTTER_ROOT/bin/cache/engine.realm 2>/dev/null || true
-echo "  ✓ engine.stamp=$(cat $FLUTTER_ROOT/bin/cache/engine.stamp)"
+echo "  ✓ engine.stamp=$(cat $FLUTTER_ROOT/bin/cache/engine.stamp 2>/dev/null || echo 'unknown')"
 echo "  ✓ engine.realm cleared"
 
 if ! [ -d "$FLUTTER_ROOT/.git" ]; then
@@ -622,6 +605,25 @@ if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     /data/data/com.termux/files/usr/bin/git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
     echo "  ✓ Dummy tag $FLUTTER_VER created"
+fi
+
+# 1. 清理 ELF 二進制的 DT_RPATH (修復 flutter run crash)
+echo "[1/13] Cleaning ELF binaries (fix flutter run)..."
+if ! command -v termux-elf-cleaner &> /dev/null; then
+    ( set +e; pkg install -y termux-elf-cleaner >/dev/null 2>&1 ) || true
+fi
+
+# Clean dart binaries to remove DT_RPATH warnings that crash flutter run
+if command -v termux-elf-cleaner &> /dev/null; then
+    echo "  Cleaning dart-sdk binaries..."
+    find $DART_SDK/bin -type f -executable 2>/dev/null | xargs -r termux-elf-cleaner 2>/dev/null || true
+
+    echo "  Cleaning engine artifacts..."
+    find $FLUTTER_ROOT/bin/cache/artifacts/engine -name "*.so" -o -name "gen_snapshot" -o -name "dart" 2>/dev/null | xargs -r termux-elf-cleaner 2>/dev/null || true
+
+    echo "  ✓ ELF binaries cleaned"
+else
+    echo "  ⚠ termux-elf-cleaner not found, skipping"
 fi
 
 # 1.5d. Install Android SDK Platform 36 (Flutter 3.44.0 requirement)
