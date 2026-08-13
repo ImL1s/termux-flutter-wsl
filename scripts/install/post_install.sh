@@ -675,6 +675,14 @@ done
 echo "[1.5f/13] Generating flutter_tools package_config.json..."
 FLUTTER_TOOLS_DIR=$FLUTTER_ROOT/packages/flutter_tools
 PKG_CONFIG=$FLUTTER_TOOLS_DIR/.dart_tool/package_config.json
+
+# Rewrite WSL build machine paths in prebuilt package_config.json to local FLUTTER_ROOT
+if [ -f "$PKG_CONFIG" ]; then
+    echo "  Rewriting package_config.json paths to $FLUTTER_ROOT..."
+    sed -i "s|file://.*/flutter/|file://$FLUTTER_ROOT/|g" "$PKG_CONFIG" 2>/dev/null || true
+    echo "  ✓ package_config.json paths updated"
+fi
+
 if [ ! -f "$PKG_CONFIG" ]; then
     echo "  Running pub get for flutter_tools..."
     cd "$FLUTTER_TOOLS_DIR"
@@ -684,8 +692,6 @@ if [ ! -f "$PKG_CONFIG" ]; then
     else
         echo "  ⚠ Offline environment: package_config.json generation deferred"
     fi
-else
-    echo "  ✓ package_config.json already exists"
 fi
 
 # 2. 下載並安裝 Android API 34 (aapt2 bug workaround)
@@ -1023,6 +1029,7 @@ finalize_flutter_tools_cache() {
 
     if [ "$COMPILE_OK" -ne 1 ] || [ ! -s "$SNAPSHOT_PATH" ]; then
         echo "  ❌ Error: Failed to compile flutter_tools.snapshot" >&2
+        "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" || true
         rm -f "$SNAPSHOT_PATH" "$STAMP_PATH"
         return 1
     fi
