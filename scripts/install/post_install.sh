@@ -12,6 +12,7 @@ echo "=========================================="
 FLUTTER_ROOT="${FLUTTER_ROOT:-/data/data/com.termux/files/usr/opt/flutter}"
 ANDROID_SDK="${ANDROID_SDK:-/data/data/com.termux/files/usr/opt/android-sdk}"
 DART_SDK="${DART_SDK:-$FLUTTER_ROOT/bin/cache/dart-sdk}"
+export FLUTTER_PREBUILT_ENGINE_VERSION="${FLUTTER_PREBUILT_ENGINE_VERSION:-77e2e94772b6eb43759e34ed1ad7da4674e19cab}"
 
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 PATCH_STATE_FILE="${PATCH_STATE_FILE:-$PREFIX/share/flutter/patch_state.json}"

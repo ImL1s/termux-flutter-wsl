@@ -94,3 +94,16 @@ index 2d41ab695f5..25dfac64ead 100644
      return kLinuxExecutable;
    }
    if (platform.isMacOS) {
+diff --git a/bin/internal/update_engine_version.sh b/bin/internal/update_engine_version.sh
+index 5178550..4731872 100755
+--- a/bin/internal/update_engine_version.sh
++++ b/bin/internal/update_engine_version.sh
+@@ -53,8 +53,8 @@ if [ -n "${FLUTTER_PREBUILT_ENGINE_VERSION}" ]; then
+ # This is intended for a user-shipped stable or beta release, where the release
+ # has a specific (pinned) engine artifacts version.
+ #
+ # If set, it takes precedence over the git hash.
+-elif [ -n "$(git -C "$FLUTTER_ROOT" ls-files bin/internal/engine.version)" ]; then
+-  ENGINE_VERSION="$(< "$FLUTTER_ROOT/bin/internal/engine.version")"
++elif [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
++  ENGINE_VERSION="$(tr -d '\r\n' < "$FLUTTER_ROOT/bin/internal/engine.version")"
