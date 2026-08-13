@@ -1014,22 +1014,26 @@ finalize_flutter_tools_cache() {
         fi
     fi
 
+    # Ensure bin/cache directory exists
+    mkdir -p "$FLUTTER_ROOT/bin/cache"
+
     # Compile snapshot with --snapshot-kind="app-jit" and --no-enable-mirrors matching shared.sh
+    # Note: passing "--version" as argument allows flutter_tools.dart to execute and produce complete App-JIT snapshot
     local COMPILE_OK=0
     if [ -f "$PKG_CONFIG" ]; then
-        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" < /dev/null >/dev/null 2>&1; then
+        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" "--version" >/dev/null 2>&1; then
             COMPILE_OK=1
         fi
     fi
     if [ "$COMPILE_OK" -ne 1 ]; then
-        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --no-enable-mirrors "$ENTRY_POINT" < /dev/null >/dev/null 2>&1; then
+        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --no-enable-mirrors "$ENTRY_POINT" "--version" >/dev/null 2>&1; then
             COMPILE_OK=1
         fi
     fi
 
     if [ "$COMPILE_OK" -ne 1 ] || [ ! -s "$SNAPSHOT_PATH" ]; then
         echo "  ❌ Error: Failed to compile flutter_tools.snapshot" >&2
-        "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" < /dev/null || true
+        "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" "--version" || true
         rm -f "$SNAPSHOT_PATH" "$STAMP_PATH"
         return 1
     fi
