@@ -616,7 +616,8 @@ if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     /data/data/com.termux/files/usr/bin/git init -q >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.email "termux@example.com" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.name "termux" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git add bin/flutter >/dev/null 2>&1 || true
+    [ -s bin/internal/engine.version ] || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab" > bin/internal/engine.version
+    /data/data/com.termux/files/usr/bin/git add bin/flutter bin/internal/engine.version >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git commit -q -m "Init framework" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
