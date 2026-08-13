@@ -15,6 +15,7 @@ DART_SDK="${DART_SDK:-$FLUTTER_ROOT/bin/cache/dart-sdk}"
 export FLUTTER_PREBUILT_ENGINE_VERSION="${FLUTTER_PREBUILT_ENGINE_VERSION:-77e2e94772b6eb43759e34ed1ad7da4674e19cab}"
 
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+export PATH="$PREFIX/bin:$PATH"
 PATCH_STATE_FILE="${PATCH_STATE_FILE:-$PREFIX/share/flutter/patch_state.json}"
 BACKUP_DIR="${BACKUP_DIR:-$PREFIX/share/flutter/backups}"
 
@@ -983,7 +984,9 @@ finalize_flutter_tools_cache() {
     fi
 
     local REVISION=""
-    if command -v git >/dev/null 2>&1 && [ -d "$FLUTTER_ROOT/.git" ]; then
+    if [ -x "/data/data/com.termux/files/usr/bin/git" ] && [ -d "$FLUTTER_ROOT/.git" ]; then
+        REVISION=$(/data/data/com.termux/files/usr/bin/git -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || true)
+    elif command -v git >/dev/null 2>&1 && [ -d "$FLUTTER_ROOT/.git" ]; then
         REVISION=$(git -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || true)
     fi
     if [ -z "$REVISION" ] && [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
@@ -1005,15 +1008,15 @@ finalize_flutter_tools_cache() {
         fi
     fi
 
-    # Compile snapshot without ignoring errors
+    # Compile snapshot with --snapshot-kind="app-jit" and --no-enable-mirrors matching shared.sh
     local COMPILE_OK=0
     if [ -f "$PKG_CONFIG" ]; then
-        if "$DART_BIN" --snapshot="$SNAPSHOT_PATH" --packages="$PKG_CONFIG" "$ENTRY_POINT" >/dev/null 2>&1; then
+        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --packages="$PKG_CONFIG" --no-enable-mirrors "$ENTRY_POINT" >/dev/null 2>&1; then
             COMPILE_OK=1
         fi
     fi
     if [ "$COMPILE_OK" -ne 1 ]; then
-        if "$DART_BIN" --snapshot="$SNAPSHOT_PATH" "$ENTRY_POINT" >/dev/null 2>&1; then
+        if "$DART_BIN" --verbosity=error --snapshot="$SNAPSHOT_PATH" --snapshot-kind="app-jit" --no-enable-mirrors "$ENTRY_POINT" >/dev/null 2>&1; then
             COMPILE_OK=1
         fi
     fi
