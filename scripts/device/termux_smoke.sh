@@ -225,7 +225,10 @@ else
     echo "Warning: Configurator script not found at $CONFIG_SCRIPT"
 fi
 
-sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
+if [ -f android/gradlew ]; then
+    sed -i '1s|.*|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
+    chmod 755 android/gradlew
+fi
 if ! grep -q '^android.aapt2FromMavenOverride=' android/gradle.properties; then
     printf '\nandroid.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2\n' >> android/gradle.properties
 fi

@@ -563,10 +563,51 @@ local_eng_ver="$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | t
 echo -n "$local_eng_ver" > "$FLUTTER_ROOT/bin/cache/engine.stamp" 2>/dev/null || true
 echo -n "$local_eng_ver" > "$FLUTTER_ROOT/bin/cache/engine_stamp.stamp" 2>/dev/null || true
 echo -n > "$FLUTTER_ROOT/bin/cache/engine.realm" 2>/dev/null || true
+
+# Patch update_engine_version.sh to reliably read bin/internal/engine.version offline
+if [ -f "$FLUTTER_ROOT/bin/internal/update_engine_version.sh" ]; then
+    sed -i 's/elif.*ls-files.*engine.version.*/elif [ -f "$FLUTTER_ROOT\/bin\/internal\/engine.version" ]; then/' "$FLUTTER_ROOT/bin/internal/update_engine_version.sh" 2>/dev/null || true
+fi
+
 mkdir -p "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts"
 mkdir -p "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper"
-touch "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew.bat" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradle-wrapper.jar" 2>/dev/null || true
-chmod 755 "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+
+# Populate real gradle wrapper if missing or 0 bytes
+if [ ! -s "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradle-wrapper.jar" ]; then
+    echo "  Downloading Gradle Wrapper..."
+    WRAPPER_REL_PATH=""
+    if [ -f "$FLUTTER_ROOT/bin/internal/gradle_wrapper.version" ]; then
+        WRAPPER_REL_PATH="$(cat "$FLUTTER_ROOT/bin/internal/gradle_wrapper.version" | tr -d '\n\r')"
+    fi
+    if [ -n "$WRAPPER_REL_PATH" ]; then
+        cd "${TMPDIR:-$PREFIX/tmp}"
+        ( set +e; curl -s -L "https://storage.googleapis.com/$WRAPPER_REL_PATH" | tar -xz -C "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper" 2>/dev/null ) || true
+        rm -f "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradle-wrapper.properties" 2>/dev/null || true
+        rm -f "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/NOTICE" 2>/dev/null || true
+    fi
+fi
+if [ -f "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" ]; then
+    sed -i '1s|.*|#!/data/data/com.termux/files/usr/bin/bash|' "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+    chmod 755 "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+else
+    touch "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew.bat" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradle-wrapper.jar" 2>/dev/null || true
+    sed -i '1s|.*|#!/data/data/com.termux/files/usr/bin/bash|' "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+    chmod 755 "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+fi
+
+# Populate real material fonts if missing or empty
+if [ ! -d "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts" ] || [ -z "$(ls -A "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts" 2>/dev/null)" ]; then
+    echo "  Downloading Material Fonts..."
+    FONTS_REL_PATH=""
+    if [ -f "$FLUTTER_ROOT/bin/internal/material_fonts.version" ]; then
+        FONTS_REL_PATH="$(cat "$FLUTTER_ROOT/bin/internal/material_fonts.version" | tr -d '\n\r')"
+    fi
+    if [ -n "$FONTS_REL_PATH" ]; then
+        cd "${TMPDIR:-$PREFIX/tmp}"
+        ( set +e; curl -s -L "https://storage.googleapis.com/$FONTS_REL_PATH" -o fonts.zip 2>/dev/null && unzip -q -o fonts.zip -d "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts" 2>/dev/null && rm -f fonts.zip ) || true
+    fi
+fi
+
 for vfile in "$FLUTTER_ROOT"/bin/internal/*.version; do
     [ -f "$vfile" ] || continue
     vname=$(basename "$vfile" .version)
@@ -597,7 +638,7 @@ if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     /data/data/com.termux/files/usr/bin/git init -q >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.email "termux@example.com" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git config user.name "termux" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git add bin/flutter bin/internal/engine.version >/dev/null 2>&1 || true
+    /data/data/com.termux/files/usr/bin/git add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git commit -q -m "Init framework" >/dev/null 2>&1 || true
     /data/data/com.termux/files/usr/bin/git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
