@@ -1,0 +1,11 @@
+{
+  "version": "3.44.2",
+  "arch": "arm64",
+  "run_id": "31463327106",
+  "build_number": "21",
+  "source_commit": "05d9fbb1f1b1a3d397900a0692bd876cfb0cfd2d",
+  "tree_sha": "c246d50eb38e3c648662b1685df38c3faacd40e8",
+  "sha256": "bc31e594cb9f0ff6284ce3457e03c138dd486cfe20147571bd988f2d12b422e6",
+  "size_bytes": 161838444,
+  "build_duration_seconds": 2538
+}

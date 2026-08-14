@@ -10,7 +10,7 @@ This release updates the Termux Flutter SDK package to Flutter 3.44.2. It resolv
 |------|-------|
 | Package | `flutter_3.44.2_aarch64.deb` |
 | Size | 669,484,232 bytes (~638 MiB) |
-| SHA256 | `66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000` |
+| SHA256 | `f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e` |
 | Flutter | 3.44.2 |
 | Flutter Tools Dart | 3.12.1 |
 | Dart VM | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |

@@ -66,7 +66,7 @@ This repository packages a Flutter SDK for Termux ARM64:
 | Architecture | `aarch64` / `arm64-v8a` |
 | Release asset | [`flutter_3.44.2_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.2-termux) |
 | Size | `669,484,232` bytes |
-| SHA256 | `66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000` |
+| SHA256 | `f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e` |
 
 ### Device smoke test
 

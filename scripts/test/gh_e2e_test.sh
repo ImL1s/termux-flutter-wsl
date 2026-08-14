@@ -12,7 +12,7 @@ export HOME=/data/data/com.termux/files/home
 export TMPDIR=$PREFIX/tmp
 export RELEASE_TAG=${RELEASE_TAG:-v3.44.2-termux}
 export FLUTTER_VERSION=${FLUTTER_VERSION:-3.44.2}
-export EXPECTED_SHA256=${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}
+export EXPECTED_SHA256=${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e}}
 export DEB_NAME="flutter_${FLUTTER_VERSION}_aarch64.deb"
 export DEB_URL=${DEB_URL:-"https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/${DEB_NAME}"}
 
