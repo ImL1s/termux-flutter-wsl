@@ -595,7 +595,7 @@ class Build:
                     pass
 
         if not applied_patches:
-            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=True)), None)
+            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=False)), None)
             if dirty_repo:
                 return {
                     'valid': False,
@@ -618,7 +618,7 @@ class Build:
                 target_repo.git.apply(['--reverse', str(p_file)])
                 reversed_successfully.append((k, p_file, p_target, target_repo))
 
-            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=True)), None)
+            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=False)), None)
             if dirty_repo:
                 return {
                     'valid': False,
