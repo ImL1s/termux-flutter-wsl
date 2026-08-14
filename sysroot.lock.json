@@ -1,7 +1,7 @@
 {
   "aarch64": {
     "arch": "arm64",
-    "created_at": "2026-08-13T09:25:47.909618+00:00",
+    "created_at": "2026-08-14T09:54:26.558315+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -124,14 +124,14 @@
         "version": "1.26-1"
       },
       "gdk-pixbuf": {
-        "archive_path": "pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.7_aarch64.deb",
+        "archive_path": "pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.8_aarch64.deb",
         "dist": "stable",
         "name": "gdk-pixbuf",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "c799fa9f08c6456d1187a35bab38ab32b8cb20a713b4eef3fbab95b094b0fc55",
-        "size": 153324,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.7_aarch64.deb",
-        "version": "2.44.7"
+        "sha256": "213da5186fc4ccca336ee7debf150c01c8de72ecb9575950d58f55e535267795",
+        "size": 153228,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.8_aarch64.deb",
+        "version": "2.44.8"
       },
       "glib": {
         "archive_path": "pool/main/g/glib/glib_2.88.3_aarch64.deb",
@@ -854,11 +854,11 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "2df7479c8de129fd3da3b6e4c7a5ca35dab4a4aaec9ee084e7997926e97080ce"
+    "tree_hash": "7df466cf6f0f71e1b824b938dbb8b3bb5a8d8aa2e0634e312d840a81cb19d60f"
   },
   "arm64": {
     "arch": "arm64",
-    "created_at": "2026-08-13T09:25:47.909618+00:00",
+    "created_at": "2026-08-14T09:54:26.558315+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -981,14 +981,14 @@
         "version": "1.26-1"
       },
       "gdk-pixbuf": {
-        "archive_path": "pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.7_aarch64.deb",
+        "archive_path": "pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.8_aarch64.deb",
         "dist": "stable",
         "name": "gdk-pixbuf",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "c799fa9f08c6456d1187a35bab38ab32b8cb20a713b4eef3fbab95b094b0fc55",
-        "size": 153324,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.7_aarch64.deb",
-        "version": "2.44.7"
+        "sha256": "213da5186fc4ccca336ee7debf150c01c8de72ecb9575950d58f55e535267795",
+        "size": 153228,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.8_aarch64.deb",
+        "version": "2.44.8"
       },
       "glib": {
         "archive_path": "pool/main/g/glib/glib_2.88.3_aarch64.deb",
@@ -1711,6 +1711,6 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "2df7479c8de129fd3da3b6e4c7a5ca35dab4a4aaec9ee084e7997926e97080ce"
+    "tree_hash": "7df466cf6f0f71e1b824b938dbb8b3bb5a8d8aa2e0634e312d840a81cb19d60f"
   }
 }

@@ -430,23 +430,18 @@ class Sysroot:
                 locked_pkgs = await _resolve_packages(sess, arch, self.data)
 
                 # Assemble in temporary staging to compute exact tree_hash
-                with tempfile.TemporaryDirectory() as tmp_debs:
+                with tempfile.TemporaryDirectory() as tmp_debs, tempfile.TemporaryDirectory() as tmp_staging:
                     debs = await _spawn([
                         _download(sess, pkg['url'], pkg.get('sha256'), tmp_debs)
                         for pkg in locked_pkgs.values()
                     ])
-                    staging_tmp = self.path.parent / f"{self.path.name}.lock_staging"
-                    _safe_rmtree(staging_tmp)
-                    staging_tmp.mkdir(parents=True, exist_ok=True)
-                    try:
-                        for deb in debs:
-                            _extract(staging_tmp, deb)
+                    staging_tmp = pathlib.Path(tmp_staging)
+                    for deb in debs:
+                        _extract(staging_tmp, deb)
 
-                        _normalize_pthread_shim(staging_tmp)
-                        _apply_sysroot_transformations(staging_tmp)
-                        tree_hash = compute_tree_hash(staging_tmp)
-                    finally:
-                        _safe_rmtree(staging_tmp)
+                    _normalize_pthread_shim(staging_tmp)
+                    _apply_sysroot_transformations(staging_tmp)
+                    tree_hash = compute_tree_hash(staging_tmp)
 
                 lock_data = {}
                 if self.lock_file.exists():
