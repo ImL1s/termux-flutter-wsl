@@ -594,8 +594,19 @@ class Build:
                 except Exception:
                     pass
 
+        def _is_repo_dirty(r: git.Repo) -> bool:
+            if r.is_dirty(untracked_files=False):
+                return True
+            ignored_prefixes = ('.gclient', '.gclient_sync', 'build/config/termux', 'build/toolchain/termux')
+            ignored_suffixes = ('.receipt.json',)
+            untracked = [
+                f for f in r.untracked_files
+                if not (f.startswith(ignored_prefixes) or f.endswith(ignored_suffixes))
+            ]
+            return len(untracked) > 0
+
         if not applied_patches:
-            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=False)), None)
+            dirty_repo = next((r for r in all_repos if _is_repo_dirty(r)), None)
             if dirty_repo:
                 return {
                     'valid': False,
@@ -618,7 +629,7 @@ class Build:
                 target_repo.git.apply(['--reverse', str(p_file)])
                 reversed_successfully.append((k, p_file, p_target, target_repo))
 
-            dirty_repo = next((r for r in all_repos if r.is_dirty(untracked_files=False)), None)
+            dirty_repo = next((r for r in all_repos if _is_repo_dirty(r)), None)
             if dirty_repo:
                 return {
                     'valid': False,
