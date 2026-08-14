@@ -312,13 +312,41 @@ def _normalize_pthread_shim(staging_root: pathlib.Path) -> pathlib.Path:
                         dst_file.unlink()
                     except OSError:
                         pass
-                shutil.move(str(src_file), str(dst_file))
+                if src_file.is_symlink():
+                    link_target = os.readlink(src_file)
+                    try:
+                        dst_file.symlink_to(link_target)
+                    except OSError:
+                        shutil.move(str(src_file), str(dst_file))
+                    try:
+                        src_file.unlink()
+                    except OSError:
+                        pass
+                else:
+                    shutil.move(str(src_file), str(dst_file))
             for d in dirs:
-                dir_to_remove = pathlib.Path(root) / d
-                try:
-                    dir_to_remove.rmdir()
-                except OSError:
-                    pass
+                dir_path = pathlib.Path(root) / d
+                if dir_path.is_symlink():
+                    dst_symlink = target_dir / d
+                    if dst_symlink.exists() or dst_symlink.is_symlink():
+                        try:
+                            dst_symlink.unlink()
+                        except OSError:
+                            pass
+                    link_target = os.readlink(dir_path)
+                    try:
+                        dst_symlink.symlink_to(link_target)
+                    except OSError:
+                        pass
+                    try:
+                        dir_path.unlink()
+                    except OSError:
+                        pass
+                else:
+                    try:
+                        dir_path.rmdir()
+                    except OSError:
+                        pass
         try:
             usr.rmdir()
         except OSError:

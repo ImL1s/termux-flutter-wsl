@@ -501,13 +501,14 @@ fi
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 MOD_FILES_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${MODIFIED_FILES[@]}")
 CREATED_FILES_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${CREATED_FILES[@]}")
+AAPT2_PATH_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1]))" "$TERMUX_AAPT2")
 cat > "$STATE_FILE" << EOF
 {
   "status": "configured",
   "timestamp": "$TIMESTAMP",
   "modified_files": $MOD_FILES_JSON,
   "created_files": $CREATED_FILES_JSON,
-  "aapt2_path": "$TERMUX_AAPT2"
+  "aapt2_path": $AAPT2_PATH_JSON
 }
 EOF
 

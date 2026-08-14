@@ -677,3 +677,30 @@ def test_atomic_activation_mid_download_failure_preserves_active(tmp_path):
     assert sysroot_dir.exists()
     assert (sysroot_dir / "usr" / "lib" / "active_file.txt").read_text() == "active_state_original"
     assert compute_tree_hash(sysroot_dir) == orig_hash
+
+
+def test_normalize_pthread_shim_preserves_directory_and_file_symlinks(tmp_path):
+    """Proves usr migration preserves directory symlinks (e.g. lib64 -> lib) and file symlinks."""
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    usr = staging / "usr"
+    usr_lib = usr / "lib"
+    usr_lib.mkdir(parents=True)
+    (usr_lib / "libactual.so").write_text("actual library content")
+
+    try:
+        # Create directory symlink lib64 -> lib
+        (usr / "lib64").symlink_to("lib", target_is_directory=True)
+        # Create file symlink liblink.so -> libactual.so
+        (usr_lib / "liblink.so").symlink_to("libactual.so")
+    except OSError:
+        pytest.skip("Symlink creation not permitted in this test environment")
+
+    sysroot._normalize_pthread_shim(staging)
+
+    termux_usr = staging / "data" / "data" / "com.termux" / "files" / "usr"
+    assert termux_usr.exists()
+    assert (termux_usr / "lib" / "libactual.so").read_text() == "actual library content"
+    assert (termux_usr / "lib64").is_symlink()
+    assert (termux_usr / "lib" / "liblink.so").is_symlink()
+

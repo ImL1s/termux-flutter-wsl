@@ -794,3 +794,16 @@ def test_mode_a_mode_b_selection(tmp_path):
     # Test 3: Explicit --mode=B
     subprocess.run(["bash", to_bash_path(CONFIG_SCRIPT), "--mode=B", to_bash_path(proj)], check=True)
     assert "Android/Sdk/build-tools/35.0.0/aapt2" in gradle_props.read_text() or "android-sdk/build-tools/35.0.0/aapt2" in gradle_props.read_text()
+
+    # Test 4: Custom path with quotes / JSON special characters
+    special_path = '/opt/custom "quoted"/aapt2'
+    subprocess.run(["bash", to_bash_path(CONFIG_SCRIPT), f"--aapt2={special_path}", to_bash_path(proj)], check=True)
+    state_file = proj / ".termux_project_config.json"
+    assert state_file.exists()
+    state_data = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state_data["aapt2_path"] == special_path
+
+    # Rollback succeeds with special character state file
+    subprocess.run(["bash", to_bash_path(CONFIG_SCRIPT), "--rollback", to_bash_path(proj)], check=True)
+    assert not state_file.exists()
+
