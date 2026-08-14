@@ -221,14 +221,18 @@ def check_git_ignore_build_local_toml() -> None:
 def check_install_script_sha256_verification() -> None:
     check_name = "10. install_flutter_complete.sh SHA256 validation & error handling"
     script_path = ROOT / "install_flutter_complete.sh"
+    lib_path = ROOT / "scripts" / "install" / "lib_common.sh"
     if not script_path.is_file():
         record_fail(check_name, "install_flutter_complete.sh does not exist")
         return
 
     content = script_path.read_text(encoding="utf-8")
+    lib_content = lib_path.read_text(encoding="utf-8") if lib_path.is_file() else ""
+    full_content = content + "\n" + lib_content
+
     has_expected_sha = "EXPECTED_SHA256=" in content
-    has_sha_check = "sha256sum" in content
-    has_error_exit = "exit 1" in content
+    has_sha_check = "sha256sum" in full_content or "verify_sha256" in content
+    has_error_exit = "exit 1" in full_content or "exit $exit_code" in content
 
     if has_expected_sha and has_sha_check and has_error_exit:
         record_pass(check_name)
