@@ -65,7 +65,7 @@ Flutter 官方 SDK 支援 ARM64 target，不代表可以直接把 Flutter SDK �
 | Dart | `3.12.1` |
 | 架構 | `aarch64` / `arm64-v8a` |
 | Release asset | [`flutter_3.44.2_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.2-termux) |
-| Size | `669,484,232` bytes |
+| Size | `177,161,976` bytes (~169 MiB) |
 | SHA256 | `f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e` |
 
 ### 實機 smoke test

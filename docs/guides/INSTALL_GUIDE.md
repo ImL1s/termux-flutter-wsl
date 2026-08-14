@@ -16,7 +16,7 @@
 | Flutter Tools Dart | 3.12.1 |
 | Dart VM (`dartvm`) | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | 測試設備 | Samsung SM-X716B / Android 16 / ARM64 |
-| deb size | 669,484,232 bytes（約 638 MiB） |
+| deb size | 177,161,976 bytes（約 169 MiB） |
 | SHA256 | `f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e` |
 
 ## 系統需求
