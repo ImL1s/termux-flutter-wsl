@@ -58,7 +58,7 @@ def require_file(path: str) -> None:
 
 def check_markdown_fences() -> None:
     for path in sorted(ROOT.glob("**/*.md")):
-        if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc"} for part in path.parts):
+        if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc", ".agents", "scratch"} for part in path.parts):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         if text.count("```") % 2:
@@ -68,7 +68,7 @@ def check_markdown_fences() -> None:
 def check_markdown_links() -> None:
     link_pattern = re.compile(r"\[[^\]]+\]\(([^)\s]+\.md(?:#[^)]+)?)\)")
     for path in sorted(ROOT.glob("**/*.md")):
-        if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc"} for part in path.parts):
+        if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc", ".agents", "scratch"} for part in path.parts):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         for match in link_pattern.finditer(text):
@@ -276,6 +276,7 @@ def check_test_modules_and_ci_steps() -> None:
         "tests/test_build_pipeline.py",
         "tests/test_package.py",
         "tests/test_ci.py",
+        "tests/test_r4_release_governance.py",
     ]
     for test_mod in required_test_modules:
         require_file(test_mod)

@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sys
 import json
@@ -429,3 +430,146 @@ def test_post_install_ndk_backup_and_restore(tmp_path):
 
     # 3. Assert original clang binary content was restored
     assert orig_clang.read_text(encoding="utf-8") == "original_clang_binary"
+
+
+def test_installer_preexisting_ndk_byte_exact_rollback_on_failure(tmp_path):
+    """Verify pre-existing NDK files modified by configure_ndk_clang are 100% byte-identically restored on failure (#47)."""
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+
+    # 1. Setup pre-existing NDK
+    android_home = prefix / "opt" / "android-sdk"
+    ndk_version = "29.0.14206865"
+    ndk_dir = android_home / "ndk" / ndk_version
+    prebuilt_bin = ndk_dir / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin"
+    prebuilt_lib = ndk_dir / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "sysroot" / "usr" / "lib" / "aarch64-linux-android" / "34"
+    cmake_dir = ndk_dir / "build" / "cmake"
+
+    prebuilt_bin.mkdir(parents=True, exist_ok=True)
+    prebuilt_lib.mkdir(parents=True, exist_ok=True)
+    cmake_dir.mkdir(parents=True, exist_ok=True)
+
+    orig_files = {
+        prebuilt_bin / "clang": b"PREBUILT_CLANG_ORIGINAL_BINARY_v29_PAYLOAD_ABC123\n",
+        prebuilt_bin / "clang++": b"PREBUILT_CLANGPP_ORIGINAL_BINARY_v29_PAYLOAD_DEF456\n",
+        prebuilt_lib / "libc++_shared.so": b"PREBUILT_LIBCXX_SHARED_REAL_ELF_SO_BYTES\n",
+        cmake_dir / "android-legacy.toolchain.cmake": b'set(CMAKE_SYSTEM_NAME Android)\nlist(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")\n# end\n',
+    }
+
+    for p, content in orig_files.items():
+        p.write_bytes(content)
+
+    orig_hashes = {p: hashlib.sha256(content).hexdigest() for p, content in orig_files.items()}
+
+    # 2. Run installer in subshell, simulate failure after configure_ndk_clang
+    rel_script = script_copy.relative_to(tmp_path)
+    env = os.environ.copy()
+    env["PREFIX"] = to_wsl_posix(prefix)
+    env["HOME"] = to_wsl_posix(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+
+    android_home_posix = to_wsl_posix(android_home)
+    ndk_posix = to_wsl_posix(ndk_dir)
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_posix = to_wsl_posix(backup_dir)
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"ANDROID_HOME='{android_home_posix}'; "
+        f"NDK_VERSION='{ndk_version}'; "
+        f"NDK_PATH='{ndk_posix}'; "
+        f"NDK_PREEXISTING=true; "
+        f"BACKUP_DIR='{backup_posix}'; "
+        f"MUTATION_STARTED=true; "
+        f"configure_ndk_clang '{ndk_posix}'; "
+        f"INSTALL_FAILED=true; "
+        f"(exit 60); "
+        f"cleanup_and_exit"
+    ]
+
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 60, f"Expected returncode 60, got {res.returncode}. Output:\n{res.stdout}\n{res.stderr}"
+
+    # 3. Assert 100% byte-exact restoration of every NDK file
+    for p, orig_content in orig_files.items():
+        assert p.exists(), f"File {p} was not restored!"
+        current_content = p.read_bytes()
+        current_hash = hashlib.sha256(current_content).hexdigest()
+        assert current_hash == orig_hashes[p], (
+            f"File {p} failed byte-exact restoration!\n"
+            f"Expected SHA: {orig_hashes[p]}\n"
+            f"Actual SHA  : {current_hash}\n"
+            f"Content diff:\n{current_content.decode('utf-8', errors='ignore')}"
+        )
+
+
+def test_installer_ndk_staging_extraction_failure_cleans_up(tmp_path):
+    """Verify that simulated NDK staging extraction failure cleans up staging directories and leaves no corrupted NDK (#47, #55)."""
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+
+    android_home = prefix / "opt" / "android-sdk"
+    android_home.mkdir(parents=True, exist_ok=True)
+
+    # Mock 7z failure
+    mock_7z = bin_dir / "7z"
+    mock_7z.write_bytes(
+        b"#!/bin/sh\n"
+        b"# Simulate corrupt extraction failure\n"
+        b"for arg in \"$@\"; do\n"
+        b"  case \"$arg\" in -o*) out_dir=\"${arg#-o}\"; mkdir -p \"$out_dir/android-ndk-r29/partial\"; touch \"$out_dir/android-ndk-r29/partial/corrupt.bin\" ;; esac\n"
+        b"done\n"
+        b"echo '7z: Extraction error - corrupt header' >&2\n"
+        b"exit 1\n"
+    )
+    mock_7z.chmod(0o755)
+
+    rel_script = script_copy.relative_to(tmp_path)
+    env = os.environ.copy()
+    env["PREFIX"] = to_wsl_posix(prefix)
+    env["HOME"] = to_wsl_posix(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+
+    android_home_posix = to_wsl_posix(android_home)
+    work_dir = tmp_path / "work_staging"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    work_posix = to_wsl_posix(work_dir)
+    archive_posix = to_wsl_posix(work_dir / "dummy_ndk.7z")
+    stage_posix = to_wsl_posix(work_dir / "ndk_stage")
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"ANDROID_HOME='{android_home_posix}'; "
+        f"NDK_VERSION='29.0.14206865'; "
+        f"NDK_PATH='{android_home_posix}/ndk/29.0.14206865'; "
+        f"NDK_PREEXISTING=false; "
+        f"WORK_DIR='{work_posix}'; "
+        f"NDK_ARCHIVE='{archive_posix}'; touch '{archive_posix}'; "
+        f"MUTATION_STARTED=true; "
+        # Run staging extraction block
+        f"NDK_STAGE='{stage_posix}'; "
+        f"rm -rf '{stage_posix}' 2>/dev/null || true; "
+        f"mkdir -p '{stage_posix}'; "
+        f"if ! 7z x -y '{archive_posix}' '-o{stage_posix}' >/dev/null; then "
+        f"    rm -rf '{stage_posix}' 2>/dev/null || true; "
+        f"    INSTALL_FAILED=true; "
+        f"    (exit 40); "
+        f"    cleanup_and_exit; "
+        f"fi"
+    ]
+
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 40, f"Expected returncode 40, got {res.returncode}. Output:\n{res.stdout}\n{res.stderr}"
+
+    # Assert destination NDK directories do not exist
+    assert not (android_home / "ndk" / "29.0.14206865").exists()
+    assert not (android_home / "ndk" / "android-ndk-r29").exists()

@@ -18,23 +18,66 @@ from pathlib import Path
 
 
 
+EXCLUDED_DIR_NAMES = {
+    '.git', '.cache', '__pycache__', '.pytest_cache',
+    '.gradle', '.idea', '.vscode', 'engine', 'depot_tools',
+    'staging', 'out', '.build'
+}
+EXCLUDED_FILE_SUFFIXES = ('.pyc', '.pyo', '.swp')
+ALLOWED_OUTPUT_ATTRS = {'debug', 'release', 'profile', 'any'}
+KNOWN_EXECUTABLES = {
+    'dart', 'dartvm', 'dartaotruntime', 'gen_snapshot',
+    'impellerc', 'flutter_tester', 'font-subset',
+    'flutter_linux', 'flutter'
+}
+
+
+def is_executable_target(out_path: Path | str, mod: int | None = None) -> bool:
+    if mod is not None and (mod & 0o111 != 0):
+        return True
+    path = Path(out_path)
+    name = path.name
+    if name in KNOWN_EXECUTABLES or name.endswith('.sh'):
+        return True
+    if 'bin' in path.parts and not name.endswith(('.dill', '.snapshot', '.dat', '.json', '.yaml', '.txt', '.h', '.cc', '.a', '.so')):
+        return True
+    return False
+
+
+def validate_target_path(out: Path | str) -> Path:
+    """Validate target packaging path to prevent path traversal (.. or absolute paths)."""
+    out_str = str(out).replace('\\', '/')
+    if out_str.startswith('/') or re.match(r'^[a-zA-Z]:', out_str):
+        raise ValueError(f"Absolute target path not allowed in package archive: '{out}'")
+    norm = os.path.normpath(out_str).replace('\\', '/')
+    parts = norm.split('/')
+    if parts[0] == '..' or any(part == '..' for part in parts):
+        raise ValueError(f"Path traversal detected in target output path: '{out}'")
+    if os.path.isabs(norm) or norm.startswith('/'):
+        raise ValueError(f"Absolute target path not allowed in package archive: '{out}'")
+    return Path(norm)
+
+
 def explore_file(src: Path):
     assert src.exists()
-
-    EXCLUDED_DIR_NAMES = {'.git', 'engine', 'depot_tools', 'staging', 'out', '.build'}
 
     if src.is_dir():
         for root, dirs, files in os.walk(src):
             rel = Path(root).relative_to(src)
-            # Exclude giant build trees, .git, engine, depot_tools, staging from general SDK traversal
-            dirs[:] = [
+            # Exclude giant build trees, hidden caches, .git, etc.
+            dirs[:] = sorted([
                 d for d in dirs
                 if d not in EXCLUDED_DIR_NAMES
                 and not (d == 'src' and rel.as_posix().endswith('engine'))
-            ]
+            ])
+            filtered_files = sorted([
+                f for f in files
+                if not f.endswith(EXCLUDED_FILE_SUFFIXES)
+                and f != '.DS_Store'
+            ])
             for it in dirs:
                 yield rel / it
-            for it in files:
+            for it in filtered_files:
                 yield rel / it
 
 
@@ -62,18 +105,25 @@ def emit(out, src, git):
             'src': src/it}
 
 
-def safe_eval(expr, globals_dict, defines_dict=None):
+def safe_eval(expr, globals_dict, defines_dict=None, depth=0, max_depth=10):
     if not isinstance(expr, str):
         return expr
+    if depth > max_depth:
+        raise ValueError(f"Recursion depth limit exceeded while evaluating expression: '{expr}'")
     context = {**globals_dict, **(defines_dict or {})}
     if expr.startswith("f'") and expr.endswith("'"):
         inner = expr[2:-1]
         def replace(match):
-            var = match.group(1)
+            var = match.group(1).strip()
+            if var.startswith('output.'):
+                attr = var.split('.', 1)[1]
+                if attr not in ALLOWED_OUTPUT_ATTRS and not (hasattr(context.get('output'), attr) and not attr.startswith('_')):
+                    raise ValueError(f"Unauthorized or invalid output attribute: '{attr}'")
+                return str(getattr(context['output'], attr))
             if var in context:
                 val = context[var]
                 if isinstance(val, str) and (val.startswith("f'") or val.startswith("'") or val.startswith('"')):
-                    return str(safe_eval(val, globals_dict, defines_dict))
+                    return str(safe_eval(val, globals_dict, defines_dict, depth=depth + 1, max_depth=max_depth))
                 return str(val)
             return f'{{{var}}}'
         return re.sub(r'\{([^}]+)\}', replace, inner)
@@ -83,11 +133,13 @@ def safe_eval(expr, globals_dict, defines_dict=None):
         return expr[1:-1]
     elif expr.startswith('output.'):
         attr = expr.split('.', 1)[1]
+        if attr not in ALLOWED_OUTPUT_ATTRS and not (hasattr(context.get('output'), attr) and not attr.startswith('_')):
+            raise ValueError(f"Unauthorized or invalid output attribute: '{attr}'")
         return getattr(context['output'], attr)
     else:
         val = context.get(expr, expr)
         if isinstance(val, str) and val != expr and (val.startswith("f'") or val.startswith("'") or val.startswith('"')):
-            return safe_eval(val, globals_dict, defines_dict)
+            return safe_eval(val, globals_dict, defines_dict, depth=depth + 1, max_depth=max_depth)
         return val
 
 
@@ -127,7 +179,10 @@ def add_bin(tar, out, src, mod=None):
     add_dir(tar, out.parent)
 
     info = tarfile.TarInfo(str(out))
-    info.mode = mod or 0o644
+    if is_executable_target(out, mod):
+        info.mode = mod or 0o755
+    else:
+        info.mode = mod or 0o644
     info.size = len(src)
     reset(info)
     tar.addfile(info, io.BytesIO(src))
@@ -140,7 +195,10 @@ def add_file(tar, out, src, mod=None):
     add_dir(tar, out.parent)
 
     info = tar.gettarinfo(src, out)
-    info.mode = mod or info.mode
+    if is_executable_target(out, mod):
+        info.mode = mod or 0o755
+    else:
+        info.mode = mod or (0o755 if info.isdir() else 0o644)
     reset(info)
 
     with open(src, 'rb') as f:
@@ -179,7 +237,7 @@ def tar(path, data):
             src = it.get('src')
             mod = it.get('mod')
             assert out, f'bad out field: "{out}"'
-            out = Path(out)
+            out = validate_target_path(out)
             assert mod is None or isinstance(mod, int)
 
             if isinstance(src, bytes):
@@ -383,6 +441,8 @@ class Package(object):
             for it in self.gen_resource(section):
                 src = it.get('src')
                 out = it.get('out')
+                if out is not None:
+                    out = validate_target_path(out)
                 mod = it.get('mod')
                 rule = it.get('rule', 'unknown')
                 replace = it.get('replace', False)
@@ -445,7 +505,8 @@ class Package(object):
                     'inv': f"{out}\t{sha}\t{size}\t{mod if mod else '-'}"
                 }
 
-            for out_str, data_info in seen_outputs.items():
+            for out_str in sorted(seen_outputs.keys()):
+                data_info = seen_outputs[out_str]
                 inventory.append(data_info['inv'])
                 yield data_info['item']
 

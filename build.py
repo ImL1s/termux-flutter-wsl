@@ -1521,7 +1521,7 @@ class Build:
 
         if deb_file.exists():
             deb_mtime = deb_file.stat().st_mtime
-            all_tracked_inputs = debug_outputs + release_outputs + profile_outputs + [android_rel_gen, android_prof_gen] + package_inputs
+            all_tracked_inputs = debug_outputs + release_outputs + profile_outputs + [android_rel_gen, android_prof_gen] + list(package_inputs)
             for artifact in all_tracked_inputs:
                 if artifact.exists() and artifact.stat().st_mtime > deb_mtime:
                     deb_stale = True

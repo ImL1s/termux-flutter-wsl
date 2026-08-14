@@ -176,7 +176,7 @@ def test_sysroot_build_locked_tree_hash_mismatch(tmp_path):
             "arch": "arm64",
             "tree_hash": "0" * 64,  # Intentionally wrong hash
             "packages": {
-                "dummy": {"name": "dummy", "url": "http://x/dummy.deb", "sha256": "abc"}
+                "dummy": {"name": "dummy", "url": "http://x/dummy.deb", "sha256": "0" * 64}
             }
         }
     }
@@ -206,7 +206,7 @@ def test_sysroot_build_locked_sha256_mismatch(tmp_path):
             "arch": "arm64",
             "tree_hash": "1" * 64,
             "packages": {
-                "dummy": {"name": "dummy", "url": "http://x/dummy.deb", "sha256": "expected_hash"}
+                "dummy": {"name": "dummy", "url": "http://x/dummy.deb", "sha256": "0" * 64}
             }
         }
     }
@@ -240,7 +240,7 @@ def test_sysroot_build_locked_success(tmp_path):
             "arch": "arm64",
             "tree_hash": expected_hash,
             "packages": {
-                "dummy": {"name": "dummy", "url": "http://x/dummy.deb", "sha256": "abc"}
+                "dummy": {"name": "dummy", "url": "http://x/dummy.deb", "sha256": "0" * 64}
             }
         }
     }
@@ -279,7 +279,7 @@ def test_sysroot_lock_generation(tmp_path):
             "name": "dummy",
             "version": "1.0",
             "url": "http://x/dummy.deb",
-            "sha256": "abc",
+            "sha256": "0" * 64,
             "size": 100,
             "archive_path": "dummy.deb",
             "repo": "http://x",
@@ -535,3 +535,172 @@ def test_locked_build_and_verify_success(tmp_path, monkeypatch):
     monkeypatch.setattr(s, "build", mock_build)
     s.build(arch="arm64", locked=True)
     assert s.verify() is True
+
+
+def test_tree_hash_symlink_backslash_normalization(tmp_path):
+    """Prove compute_tree_hash normalizes symlink targets with backslashes vs forward slashes to identical hashes."""
+    d1 = tmp_path / "tree1"
+    d2 = tmp_path / "tree2"
+    d1.mkdir()
+    d2.mkdir()
+
+    (d1 / "sub").mkdir()
+    (d1 / "sub" / "target.txt").write_text("hello")
+    (d2 / "sub").mkdir()
+    (d2 / "sub" / "target.txt").write_text("hello")
+
+    link1 = d1 / "link.txt"
+    link2 = d2 / "link.txt"
+
+    if hasattr(os, "symlink"):
+        try:
+            link1.symlink_to("sub/target.txt")
+            link2.symlink_to("sub/target.txt")
+        except OSError:
+            pytest.skip("Symlink creation not supported in test environment")
+
+        # Mock os.readlink for link2 to simulate a Windows backslash symlink target
+        orig_readlink = os.readlink
+        def mock_readlink(path):
+            res = orig_readlink(path)
+            if "tree2" in str(path):
+                return str(res).replace('/', '\\')
+            return res
+
+        with patch("os.readlink", side_effect=mock_readlink):
+            h1 = compute_tree_hash(d1)
+            h2 = compute_tree_hash(d2)
+            assert h1 == h2, f"Tree hashes must match despite backslash targets: {h1} != {h2}"
+
+
+def test_sysroot_build_locked_missing_or_invalid_package_sha256(tmp_path):
+    """Sysroot.build(locked=True) must fail fast with RuntimeError when a package entry has empty or invalid sha256."""
+    sysroot_dir = tmp_path / "sysroot"
+    lock_file = tmp_path / "sysroot.lock.json"
+
+    # Case 1: Empty sha256 string
+    lock_data_empty = {
+        "arm64": {
+            "arch": "arm64",
+            "tree_hash": "0" * 64,
+            "packages": {
+                "bad_pkg": {"name": "bad_pkg", "url": "http://x/bad.deb", "sha256": ""}
+            }
+        }
+    }
+    lock_file.write_text(json.dumps(lock_data_empty))
+    s = Sysroot(path=str(sysroot_dir))
+    s.lock_file = lock_file
+    s.data = {"main": {"repo": "http://x", "dist": "d", "pkgs": ["bad_pkg"]}}
+
+    with patch("sysroot._is_file_uncommitted", return_value=False):
+        with pytest.raises(RuntimeError, match="invalid or missing sha256"):
+            s.build(arch="arm64", locked=True)
+
+    # Case 2: Malformed non-64-hex sha256
+    lock_data_malformed = {
+        "arm64": {
+            "arch": "arm64",
+            "tree_hash": "0" * 64,
+            "packages": {
+                "bad_pkg": {"name": "bad_pkg", "url": "http://x/bad.deb", "sha256": "not_a_valid_sha256"}
+            }
+        }
+    }
+    lock_file.write_text(json.dumps(lock_data_malformed))
+    with patch("sysroot._is_file_uncommitted", return_value=False):
+        with pytest.raises(RuntimeError, match="invalid or missing sha256"):
+            s.build(arch="arm64", locked=True)
+
+
+def test_normalize_pthread_shim_recovers_physical_usr_dir(tmp_path):
+    """Prove _normalize_pthread_shim migrates files from physical usr/ dir into termux path and replaces usr with relative symlink."""
+    staging = tmp_path / "staging_with_physical_usr"
+    staging.mkdir()
+
+    physical_usr = staging / "usr"
+    (physical_usr / "lib").mkdir(parents=True)
+    (physical_usr / "include").mkdir(parents=True)
+    (physical_usr / "lib" / "libsample.a").write_bytes(b"SAMPLE_ARCHIVE")
+    (physical_usr / "include" / "sample.h").write_text("#pragma once")
+
+    # Call normalization
+    shim = sysroot._normalize_pthread_shim(staging)
+    assert shim.exists()
+    assert shim.read_bytes() == b"INPUT(-lc)"
+
+    # Verify usr is converted to symlink pointing to relative Termux path
+    usr_entry = staging / "usr"
+    assert usr_entry.is_symlink() or usr_entry.exists()
+
+    termux_usr = staging / "data" / "data" / "com.termux" / "files" / "usr"
+    assert (termux_usr / "lib" / "libsample.a").exists()
+    assert (termux_usr / "lib" / "libsample.a").read_bytes() == b"SAMPLE_ARCHIVE"
+    assert (termux_usr / "include" / "sample.h").exists()
+    assert (termux_usr / "include" / "sample.h").read_text() == "#pragma once"
+
+
+def test_atomic_activation_mid_download_failure_preserves_active(tmp_path):
+    """Fault injection: If download fails during locked build, pre-existing active sysroot is preserved untouched."""
+    sysroot_dir = tmp_path / "sysroot"
+    sysroot_dir.mkdir(parents=True)
+    (sysroot_dir / "usr" / "lib").mkdir(parents=True)
+    (sysroot_dir / "usr" / "lib" / "active_file.txt").write_text("active_state_original")
+
+    orig_hash = compute_tree_hash(sysroot_dir)
+
+    lock_file = tmp_path / "sysroot.lock.json"
+    lock_data = {
+        "arm64": {
+            "arch": "arm64",
+            "tree_hash": "0" * 64,
+            "packages": {
+                "dummy": {"name": "dummy", "url": "http://x/dummy.deb", "sha256": "0" * 64}
+            }
+        }
+    }
+    lock_file.write_text(json.dumps(lock_data))
+
+    s = Sysroot(path=str(sysroot_dir))
+    s.lock_file = lock_file
+    s.data = {"main": {"repo": "http://x", "dist": "d", "pkgs": ["dummy"]}}
+
+    async def mock_download_fail(*args, **kwargs):
+        raise RuntimeError("Injected network download drop")
+
+    with patch("sysroot._is_file_uncommitted", return_value=False), \
+         patch("sysroot._download_packages", side_effect=mock_download_fail):
+        with pytest.raises(RuntimeError, match="Injected network download drop"):
+            s.build(arch="arm64", locked=True)
+
+    # Active sysroot must be untouched and preserve exact original tree hash and content
+    assert sysroot_dir.exists()
+    assert (sysroot_dir / "usr" / "lib" / "active_file.txt").read_text() == "active_state_original"
+    assert compute_tree_hash(sysroot_dir) == orig_hash
+
+
+def test_normalize_pthread_shim_preserves_directory_and_file_symlinks(tmp_path):
+    """Proves usr migration preserves directory symlinks (e.g. lib64 -> lib) and file symlinks."""
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    usr = staging / "usr"
+    usr_lib = usr / "lib"
+    usr_lib.mkdir(parents=True)
+    (usr_lib / "libactual.so").write_text("actual library content")
+
+    try:
+        # Create directory symlink lib64 -> lib
+        (usr / "lib64").symlink_to("lib", target_is_directory=True)
+        # Create file symlink liblink.so -> libactual.so
+        (usr_lib / "liblink.so").symlink_to("libactual.so")
+    except OSError:
+        pytest.skip("Symlink creation not permitted in this test environment")
+
+    sysroot._normalize_pthread_shim(staging)
+
+    termux_usr = staging / "data" / "data" / "com.termux" / "files" / "usr"
+    assert termux_usr.exists()
+    assert (termux_usr / "lib" / "libactual.so").read_text() == "actual library content"
+    assert (termux_usr / "lib64").is_symlink()
+    assert (termux_usr / "lib" / "liblink.so").is_symlink()
+

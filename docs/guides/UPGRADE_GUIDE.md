@@ -1,6 +1,6 @@
 # Flutter 版本升級指南
 
-本文件說明如何將 Termux Flutter 從目前的 3.44.0 升級到新版本，並列出 3.44.0 之後必須重新檢查的 Dart / Flutter Tools / Gradle plugin 風險點。
+本文件說明如何將 Termux Flutter 從目前的 3.44.2 升級到新版本，並列出 3.44.2 之後必須重新檢查的 Dart / Flutter Tools / Gradle plugin 風險點。
 
 ---
 
@@ -22,7 +22,7 @@
 □ Step 13: 發佈 GitHub Release
 ```
 
-## 3.44.0 之後的必查項目
+## 3.44.2 之後的必查項目
 
 | 項目 | 為什麼重要 | 檢查方式 |
 |------|------------|----------|
@@ -95,7 +95,7 @@ mkdir -p patches/3.XX.Y
 **方法 A：直接複製上版 patch，嘗試套用**
 
 ```bash
-cp patches/3.44.0/*.patch patches/3.XX.Y/
+cp patches/3.44.2/*.patch patches/3.XX.Y/
 python3 build.py patch_engine
 python3 build.py patch_dart
 python3 build.py patch_skia
@@ -108,10 +108,10 @@ python3 build.py patch_skia
 ```bash
 cd flutter/engine/src/flutter
 # 查看原始 patch 改了哪些檔案
-git apply --stat /root/projects/termux-flutter/patches/3.44.0/engine.patch
+git apply --stat /root/projects/termux-flutter/patches/3.44.2/engine.patch
 
 # 嘗試套用，看哪裡衝突
-git apply --check patches/3.44.0/engine.patch
+git apply --check patches/3.44.2/engine.patch
 
 # 手動修改衝突的檔案，然後產生新 patch
 git diff > /root/projects/termux-flutter/patches/3.XX.Y/engine.patch
@@ -401,7 +401,7 @@ termux-flutter-wsl/
 ├── .gclient                  # gclient sync 配置
 │
 ├── patches/
-│   ├── 3.44.0/               # 3.44.0 專用 patch
+│   ├── 3.44.2/               # 3.44.2 專用 patch
 │   │   ├── engine.patch
 │   │   ├── dart.patch
 │   │   ├── skia.patch

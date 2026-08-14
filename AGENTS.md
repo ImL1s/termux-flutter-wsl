@@ -13,7 +13,7 @@ Cross-compile Flutter SDK for Termux (Android/Bionic ARM64). Produces a `.deb` p
 python3 build.py build_all --arch=arm64
 
 # Individual steps
-python3 build.py clone                                    # Clone Flutter 3.44.0
+python3 build.py clone                                    # Clone Flutter 3.44.2
 python3 build.py sync                                     # gclient sync (~30GB)
 python3 build.py patch_engine && python3 build.py patch_dart && python3 build.py patch_skia
 python3 build.py sysroot --arch=arm64                     # Assemble Termux sysroot from apt
@@ -113,6 +113,6 @@ flutter/engine/src/out/
 
 - Build: WSL2 Ubuntu on Windows, NDK r27d at `/opt/android-ndk-r27d`
 - WSL path: `<workspace-root>/`
-- Target: aarch64, Flutter 3.44.0
+- Target: aarch64, Flutter 3.44.2
 - Test device: `R52Y100VWGM` (Samsung SM-X716B / Android 16)
 - Use PowerShell (not Git Bash) for `adb push` to avoid path mangling

@@ -73,7 +73,7 @@ def test_edge_corrupt_tree_hash(tmp_path):
             "arch": "arm64",
             "tree_hash": bad_hash,
             "packages": {
-                "pkg-a": {"name": "pkg-a", "url": "http://x/pkg-a.deb", "sha256": "123"}
+                "pkg-a": {"name": "pkg-a", "url": "http://x/pkg-a.deb", "sha256": "0" * 64}
             }
         }
     }

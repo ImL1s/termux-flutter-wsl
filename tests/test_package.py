@@ -6,8 +6,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import utils
 import package
 
+
+# ============================================================================
+# 1. safe_eval Security, Whitelisting, and Recursion Tests
+# ============================================================================
 
 def test_safe_eval():
     globals_dict = {
@@ -18,12 +23,49 @@ def test_safe_eval():
     defines_dict = {
         'cache': "f'{distro}/bin/cache'",
     }
-    
+
     assert package.safe_eval("f'{tag}'", globals_dict) == '3.44.0'
     assert package.safe_eval("'static_str'", globals_dict) == 'static_str'
     assert package.safe_eval('"double_quote"', globals_dict) == 'double_quote'
     assert package.safe_eval("f'{cache}/dart-sdk'", globals_dict, defines_dict) == 'data/data/com.termux/files/usr/opt/flutter/bin/cache/dart-sdk'
 
+
+def test_safe_eval_rejection_arbitrary_code():
+    globals_dict = {'root': 'flutter', 'arch': 'arm64'}
+    assert package.safe_eval("__import__('os').system('echo pwned')", globals_dict) == "__import__('os').system('echo pwned')"
+    assert package.safe_eval("f'{__import__}'", globals_dict) == "{__import__}"
+
+
+def test_safe_eval_restricted_output_attributes(tmp_path):
+    root = tmp_path / "flutter"
+    out_debug = root / "engine" / "src" / "out" / "linux_debug_arm64"
+    out_debug.mkdir(parents=True)
+    globals_dict = {'output': utils.Output(root=str(root), arch='arm64')}
+    assert package.safe_eval("output.debug", globals_dict).endswith("linux_debug_arm64")
+    assert package.safe_eval("f'{output.debug}'", globals_dict).endswith("linux_debug_arm64")
+    with pytest.raises(ValueError, match="Unauthorized or invalid output attribute"):
+        package.safe_eval("output.__class__", globals_dict)
+    with pytest.raises(ValueError, match="Unauthorized or invalid output attribute"):
+        package.safe_eval("f'{output.__class__}'", globals_dict)
+
+
+def test_safe_eval_recursion_depth_limit():
+    globals_dict = {}
+    defines_dict = {'a': "f'{b}'", 'b': "f'{a}'"}
+    with pytest.raises(ValueError, match="Recursion depth limit exceeded"):
+        package.safe_eval("f'{a}'", globals_dict, defines_dict)
+
+
+def test_safe_eval_non_string_types():
+    assert package.safe_eval(12345, {}) == 12345
+    assert package.safe_eval(True, {}) is True
+    assert package.safe_eval(None, {}) is None
+    assert package.safe_eval(['a', 'b'], {}) == ['a', 'b']
+
+
+# ============================================================================
+# 2. Package Control & Structural Validation Tests
+# ============================================================================
 
 def test_package_control_header_validation(tmp_path):
     root = tmp_path / 'flutter'
@@ -188,9 +230,73 @@ def test_package_no_git_traversal(tmp_path):
 
     pkg = package.Package(root=root, arch='arm64', control=control, resource=resource)
     outputs = [str(item['out']) for item in pkg.gen_resource('flutter')]
-    
+
     # Verify .git directory files are NOT traversed or emitted into resources
     assert not any('.git' in path for path in outputs)
+
+
+# ============================================================================
+# 3. Directory & Cache Filtering, Path Traversal, and Artifact Hygiene
+# ============================================================================
+
+def test_package_directory_filtering_caches(tmp_path):
+    root = tmp_path / "flutter"
+    root.mkdir()
+    (root / "bin").mkdir()
+    (root / "bin" / "flutter").write_text("#!/bin/sh\necho flutter")
+    (root / "bin" / "cache").mkdir()
+    (root / "bin" / "cache" / "artifact.txt").write_text("artifact")
+
+    # Forbidden hidden directories and build artifacts
+    (root / ".cache").mkdir()
+    (root / ".cache" / "temp.txt").write_text("temp")
+    (root / "__pycache__").mkdir()
+    (root / "__pycache__" / "mod.cpython-311.pyc").write_text("pyc")
+    (root / ".pytest_cache").mkdir()
+    (root / ".gradle").mkdir()
+    (root / "file.pyc").write_text("bytecode")
+    (root / ".DS_Store").write_text("ds_store")
+
+    control = {'Package': 'flutter', 'Version': '3.44.0', 'Architecture': 'aarch64', 'Maintainer': 'test', 'Description': 'test'}
+    resource = {'flutter': {'source': str(root), 'output': 'opt/flutter'}}
+    pkg = package.Package(root=root, arch='arm64', control=control, resource=resource)
+    outputs = [str(item['out']).replace('\\', '/') for item in pkg.gen_resource('flutter')]
+
+    assert any('bin/flutter' in p for p in outputs)
+    assert any('bin/cache/artifact.txt' in p for p in outputs)
+    assert not any('.cache' in p for p in outputs)
+    assert not any('__pycache__' in p for p in outputs)
+    assert not any('.pytest_cache' in p for p in outputs)
+    assert not any('.gradle' in p for p in outputs)
+    assert not any('file.pyc' in p for p in outputs)
+    assert not any('.DS_Store' in p for p in outputs)
+
+
+def test_package_path_traversal_rejection(tmp_path):
+    root = tmp_path / "flutter"
+    root.mkdir()
+    (root / "malicious.txt").write_text("malicious")
+
+    control = {'Package': 'flutter', 'Version': '3.44.0', 'Architecture': 'aarch64', 'Maintainer': 'test', 'Description': 'test'}
+    resource = {
+        'bad_traversal': {
+            'source': str(root / "malicious.txt"),
+            'output': '../../../etc/shadow'
+        }
+    }
+    pkg = package.Package(root=root, arch='arm64', control=control, resource=resource)
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        pkg.debuild(output=tmp_path / "out.deb")
+
+    resource_abs = {
+        'bad_abs': {
+            'source': str(root / "malicious.txt"),
+            'output': '/etc/passwd'
+        }
+    }
+    pkg_abs = package.Package(root=root, arch='arm64', control=control, resource=resource_abs)
+    with pytest.raises(ValueError, match="Absolute target path not allowed"):
+        pkg_abs.debuild(output=tmp_path / "out.deb")
 
 
 def test_package_real_archive_exclusion_fixture(tmp_path):
@@ -261,3 +367,60 @@ def test_package_real_archive_exclusion_fixture(tmp_path):
     assert not any('engine/src' in m for m in members)
     assert not any('BUILD.gn' in m for m in members)
     assert not any('libflutter.so' in m for m in members)
+
+
+# ============================================================================
+# 4. Reproducible Tar Headers, Deterministic Ordering, & Executable Bits
+# ============================================================================
+
+def test_package_reproducible_tar_hashes_and_sorting(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+    root = tmp_path / "flutter"
+    root.mkdir()
+    (root / "z_file.txt").write_text("z")
+    (root / "a_file.txt").write_text("a")
+    (root / "m_file.txt").write_text("m")
+
+    control = {'Package': 'flutter', 'Version': '3.44.0', 'Architecture': 'aarch64', 'Maintainer': 'test', 'Description': 'test'}
+    resource = {'flutter': {'source': str(root), 'output': 'opt/flutter'}}
+    pkg = package.Package(root=root, arch='arm64', control=control, resource=resource)
+
+    tar_out1 = tmp_path / "data1.tar.xz"
+    package.tar(tar_out1, pkg.gen_resource(None))
+
+    import tarfile
+    with tarfile.open(tar_out1, "r:xz") as tar_ar:
+        members = tar_ar.getmembers()
+        for m in members:
+            assert m.uid == 0
+            assert m.gid == 0
+            assert m.uname == "root"
+            assert m.gname == "root"
+            assert m.mtime == 1700000000
+
+
+def test_package_executable_bit_enforcement(tmp_path):
+    root = tmp_path / "flutter"
+    root.mkdir()
+    bin_dir = root / "bin"
+    bin_dir.mkdir()
+    dart_file = bin_dir / "dart"
+    dart_file.write_text("#!/bin/sh\necho dart")
+    os.chmod(dart_file, 0o644)  # Force non-executable on disk
+
+    control = {'Package': 'flutter', 'Version': '3.44.0', 'Architecture': 'aarch64', 'Maintainer': 'test', 'Description': 'test'}
+    resource = {
+        'dart_bin': {
+            'source': str(dart_file),
+            'output': 'opt/flutter/bin/dart'
+        }
+    }
+    pkg = package.Package(root=root, arch='arm64', control=control, resource=resource)
+    tar_out = tmp_path / "data.tar.xz"
+    package.tar(tar_out, pkg.gen_resource(None))
+
+    import tarfile
+    with tarfile.open(tar_out, "r:xz") as tar_ar:
+        dart_member = tar_ar.getmember("opt/flutter/bin/dart")
+        assert (dart_member.mode & 0o111) != 0, f"Expected executable mode, got {oct(dart_member.mode)}"
+        assert dart_member.mode == 0o755

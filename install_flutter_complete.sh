@@ -42,6 +42,129 @@ else
     fi
 fi
 
+backup_ndk_file() {
+    local file="$1"
+    if [ -e "$file" ] || [ -L "$file" ]; then
+        local rel_path=""
+        if [ -n "${ANDROID_HOME:-}" ] && [[ "$file" == "$ANDROID_HOME/"* ]]; then
+            rel_path="${file#$ANDROID_HOME/}"
+        elif [ -n "${NDK_PATH:-}" ] && [[ "$file" == "$NDK_PATH/"* ]]; then
+            rel_path="ndk/$(basename "$NDK_PATH")/${file#$NDK_PATH/}"
+        else
+            rel_path="$(basename "$file")"
+        fi
+
+        if [ -z "$rel_path" ]; then
+            return 0
+        fi
+
+        local backup_dir="${BACKUP_DIR:-${WORK_DIR:-.}/backup}"
+        local backup_target="$backup_dir/ndk_backups/$rel_path"
+        if [ ! -e "$backup_target" ] && [ ! -L "$backup_target" ]; then
+            local target_dir="$(dirname "$backup_target")"
+            if [ -n "$target_dir" ] && [ "$target_dir" != "." ]; then
+                mkdir -p "$target_dir"
+            fi
+            cp -a "$file" "$backup_target" 2>/dev/null || true
+        fi
+    fi
+}
+
+restore_ndk_backups() {
+    local backup_dir="${BACKUP_DIR:-${WORK_DIR:-.}/backup}"
+    if [ -d "$backup_dir/ndk_backups" ]; then
+        echo -e "${YELLOW}[ROLLBACK] Restoring pre-existing NDK files from backup...${NC}"
+        (
+            cd "$backup_dir/ndk_backups"
+            find . \( -type f -o -type l \) | while read -r rel; do
+                rel="${rel#./}"
+                if [ -z "$rel" ] || [ "$rel" = "." ]; then
+                    continue
+                fi
+                local dest=""
+                if [[ "$rel" == ndk/* ]]; then
+                    dest="${ANDROID_HOME:-$PREFIX/opt/android-sdk}/$rel"
+                else
+                    dest="${NDK_PATH:-$ANDROID_HOME/ndk/$NDK_VERSION}/$rel"
+                fi
+                if [ -n "$dest" ]; then
+                    local dest_dir="$(dirname "$dest")"
+                    if [ -n "$dest_dir" ] && [ "$dest_dir" != "." ]; then
+                        mkdir -p "$dest_dir"
+                    fi
+                    rm -f "$dest" 2>/dev/null || true
+                    cp -a "$rel" "$dest" 2>/dev/null || true
+                    echo "  ✓ Restored $dest"
+                fi
+            done
+        )
+    fi
+}
+
+configure_ndk_clang() {
+    local NDK_DIR="$1"
+    local PREBUILT="$NDK_DIR/toolchains/llvm/prebuilt"
+
+    # 跳過空的 NDK stub（android-sdk 包帶的空目錄）
+    if [ ! -d "$PREBUILT/linux-x86_64/bin" ]; then
+        echo "  跳過 NDK stub: $(basename "$NDK_DIR")"
+        return
+    fi
+
+    echo "  配置 NDK: $(basename "$NDK_DIR")"
+
+    # 創建 sysroot symlink
+    backup_ndk_file "$PREBUILT/sysroot"
+    ln -sf linux-x86_64/sysroot "$PREBUILT/sysroot" 2>/dev/null || true
+
+    # 創建 bin 目錄 symlinks
+    mkdir -p "$PREBUILT/bin"
+    backup_ndk_file "$PREBUILT/bin/clang"
+    backup_ndk_file "$PREBUILT/bin/clang++"
+    ln -sf "$PREBUILT/linux-x86_64/bin/clang" "$PREBUILT/bin/clang" 2>/dev/null || true
+    ln -sf "$PREBUILT/linux-x86_64/bin/clang++" "$PREBUILT/bin/clang++" 2>/dev/null || true
+
+    # 確保 clang++ 指向 clang-18（可能被之前的腳本修改過）
+    backup_ndk_file "$PREBUILT/linux-x86_64/bin/clang++"
+    if [ -L "$PREBUILT/linux-x86_64/bin/clang++" ]; then
+        local target=$(readlink "$PREBUILT/linux-x86_64/bin/clang++")
+        if [ "$target" = "clang++" ]; then
+            # 修復循環 symlink
+            rm -f "$PREBUILT/linux-x86_64/bin/clang++"
+            ln -sf clang-18 "$PREBUILT/linux-x86_64/bin/clang++"
+        fi
+    fi
+
+    local LIB_DIR="$PREBUILT/linux-x86_64/sysroot/usr/lib/aarch64-linux-android"
+
+    # 為每個 API level 創建正確的符號連結
+    # 重要：libc++_shared.so 必須指向父目錄的真實庫文件，而不是 linker script
+    for api_dir in "$LIB_DIR"/*; do
+        if [ -d "$api_dir" ]; then
+            # libc++_shared.so - 指向父目錄的真實庫文件
+            backup_ndk_file "$api_dir/libc++_shared.so"
+            rm -f "$api_dir/libc++_shared.so" 2>/dev/null || true
+            ln -sf ../libc++_shared.so "$api_dir/libc++_shared.so" 2>/dev/null || true
+
+            # libatomic.a - 創建空的 stub（Android 不需要 libatomic）
+            if [ ! -f "$api_dir/libatomic.a" ]; then
+                backup_ndk_file "$api_dir/libatomic.a"
+                ar rcs "$api_dir/libatomic.a" 2>/dev/null || true
+            fi
+        fi
+    done
+
+    # Patch android-legacy.toolchain.cmake（移除 -static-libstdc++ 避免連結錯誤）
+    local TOOLCHAIN="$NDK_DIR/build/cmake/android-legacy.toolchain.cmake"
+    if [ -f "$TOOLCHAIN" ]; then
+        backup_ndk_file "$TOOLCHAIN"
+        if grep -q 'list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")' "$TOOLCHAIN" 2>/dev/null; then
+            sed -i 's/list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/# Disabled for Termux: list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/' "$TOOLCHAIN"
+            echo "    ✓ Patched android-legacy.toolchain.cmake"
+        fi
+    fi
+}
+
 ROLLBACK_FAILED=false
 rollback_packages() {
     echo -e "${RED}[ROLLBACK] Install failed — executing truthful environment rollback...${NC}"
@@ -126,9 +249,13 @@ rollback_packages() {
     fi
 
     # 3. Rollback NDK
-    if [ "$ndk_preexisting" = false ] && [ -n "$ndk_path" ] && [ -d "$ndk_path" ]; then
-        echo -e "${YELLOW}[ROLLBACK] Removing newly extracted NDK directory...${NC}"
-        rm -rf "$ndk_path"
+    if [ "$ndk_preexisting" = false ]; then
+        if [ -n "$ndk_path" ] && [ -d "$ndk_path" ]; then
+            echo -e "${YELLOW}[ROLLBACK] Removing newly extracted NDK directory ($ndk_path)...${NC}"
+            rm -rf "$ndk_path"
+        fi
+    else
+        restore_ndk_backups
     fi
 
     if [ "$ROLLBACK_FAILED" = true ]; then
@@ -147,21 +274,22 @@ MUTATION_COMMITTED=false
 
 cleanup_and_exit() {
     local orig_code=$?
-    trap - EXIT
+    trap - EXIT INT TERM HUP
     local exit_code=$orig_code
     local should_rollback=false
 
-    if [ "$orig_code" -ne 0 ] || [ "${INSTALL_FAILED:-false}" = true ]; then
+    if [ "${MUTATION_COMMITTED:-false}" != true ]; then
         if [ "${MUTATION_STARTED:-false}" = true ] || [ "${INSTALL_FAILED:-false}" = true ]; then
-            if [ "${MUTATION_COMMITTED:-false}" = false ]; then
-                should_rollback=true
-            fi
+            should_rollback=true
         fi
+    elif [ "$orig_code" -ne 0 ] || [ "${INSTALL_FAILED:-false}" = true ]; then
+        should_rollback=true
     fi
 
     if [ "$should_rollback" = true ]; then
-        echo -e "${RED}[EXIT HANDLER] Failure ($orig_code) during mutation phase (MUTATION_STARTED=$MUTATION_STARTED, COMMITTED=$MUTATION_COMMITTED). Triggering rollback...${NC}"
+        echo -e "${RED}[EXIT HANDLER] Installation failed or interrupted ($orig_code). Triggering package rollback...${NC}"
         if ! rollback_packages; then
+            echo -e "${RED}[ERROR] Rollback failed! System may be in an inconsistent state.${NC}"
             exit_code=70
         else
             if [ "$orig_code" -eq 0 ]; then
@@ -178,7 +306,7 @@ cleanup_and_exit() {
     print_summary
     exit $exit_code
 }
-trap cleanup_and_exit EXIT
+trap cleanup_and_exit EXIT INT TERM HUP
 
 if [ "${TERMUX_TEST_MODE:-false}" = "true" ]; then
     return 0 2>/dev/null || exit 0
@@ -237,6 +365,10 @@ fi
 
 TOTAL_STEPS=6
 
+# Allocate WORK_DIR early for all staging and downloads (#55)
+WORK_DIR=$(mktemp -d "${TMPDIR:-$PREFIX/tmp}/flutter_install.XXXXXX" 2>/dev/null || mktemp -d 2>/dev/null || mktemp -d -t flutter_install.XXXXXX)
+INSTALL_FAILED=false
+
 # ========================================
 # Step 1: 更新系統
 # ========================================
@@ -260,18 +392,25 @@ pkg install -y x11-repo
 pkg install -y openjdk-21 git wget curl unzip p7zip cmake ninja binutils
 
 # 安裝 Android build tools（需要繞過 android-sdk 依賴問題）
-for pkg in d8 dx aidl apksigner googletest android-tools; do
-    apt download $pkg 2>/dev/null && dpkg -i ${pkg}*.deb 2>/dev/null && rm -f ${pkg}*.deb
-done
+mkdir -p "$WORK_DIR/apt_staging"
+(
+    cd "$WORK_DIR/apt_staging"
+    for pkg in d8 dx aidl apksigner googletest android-tools; do
+        apt download "$pkg" 2>/dev/null || true
+        if ls ${pkg}*.deb 1>/dev/null 2>&1; then
+            if ! dpkg -i ${pkg}*.deb 2>/dev/null; then
+                dpkg --force-depends --configure "${pkg}" 2>/dev/null || true
+            fi
+            rm -f ${pkg}*.deb
+        fi
+    done
+)
 
 # 預先下載並驗證所有套件（Staging Phase）
 echo "預先下載並驗證所有套件..."
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
 NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
-
-WORK_DIR=$(mktemp -d)
-INSTALL_FAILED=false
 
 # Snapshot existing package state for rollback
 FLUTTER_WAS_INSTALLED=false
@@ -421,15 +560,16 @@ SNAPSHOTS_DIR=$DART_SDK/bin/snapshots
 if [ -n "$ENGINE_VERSION" ] && [ ! -f "$SNAPSHOTS_DIR/dds_aot.dart.snapshot" ]; then
     SNAPSHOTS_URL="https://storage.googleapis.com/flutter_infra_release/flutter/${ENGINE_VERSION}/dart-sdk-linux-arm64.zip"
     echo "  從官方 Flutter 儲存下載 snapshots..."
-    wget -q --show-progress "$SNAPSHOTS_URL" -O "$HOME/dart-sdk.zip" || true
-    if [ -f "$HOME/dart-sdk.zip" ]; then
+    dart_zip="$WORK_DIR/dart-sdk.zip"
+    wget -q --show-progress "$SNAPSHOTS_URL" -O "$dart_zip" || true
+    if [ -f "$dart_zip" ]; then
         if [ "$ENGINE_VERSION" = "77e2e94772b6eb43759e34ed1ad7da4674e19cab" ]; then
-            verify_sha256 "$HOME/dart-sdk.zip" "$SNAPSHOT_EXPECTED_SHA256" || { rm -f "$HOME/dart-sdk.zip"; INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
+            verify_sha256 "$dart_zip" "$SNAPSHOT_EXPECTED_SHA256" || { rm -f "$dart_zip"; INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
         else
             echo "  ⚠ 引擎版本不匹配，跳過 Dart SDK snapshots 校驗碼驗證"
         fi
-        unzip -o -j "$HOME/dart-sdk.zip" 'dart-sdk/bin/snapshots/*' -d "$SNAPSHOTS_DIR" 2>/dev/null || true
-        rm -f "$HOME/dart-sdk.zip"
+        unzip -o -j "$dart_zip" 'dart-sdk/bin/snapshots/*' -d "$SNAPSHOTS_DIR" 2>/dev/null || true
+        rm -f "$dart_zip"
         echo "  ✓ Dart SDK snapshots 已安裝"
     fi
 else
@@ -438,11 +578,17 @@ fi
 
 # 清理 ELF 二進制文件（移除 DT_RPATH 警告，修復 flutter run JSON 解析問題）
 echo "清理 ELF binaries..."
-apt download termux-elf-cleaner 2>/dev/null || true
-if ls termux-elf-cleaner*.deb 1>/dev/null 2>&1; then
-    dpkg -i termux-elf-cleaner*.deb 2>/dev/null
-    rm -f termux-elf-cleaner*.deb
-fi
+mkdir -p "$WORK_DIR/apt_staging"
+(
+    cd "$WORK_DIR/apt_staging"
+    apt download termux-elf-cleaner 2>/dev/null || true
+    if ls termux-elf-cleaner*.deb 1>/dev/null 2>&1; then
+        if ! dpkg -i termux-elf-cleaner*.deb 2>/dev/null; then
+            dpkg --force-depends --configure termux-elf-cleaner 2>/dev/null || true
+        fi
+        rm -f termux-elf-cleaner*.deb
+    fi
+)
 if command -v termux-elf-cleaner &> /dev/null; then
     for dart_bin in dart dartvm dartaotruntime; do
         [ -f "$DART_SDK/bin/$dart_bin" ] && termux-elf-cleaner "$DART_SDK/bin/$dart_bin" 2>/dev/null || true
@@ -461,72 +607,42 @@ echo -e "${GREEN}[4/${TOTAL_STEPS}]${NC} 安裝 ARM64 NDK..."
 if [ -d "$NDK_PATH" ]; then
     echo "  ✓ NDK 已安裝"
 else
-    echo "解壓 NDK..."
+    echo "解壓 NDK (Staging Isolation)..."
+    NDK_STAGE="$WORK_DIR/ndk_stage"
+    rm -rf "$NDK_STAGE" 2>/dev/null || true
+    mkdir -p "$NDK_STAGE"
+
+    if ! 7z x -y "$NDK_ARCHIVE" "-o$NDK_STAGE" >/dev/null; then
+        echo -e "${RED}[ERROR] NDK extraction failed. Cleaning up stage...${NC}"
+        rm -rf "$NDK_STAGE" 2>/dev/null || true
+        { INSTALL_FAILED=true; record_stage package failed; exit 40; }
+    fi
+
+    EXTRACTED_NDK=""
+    if [ -d "$NDK_STAGE/android-ndk-r29" ]; then
+        EXTRACTED_NDK="$NDK_STAGE/android-ndk-r29"
+    else
+        EXTRACTED_NDK=$(find "$NDK_STAGE" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+    fi
+
+    if [ -z "$EXTRACTED_NDK" ] || [ ! -d "$EXTRACTED_NDK" ]; then
+        echo -e "${RED}[ERROR] Extracted NDK directory not found in stage ($NDK_STAGE).${NC}"
+        rm -rf "$NDK_STAGE" 2>/dev/null || true
+        { INSTALL_FAILED=true; record_stage package failed; exit 40; }
+    fi
+
+    echo "移動 NDK 到目標路徑..."
     mkdir -p "$ANDROID_HOME/ndk"
-    7z x -y "$NDK_ARCHIVE" "-o$ANDROID_HOME/ndk" >/dev/null
     rm -rf "$NDK_PATH"
-    mv "$ANDROID_HOME/ndk/android-ndk-r29" "$NDK_PATH"
+    if ! mv "$EXTRACTED_NDK" "$NDK_PATH"; then
+        echo -e "${RED}[ERROR] Failed to move NDK to $NDK_PATH.${NC}"
+        rm -rf "$NDK_STAGE" 2>/dev/null || true
+        { INSTALL_FAILED=true; record_stage package failed; exit 40; }
+    fi
+    rm -rf "$NDK_STAGE" 2>/dev/null || true
 
     echo "  ✓ NDK 已安裝"
 fi
-
-# 配置 NDK clang wrappers（支援 ARM64 Termux 編譯 Android 代碼）
-configure_ndk_clang() {
-    local NDK_DIR="$1"
-    local PREBUILT="$NDK_DIR/toolchains/llvm/prebuilt"
-
-    # 跳過空的 NDK stub（android-sdk 包帶的空目錄）
-    if [ ! -d "$PREBUILT/linux-x86_64/bin" ]; then
-        echo "  跳過 NDK stub: $(basename $NDK_DIR)"
-        return
-    fi
-
-    echo "  配置 NDK: $(basename $NDK_DIR)"
-
-    # 創建 sysroot symlink
-    ln -sf linux-x86_64/sysroot "$PREBUILT/sysroot" 2>/dev/null || true
-
-    # 創建 bin 目錄 symlinks
-    mkdir -p "$PREBUILT/bin"
-    ln -sf "$PREBUILT/linux-x86_64/bin/clang" "$PREBUILT/bin/clang" 2>/dev/null || true
-    ln -sf "$PREBUILT/linux-x86_64/bin/clang++" "$PREBUILT/bin/clang++" 2>/dev/null || true
-
-    # 確保 clang++ 指向 clang-18（可能被之前的腳本修改過）
-    if [ -L "$PREBUILT/linux-x86_64/bin/clang++" ]; then
-        local target=$(readlink "$PREBUILT/linux-x86_64/bin/clang++")
-        if [ "$target" = "clang++" ]; then
-            # 修復循環 symlink
-            rm -f "$PREBUILT/linux-x86_64/bin/clang++"
-            ln -sf clang-18 "$PREBUILT/linux-x86_64/bin/clang++"
-        fi
-    fi
-
-    local LIB_DIR="$PREBUILT/linux-x86_64/sysroot/usr/lib/aarch64-linux-android"
-
-    # 為每個 API level 創建正確的符號連結
-    # 重要：libc++_shared.so 必須指向父目錄的真實庫文件，而不是 linker script
-    for api_dir in "$LIB_DIR"/*; do
-        if [ -d "$api_dir" ]; then
-            # libc++_shared.so - 指向父目錄的真實庫文件
-            rm -f "$api_dir/libc++_shared.so" 2>/dev/null || true
-            ln -sf ../libc++_shared.so "$api_dir/libc++_shared.so" 2>/dev/null || true
-
-            # libatomic.a - 創建空的 stub（Android 不需要 libatomic）
-            if [ ! -f "$api_dir/libatomic.a" ]; then
-                ar rcs "$api_dir/libatomic.a" 2>/dev/null || true
-            fi
-        fi
-    done
-
-    # Patch android-legacy.toolchain.cmake（移除 -static-libstdc++ 避免連結錯誤）
-    local TOOLCHAIN="$NDK_DIR/build/cmake/android-legacy.toolchain.cmake"
-    if [ -f "$TOOLCHAIN" ]; then
-        if grep -q 'list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")' "$TOOLCHAIN" 2>/dev/null; then
-            sed -i 's/list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/# Disabled for Termux: list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")/' "$TOOLCHAIN"
-            echo "    ✓ Patched android-legacy.toolchain.cmake"
-        fi
-    fi
-}
 
 # 配置所有已安裝的 NDK
 echo "配置 NDK clang wrappers..."
@@ -583,10 +699,11 @@ done
 ln -sf $PREFIX/share/java/d8.jar $BUILD_TOOLS/lib/d8.jar 2>/dev/null || true
 ln -sf $PREFIX/share/java/d8.jar $BUILD_TOOLS/lib/dx.jar 2>/dev/null || true
 # core-lambda-stubs.jar (create empty if missing)
-if [ ! -f $BUILD_TOOLS/core-lambda-stubs.jar ]; then
-    echo "Manifest-Version: 1.0" > /tmp/MANIFEST.MF 2>/dev/null || true
-    jar cfm $BUILD_TOOLS/core-lambda-stubs.jar /tmp/MANIFEST.MF 2>/dev/null || true
-    rm -f /tmp/MANIFEST.MF 2>/dev/null || true
+if [ ! -f "$BUILD_TOOLS/core-lambda-stubs.jar" ]; then
+    manifest_tmp="$WORK_DIR/MANIFEST.MF"
+    echo "Manifest-Version: 1.0" > "$manifest_tmp" 2>/dev/null || true
+    jar cfm "$BUILD_TOOLS/core-lambda-stubs.jar" "$manifest_tmp" 2>/dev/null || true
+    rm -f "$manifest_tmp" 2>/dev/null || true
 fi
 echo "  ✓ build-tools 已配置"
 
@@ -608,15 +725,17 @@ echo -e "${GREEN}[6/${TOTAL_STEPS}]${NC} 測試 APK 構建..."
 echo "檢查 aapt2..."
 if ! command -v aapt2 &> /dev/null; then
     echo "安裝 aapt2 及其依賴..."
-    cd $HOME
-    # 下載依賴包
-    apt download libprotobuf fmt libzopfli aapt aapt2 2>/dev/null || true
-    # 安裝（使用 dpkg 避免觸發 apt 的依賴解析）
-    dpkg -i libprotobuf*.deb 2>/dev/null
-    dpkg -i fmt*.deb libzopfli*.deb 2>/dev/null
-    dpkg -i aapt_*.deb 2>/dev/null
-    dpkg -i aapt2*.deb 2>/dev/null
-    rm -f *.deb 2>/dev/null || true
+    (
+        mkdir -p "$WORK_DIR/apt_staging"
+        cd "$WORK_DIR/apt_staging"
+        # 下載依賴包
+        apt download libprotobuf fmt libzopfli aapt aapt2 2>/dev/null || true
+        # 安裝（使用 dpkg 避免觸發 apt 的依賴解析）
+        if ! dpkg -i libprotobuf*.deb fmt*.deb libzopfli*.deb aapt_*.deb aapt2*.deb 2>/dev/null; then
+            dpkg --force-depends --configure aapt aapt2 libprotobuf fmt libzopfli 2>/dev/null || true
+        fi
+        rm -f *.deb 2>/dev/null || true
+    )
 fi
 
 TEST_APP_DIR="$WORK_DIR/flutter_test_app"
@@ -703,26 +822,28 @@ GRADLE
 
 # 構建 APK
 echo "構建 APK（這可能需要幾分鐘）..."
-flutter build apk --release --target-platform android-arm64 2>&1 | tee /tmp/build1.log || true
+build1_log="$WORK_DIR/build1.log"
+build2_log="$WORK_DIR/build2.log"
+flutter build apk --release --target-platform android-arm64 2>&1 | tee "$build1_log" || true
 
 # Gradle 可能下載了新的 SDK 組件（如 build-tools/35.0.0-2），重新配置
 echo "配置 Gradle 下載的 SDK 組件..."
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
-    bash $PREFIX/share/flutter/post_install.sh || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
+    bash "$PREFIX/share/flutter/post_install.sh" || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
     record_stage post-install success
 fi
 
 # 檢查是否因 NDK clang 問題失敗（Gradle 可能下載了新 NDK）
-if grep -q "CMAKE_C_COMPILER" /tmp/build1.log 2>/dev/null || grep -q "compiler identification is unknown" /tmp/build1.log 2>/dev/null; then
+if grep -q "CMAKE_C_COMPILER" "$build1_log" 2>/dev/null || grep -q "compiler identification is unknown" "$build1_log" 2>/dev/null; then
     echo "檢測到 NDK clang 問題，重新配置..."
     # Re-run NDK clang configuration for Gradle-downloaded NDK
-    for ndk_dir in $ANDROID_HOME/ndk/*/; do
+    for ndk_dir in "$ANDROID_HOME"/ndk/*/; do
         if [ -d "$ndk_dir/toolchains/llvm" ]; then
             configure_ndk_clang "$ndk_dir"
         fi
     done
     echo "重新構建..."
-    flutter build apk --release --target-platform android-arm64 2>&1 | tee /tmp/build2.log || true
+    flutter build apk --release --target-platform android-arm64 2>&1 | tee "$build2_log" || true
 fi
 
 # 檢查 APK 結果

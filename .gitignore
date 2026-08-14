@@ -135,3 +135,26 @@ PROJECT.md
 GATE_STATUS.md
 evidence.json
 
+# ----- 備份與修補狀態檔案 (#55) -----
+*.bak
+*.bak.*
+*.orig
+*.rej
+.termux_project_config.json
+patch_state.json
+*.receipt.json
+.gclient_sync.receipt.json
+
+# ----- 測試與覆蓋率緩存 (#55) -----
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+scratch/
+temp_*/
+tmp_*/
+*.tmp
+*.temp
+dpkg_state.json
+
