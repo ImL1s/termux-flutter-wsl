@@ -67,11 +67,11 @@ python3 build.py patch_skia
 python3 build.py patch_flutter_sdk
 ```
 
-補丁文件位於 `patches/3.44.0/` 目錄，主要修改：
-- `patches/3.44.0/engine.patch` - Flutter Engine 的 Termux 工具鏈配置
-- `patches/3.44.0/dart.patch` - Dart SDK / VM Termux 適配
-- `patches/3.44.0/skia.patch` - Skia Android/bionic build 適配
-- `patches/3.44.0/flutter_sdk_arm64_default.patch` - Flutter SDK 預設 ARM64 APK target
+補丁文件位於 `patches/3.44.2/` 目錄，主要修改：
+- `patches/3.44.2/engine.patch` - Flutter Engine 的 Termux 工具鏈配置
+- `patches/3.44.2/dart.patch` - Dart SDK / VM Termux 適配
+- `patches/3.44.2/skia.patch` - Skia Android/bionic build 適配
+- `patches/3.44.2/flutter_sdk_arm64_default.patch` - Flutter SDK 預設 ARM64 APK target
 
 ### 階段 3：構建 Sysroot
 
@@ -113,7 +113,7 @@ python3 build.py build_android_gen_snapshot --arch=arm64 --mode=release
 python3 build.py debuild --arch=arm64
 ```
 
-產出：`release/flutter_3.44.0_aarch64.deb`
+產出：`release/flutter_3.44.2_aarch64.deb`
 
 ---
 
@@ -234,11 +234,11 @@ Flag dedup_instructions is false in snapshot, but dedup_instructions is always t
 ```bash
 # 1. 傳輸 deb 到設備
 # 使用 PowerShell（Git Bash 會損壞路徑）
-adb push flutter_3.44.0_aarch64.deb /sdcard/Download/
+adb push flutter_3.44.2_aarch64.deb /sdcard/Download/
 
 # 2. 在 Termux 中安裝
 pkg install x11-repo
-dpkg -i /sdcard/Download/flutter_3.44.0_aarch64.deb
+dpkg -i /sdcard/Download/flutter_3.44.2_aarch64.deb
 bash $PREFIX/share/flutter/post_install.sh
 apt-get install -f
 
@@ -283,13 +283,13 @@ flutter build linux --release
 
 ```bash
 # 最終產物位置
-release/flutter_3.44.0_aarch64.deb
+release/flutter_3.44.2_aarch64.deb
 ```
 
 ### 3. 上傳到 GitHub Releases
 
-1. 創建新 Release：`v3.44.0`
-2. 上傳 deb 檔案：`flutter_3.44.0_aarch64.deb`
+1. 創建新 Release：`v3.44.2`
+2. 上傳 deb 檔案：`flutter_3.44.2_aarch64.deb`
 3. 填寫 Release Notes
 
 ### 4. 驗證一鍵安裝腳本
@@ -347,7 +347,7 @@ termux-flutter-wsl/
 │   ├── device/           # ADB → Termux smoke automation
 │   ├── install/          # 安裝與 post-install 修補
 │   └── test/             # Release E2E smoke scripts
-├── patches/3.44.0/       # Flutter Engine / Dart / Skia 補丁
+├── patches/3.44.2/       # Flutter Engine / Dart / Skia 補丁
 ├── build.py              # 主構建腳本
 ├── build.toml            # 構建配置（版本號等）
 ├── package.yaml          # deb 包定義

@@ -1,46 +1,94 @@
 #!/usr/bin/env bash
 # scripts/install/flutter_project_config.sh
-# Configure a Flutter project for Termux environment
+# Configure a Flutter project for Termux environment (Mode A / Mode B compatible & transactional)
 
 set -e
 
 ROLLBACK=false
-if [ "$1" = "--rollback" ]; then
-    ROLLBACK=true
-    shift
-fi
+SPECIFIED_MODE=""
+CUSTOM_AAPT2=""
+POSITIONAL_ARGS=()
 
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 [--rollback] <flutter_project_path>"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --rollback)
+            ROLLBACK=true
+            shift
+            ;;
+        --mode=*)
+            SPECIFIED_MODE="${1#*=}"
+            shift
+            ;;
+        --aapt2=*)
+            CUSTOM_AAPT2="${1#*=}"
+            shift
+            ;;
+        -*)
+            echo "Usage: $0 [--rollback] [--mode=A|B] [--aapt2=<path>] <flutter_project_path>" >&2
+            exit 1
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [ "${#POSITIONAL_ARGS[@]}" -ne 1 ]; then
+    echo "Usage: $0 [--rollback] [--mode=A|B] [--aapt2=<path>] <flutter_project_path>"
     exit 1
 fi
 
-PROJ="$1"
+PROJ="${POSITIONAL_ARGS[0]}"
 
 if [ ! -d "$PROJ/android" ]; then
-    echo "Error: $PROJ is not a valid Flutter Android project."
+    echo "Error: $PROJ is not a valid Flutter Android project (missing android/ directory)." >&2
     exit 1
 fi
 
 STATE_FILE="$PROJ/.termux_project_config.json"
+GRADLE_PROPS="$PROJ/android/gradle.properties"
+APP_BUILD_GRADLE="$PROJ/android/app/build.gradle"
+APP_BUILD_GRADLE_KTS="$PROJ/android/app/build.gradle.kts"
 
+# Handle Rollback
 if [ "$ROLLBACK" = "true" ]; then
     echo "Rolling back Termux project configuration for $PROJ..."
-    for file in "$PROJ/android/gradle.properties" "$PROJ/android/app/build.gradle" "$PROJ/android/app/build.gradle.kts"; do
+
+    # Read created files from state file if available
+    CREATED_FILES=()
+    if [ -f "$STATE_FILE" ]; then
+        CREATED_FILES=($(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+    print(" ".join(data.get("created_files", [])))
+except Exception:
+    pass
+' "$STATE_FILE" 2>/dev/null || true))
+    fi
+
+    for file in "$GRADLE_PROPS" "$APP_BUILD_GRADLE" "$APP_BUILD_GRADLE_KTS"; do
         if [ -f "${file}.bak" ]; then
             cp "${file}.bak" "$file"
             rm -f "${file}.bak"
             echo "Restored $file from backup"
         fi
     done
+
+    for rel_created in "${CREATED_FILES[@]}"; do
+        created_path="$PROJ/$rel_created"
+        if [ -f "$created_path" ] && [ ! -f "${created_path}.bak" ]; then
+            rm -f "$created_path"
+            echo "Removed created file $created_path"
+        fi
+    done
+
     rm -f "$STATE_FILE"
     echo "Rollback complete."
     exit 0
 fi
-
-GRADLE_PROPS="$PROJ/android/gradle.properties"
-APP_BUILD_GRADLE="$PROJ/android/app/build.gradle"
-APP_BUILD_GRADLE_KTS="$PROJ/android/app/build.gradle.kts"
 
 # Determine build.gradle file
 TARGET_GRADLE=""
@@ -51,7 +99,7 @@ elif [ -f "$APP_BUILD_GRADLE" ]; then
 fi
 
 if [ -z "$TARGET_GRADLE" ]; then
-    echo "Could not find build.gradle or build.gradle.kts in $PROJ/android/app/"
+    echo "Could not find build.gradle or build.gradle.kts in $PROJ/android/app/" >&2
     exit 1
 fi
 
@@ -62,65 +110,386 @@ if ! echo "$TARGET_CONTENT" | grep -E -q "compileSdk|compileSdkVersion|defaultCo
     exit 1
 fi
 
+# Transactional State Tracking & Trap Setup
+TRANSACTION_SUCCESS=false
+TRACKED_BACKUPS=()
+TRACKED_CREATED=()
 MODIFIED_FILES=()
+CREATED_FILES=()
 
-# Backup and update gradle.properties
-TERMUX_AAPT2="/data/data/com.termux/files/usr/bin/aapt2"
-if [ -f "$GRADLE_PROPS" ]; then
-    if [ ! -f "${GRADLE_PROPS}.bak" ]; then
-        cp "$GRADLE_PROPS" "${GRADLE_PROPS}.bak"
+cleanup_on_error() {
+    local exit_code=$?
+    if [ "$TRANSACTION_SUCCESS" != "true" ]; then
+        echo "Configuration interrupted or failed (exit code $exit_code). Rolling back transactional changes..." >&2
+        for bak in "${TRACKED_BACKUPS[@]}"; do
+            orig="${bak%.bak}"
+            if [ -f "$bak" ]; then
+                cp "$bak" "$orig" 2>/dev/null || true
+                rm -f "$bak" 2>/dev/null || true
+            fi
+        done
+        for created in "${TRACKED_CREATED[@]}"; do
+            rm -f "$created" 2>/dev/null || true
+        done
+        rm -f "$STATE_FILE" 2>/dev/null || true
+        echo "Transactional rollback complete. Project restored." >&2
     fi
-    # Remove existing (stale/wrong/duplicate) aapt2FromMavenOverride entries
-    sed -i '/^android\.aapt2FromMavenOverride=/d' "$GRADLE_PROPS"
+}
+
+trap cleanup_on_error EXIT ERR INT TERM
+
+# Resolve AAPT2 Path (Mode A vs Mode B)
+PREFIX_PATH="${PREFIX:-/data/data/com.termux/files/usr}"
+HOME_PATH="${HOME:-/data/data/com.termux/files/home}"
+MODE_A_AAPT2="$PREFIX_PATH/bin/aapt2"
+MODE_B_AAPT2="$HOME_PATH/Android/Sdk/build-tools/35.0.0/aapt2"
+SYSTEM_BT_AAPT2="$PREFIX_PATH/opt/android-sdk/build-tools/35.0.0/aapt2"
+
+if [ -n "$CUSTOM_AAPT2" ]; then
+    TERMUX_AAPT2="$CUSTOM_AAPT2"
+elif [ -n "${AAPT2_OVERRIDE:-}" ]; then
+    TERMUX_AAPT2="$AAPT2_OVERRIDE"
+elif [ -n "${TERMUX_AAPT2_PATH:-}" ]; then
+    TERMUX_AAPT2="$TERMUX_AAPT2_PATH"
+elif [ "$SPECIFIED_MODE" = "B" ]; then
+    if [ -x "$MODE_B_AAPT2" ]; then
+        TERMUX_AAPT2="$MODE_B_AAPT2"
+    elif [ -x "$SYSTEM_BT_AAPT2" ]; then
+        TERMUX_AAPT2="$SYSTEM_BT_AAPT2"
+    else
+        TERMUX_AAPT2="$MODE_B_AAPT2"
+    fi
+elif [ "$SPECIFIED_MODE" = "A" ]; then
+    TERMUX_AAPT2="$MODE_A_AAPT2"
+else
+    # Auto-detect Mode B if valid static binary exists, else Mode A
+    if [ -x "$MODE_B_AAPT2" ] && [ ! -L "$MODE_B_AAPT2" ]; then
+        TERMUX_AAPT2="$MODE_B_AAPT2"
+    elif [ -x "$SYSTEM_BT_AAPT2" ] && [ ! -L "$SYSTEM_BT_AAPT2" ]; then
+        TERMUX_AAPT2="$SYSTEM_BT_AAPT2"
+    else
+        TERMUX_AAPT2="$MODE_A_AAPT2"
+    fi
+fi
+
+# 1. Update or Create gradle.properties
+EXISTING_CREATED=()
+if [ -f "$STATE_FILE" ]; then
+    EXISTING_CREATED=($(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+    print(" ".join(data.get("created_files", [])))
+except Exception:
+    pass
+' "$STATE_FILE" 2>/dev/null || true))
+fi
+
+is_previously_created=false
+for c in "${EXISTING_CREATED[@]}"; do
+    if [ "$c" = "android/gradle.properties" ]; then
+        is_previously_created=true
+        break
+    fi
+done
+
+if [ ! -f "$GRADLE_PROPS" ]; then
+    echo "android.aapt2FromMavenOverride=$TERMUX_AAPT2" > "$GRADLE_PROPS"
+    TRACKED_CREATED+=("$GRADLE_PROPS")
+    CREATED_FILES+=("android/gradle.properties")
+    echo "Created $GRADLE_PROPS with android.aapt2FromMavenOverride=$TERMUX_AAPT2"
+elif [ "$is_previously_created" = "true" ]; then
+    CREATED_FILES+=("android/gradle.properties")
+    sed -i -E '/^[[:space:]]*android\.aapt2FromMavenOverride[[:space:]]*[=:]/d' "$GRADLE_PROPS"
     echo "android.aapt2FromMavenOverride=$TERMUX_AAPT2" >> "$GRADLE_PROPS"
     echo "Set android.aapt2FromMavenOverride=$TERMUX_AAPT2 in $GRADLE_PROPS"
+else
+    if [ ! -f "${GRADLE_PROPS}.bak" ]; then
+        cp "$GRADLE_PROPS" "${GRADLE_PROPS}.bak"
+        TRACKED_BACKUPS+=("${GRADLE_PROPS}.bak")
+    fi
+    # Remove any existing (spaced, colon or stale) override entry safely
+    sed -i -E '/^[[:space:]]*android\.aapt2FromMavenOverride[[:space:]]*[=:]/d' "$GRADLE_PROPS"
+    echo "android.aapt2FromMavenOverride=$TERMUX_AAPT2" >> "$GRADLE_PROPS"
     MODIFIED_FILES+=("android/gradle.properties")
+    echo "Set android.aapt2FromMavenOverride=$TERMUX_AAPT2 in $GRADLE_PROPS"
 fi
 
-# Backup and update build.gradle / build.gradle.kts
+# 2. Backup and Update build.gradle / build.gradle.kts
 if [ ! -f "${TARGET_GRADLE}.bak" ]; then
     cp "$TARGET_GRADLE" "${TARGET_GRADLE}.bak"
+    TRACKED_BACKUPS+=("${TARGET_GRADLE}.bak")
 fi
 
-inject_abi_filters() {
-    local file="$1"
-    local ext="${file##*.}"
-    local abi_line=""
+# Call Python helper for scope-aware Gradle transformation
+python3 - "$TARGET_GRADLE" << 'EOF'
+import sys
+import re
 
-    if [ "$ext" = "kts" ]; then
-        abi_line="            abiFilters += listOf(\"arm64-v8a\")"
-    else
-        abi_line="            abiFilters 'arm64-v8a'"
-    fi
+gradle_file = sys.argv[1]
+with open(gradle_file, 'r', encoding='utf-8') as f:
+    text = f.read()
 
-    if grep -q "arm64-v8a" "$file"; then
-        echo "arm64-v8a ABI filter already present in $file"
-        return 0
-    fi
+is_kts = gradle_file.endswith('.kts')
 
-    if grep -q "ndk {" "$file"; then
-        if grep -q "abiFilters" "$file"; then
-            sed -i "/abiFilters/a \\$abi_line" "$file"
-            echo "Added arm64-v8a to existing abiFilters block in $file"
-        else
-            sed -i "/ndk {/a \\$abi_line" "$file"
-            echo "Added abiFilters to existing ndk block in $file"
-        fi
-    else
-        sed -i "/defaultConfig {/a \        ndk {\n$abi_line\n        }" "$file"
-        echo "Added ndk block with abiFilters to $file"
-    fi
-}
+def parse_scopes(src):
+    n = len(src)
+    i = 0
+    in_line_comment = False
+    in_block_comment = False
+    in_str = None
 
-update_sdk_version() {
-    local file="$1"
-    sed -i -E 's/^([[:space:]]*)(compileSdk|compileSdkVersion)[[:space:]]*=?.*/\1\2 = 34/g' "$file"
-    sed -i -E 's/^([[:space:]]*)(targetSdk|targetSdkVersion)[[:space:]]*=?.*/\1\2 = 34/g' "$file"
-    echo "Updated compileSdk and targetSdk to 34 in $file"
-}
+    scope_stack = [] # (ident, open_brace_idx, parent_path)
+    blocks = [] # (name, full_path, start_idx, end_idx)
 
-update_sdk_version "$TARGET_GRADLE"
-inject_abi_filters "$TARGET_GRADLE"
+    while i < n:
+        if in_line_comment:
+            if src[i] == '\n':
+                in_line_comment = False
+            i += 1
+            continue
+        if in_block_comment:
+            if src[i:i+2] == '*/':
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if in_str:
+            if in_str in ('"""', "'''"):
+                if src[i:i+3] == in_str:
+                    in_str = None
+                    i += 3
+                else:
+                    if src[i] == '\\':
+                        i += 2
+                    else:
+                        i += 1
+            else:
+                if src[i] == in_str:
+                    in_str = None
+                    i += 1
+                elif src[i] == '\\':
+                    i += 2
+                else:
+                    i += 1
+            continue
+
+        if src[i:i+2] == '//':
+            in_line_comment = True
+            i += 2
+            continue
+        if src[i:i+2] == '/*':
+            in_block_comment = True
+            i += 2
+            continue
+        if src[i:i+3] in ('"""', "'''"):
+            in_str = src[i:i+3]
+            i += 3
+            continue
+        if src[i] in ('"', "'"):
+            in_str = src[i]
+            i += 1
+            continue
+
+        if src[i] == '{':
+            j = i - 1
+            while j >= 0 and src[j] in ' \t\r\n':
+                j -= 1
+            end_ident = j + 1
+            if j >= 0 and src[j] == ')':
+                paren_depth = 1
+                j -= 1
+                while j >= 0 and paren_depth > 0:
+                    if src[j] == ')':
+                        paren_depth += 1
+                    elif src[j] == '(':
+                        paren_depth -= 1
+                    j -= 1
+                while j >= 0 and src[j] in ' \t\r\n':
+                    j -= 1
+            while j >= 0 and (src[j].isalnum() or src[j] in '._-'):
+                j -= 1
+            start_ident = j + 1
+            ident = src[start_ident:end_ident].strip()
+            if not ident:
+                ident = 'anonymous'
+
+            current_path = tuple(s[0] for s in scope_stack)
+            scope_stack.append((ident, i, current_path))
+            i += 1
+            continue
+
+        if src[i] == '}':
+            if not scope_stack:
+                raise ValueError(f"Syntax error: Unmatched closing brace '}}' at offset {i} in {gradle_file}")
+            name, start_idx, parent_path = scope_stack.pop()
+            full_path = parent_path + (name,)
+            blocks.append((name, full_path, start_idx, i))
+            i += 1
+            continue
+
+        i += 1
+
+    if scope_stack:
+        raise ValueError(f"Syntax error: Unclosed braces ({len(scope_stack)}) in {gradle_file}")
+
+    return blocks
+
+lines = text.split('\n')
+blocks = parse_scopes(text)
+
+android_block = None
+default_config_block = None
+dc_ndk_block = None
+root_ndk_block = None
+
+for name, path, start_idx, end_idx in blocks:
+    if name == 'android' and len(path) == 1:
+        android_block = (start_idx, end_idx)
+    elif name == 'defaultConfig' and ('android' in path or len(path) == 1):
+        default_config_block = (start_idx, end_idx)
+    elif name == 'ndk':
+        if 'defaultConfig' in path:
+            dc_ndk_block = (start_idx, end_idx)
+        elif 'android' in path and not any(p in path for p in ('buildTypes', 'productFlavors')):
+            root_ndk_block = (start_idx, end_idx)
+
+compile_sdk_pattern = re.compile(r'^([ \t]*)(compileSdkVersion|compileSdk)[ \t]*=?[ \t]*(.*)$')
+target_sdk_pattern = re.compile(r'^([ \t]*)(targetSdkVersion|targetSdk)[ \t]*=?[ \t]*(.*)$')
+
+compile_sdk_found = False
+target_sdk_found = False
+
+new_lines = []
+current_offset = 0
+
+for line in lines:
+    line_len = len(line) + 1
+    line_start = current_offset
+    line_end = current_offset + len(line)
+    current_offset += line_len
+
+    stripped = line.strip()
+    if stripped.startswith('//') or stripped.startswith('/*') or stripped.startswith('*'):
+        new_lines.append(line)
+        continue
+
+    m_comp = compile_sdk_pattern.match(line)
+    if m_comp and (android_block is None or (line_start >= android_block[0] and line_end <= android_block[1])):
+        is_in_subblock = False
+        for name, path, s_idx, e_idx in blocks:
+            if name in ('defaultConfig', 'buildTypes', 'productFlavors') and line_start >= s_idx and line_end <= e_idx:
+                is_in_subblock = True
+                break
+        if not is_in_subblock:
+            compile_sdk_found = True
+            indent = m_comp.group(1)
+            key = m_comp.group(2)
+            new_lines.append(f"{indent}{key} = 34")
+            continue
+
+    m_targ = target_sdk_pattern.match(line)
+    if m_targ and default_config_block is not None and (line_start >= default_config_block[0] and line_end <= default_config_block[1]):
+        if dc_ndk_block is None or not (line_start >= dc_ndk_block[0] and line_end <= dc_ndk_block[1]):
+            target_sdk_found = True
+            indent = m_targ.group(1)
+            key = m_targ.group(2)
+            new_lines.append(f"{indent}{key} = 34")
+            continue
+
+    new_lines.append(line)
+
+text = '\n'.join(new_lines)
+print(f"Updated compileSdk and targetSdk to 34 in {gradle_file}")
+
+# Re-parse scopes
+blocks = parse_scopes(text)
+default_config_block = None
+dc_ndk_block = None
+root_ndk_block = None
+android_block = None
+
+for name, path, start_idx, end_idx in blocks:
+    if name == 'android' and len(path) == 1:
+        android_block = (start_idx, end_idx)
+    elif name == 'defaultConfig' and ('android' in path or len(path) == 1):
+        default_config_block = (start_idx, end_idx)
+    elif name == 'ndk':
+        if 'defaultConfig' in path:
+            dc_ndk_block = (start_idx, end_idx)
+        elif 'android' in path and not any(p in path for p in ('buildTypes', 'productFlavors')):
+            root_ndk_block = (start_idx, end_idx)
+
+# If targetSdk was missing from defaultConfig, inject it
+if not target_sdk_found and default_config_block is not None:
+    open_brace_pos = default_config_block[0]
+    targ_line = "        targetSdk = 34\n" if is_kts else "        targetSdkVersion = 34\n"
+    nl_pos = text.find('\n', open_brace_pos)
+    if nl_pos != -1:
+        text = text[:nl_pos+1] + targ_line + text[nl_pos+1:]
+    else:
+        text = text[:open_brace_pos+1] + "\n" + targ_line + text[open_brace_pos+1:]
+
+    blocks = parse_scopes(text)
+    default_config_block = None
+    dc_ndk_block = None
+    root_ndk_block = None
+    for name, path, start_idx, end_idx in blocks:
+        if name == 'defaultConfig' and ('android' in path or len(path) == 1):
+            default_config_block = (start_idx, end_idx)
+        elif name == 'ndk':
+            if 'defaultConfig' in path:
+                dc_ndk_block = (start_idx, end_idx)
+            elif 'android' in path and not any(p in path for p in ('buildTypes', 'productFlavors')):
+                root_ndk_block = (start_idx, end_idx)
+
+target_ndk_block = dc_ndk_block if dc_ndk_block is not None else root_ndk_block
+abi_line = '            abiFilters += listOf("arm64-v8a")' if is_kts else "            abiFilters 'arm64-v8a'"
+
+arm64_already_present = False
+if target_ndk_block is not None:
+    ndk_content = text[target_ndk_block[0]:target_ndk_block[1]]
+    uncommented_ndk = re.sub(r'//.*', '', ndk_content)
+    uncommented_ndk = re.sub(r'/\*.*?\*/', '', uncommented_ndk, flags=re.DOTALL)
+    if 'arm64-v8a' in uncommented_ndk:
+        arm64_already_present = True
+
+if arm64_already_present:
+    print(f"arm64-v8a ABI filter already present in {gradle_file}")
+elif target_ndk_block is not None:
+    open_brace_pos = target_ndk_block[0]
+    nl_pos = text.find('\n', open_brace_pos)
+    if nl_pos != -1:
+        text = text[:nl_pos+1] + abi_line + '\n' + text[nl_pos+1:]
+    else:
+        text = text[:open_brace_pos+1] + '\n' + abi_line + '\n' + text[open_brace_pos+1:]
+    print(f"Added abiFilters to existing ndk block in {gradle_file}")
+else:
+    if default_config_block is not None:
+        open_brace_pos = default_config_block[0]
+        nl_pos = text.find('\n', open_brace_pos)
+        block_to_inject = f"        ndk {{\n{abi_line}\n        }}\n"
+        if nl_pos != -1:
+            text = text[:nl_pos+1] + block_to_inject + text[nl_pos+1:]
+        else:
+            text = text[:open_brace_pos+1] + '\n' + block_to_inject + text[open_brace_pos+1:]
+        print(f"Added ndk block with abiFilters to {gradle_file}")
+    elif android_block is not None:
+        open_brace_pos = android_block[0]
+        nl_pos = text.find('\n', open_brace_pos)
+        target_sdk_str = "        targetSdk = 34\n" if is_kts else "        targetSdkVersion = 34\n"
+        block_to_inject = f"    defaultConfig {{\n{target_sdk_str}        ndk {{\n{abi_line}\n        }}\n    }}\n"
+        if nl_pos != -1:
+            text = text[:nl_pos+1] + block_to_inject + text[nl_pos+1:]
+        else:
+            text = text[:open_brace_pos+1] + '\n' + block_to_inject + text[open_brace_pos+1:]
+        print(f"Added ndk block with abiFilters to {gradle_file}")
+
+with open(gradle_file, 'w', encoding='utf-8', newline='\n') as f:
+    f.write(text)
+EOF
 
 if [ "$TARGET_GRADLE" = "$APP_BUILD_GRADLE_KTS" ]; then
     MODIFIED_FILES+=("android/app/build.gradle.kts")
@@ -131,12 +500,16 @@ fi
 # Write state file
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 MOD_FILES_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${MODIFIED_FILES[@]}")
+CREATED_FILES_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${CREATED_FILES[@]}")
 cat > "$STATE_FILE" << EOF
 {
   "status": "configured",
   "timestamp": "$TIMESTAMP",
-  "modified_files": $MOD_FILES_JSON
+  "modified_files": $MOD_FILES_JSON,
+  "created_files": $CREATED_FILES_JSON,
+  "aapt2_path": "$TERMUX_AAPT2"
 }
 EOF
 
+TRANSACTION_SUCCESS=true
 echo "Done. $PROJ is configured for Termux."

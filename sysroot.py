@@ -68,7 +68,7 @@ def compute_tree_hash(dir_path: pathlib.Path) -> str:
         hasher.update(f'|mode:{mode_str}'.encode('utf-8'))
         if is_symlink:
             try:
-                target = os.readlink(full_path)
+                target = os.readlink(full_path).replace('\\', '/')
             except Exception:
                 target = ""
             hasher.update(f'|symlink:{target}'.encode('utf-8'))
@@ -299,6 +299,31 @@ def _normalize_pthread_shim(staging_root: pathlib.Path) -> pathlib.Path:
     termux_usr_lib.mkdir(parents=True, exist_ok=True)
 
     usr = staging_root / 'usr'
+    if usr.is_dir() and not usr.is_symlink():
+        for root, dirs, files in os.walk(usr, topdown=False):
+            rel_root = pathlib.Path(root).relative_to(usr)
+            target_dir = termux_usr / rel_root
+            target_dir.mkdir(parents=True, exist_ok=True)
+            for f in files:
+                src_file = pathlib.Path(root) / f
+                dst_file = target_dir / f
+                if dst_file.exists() or dst_file.is_symlink():
+                    try:
+                        dst_file.unlink()
+                    except OSError:
+                        pass
+                shutil.move(str(src_file), str(dst_file))
+            for d in dirs:
+                dir_to_remove = pathlib.Path(root) / d
+                try:
+                    dir_to_remove.rmdir()
+                except OSError:
+                    pass
+        try:
+            usr.rmdir()
+        except OSError:
+            shutil.rmtree(usr, ignore_errors=True)
+
     if (staging_root / dst_rel).is_dir():
         if not usr.is_symlink() and not usr.exists():
             try:
@@ -311,14 +336,6 @@ def _normalize_pthread_shim(staging_root: pathlib.Path) -> pathlib.Path:
                 if target.replace('\\', '/') != dst_rel:
                     usr.unlink()
                     usr.symlink_to(dst_rel, True)
-            except OSError:
-                pass
-
-    if usr.is_dir() and not usr.is_symlink():
-        usr_pthread = usr / 'lib' / 'libpthread.a'
-        if usr_pthread.exists() or usr_pthread.is_symlink():
-            try:
-                usr_pthread.unlink()
             except OSError:
                 pass
 
@@ -553,6 +570,11 @@ class Sysroot:
                 raise RuntimeError(f'Arch {arch} tree_hash missing, empty, or malformed ({expected_tree_hash!r}) in lock file {self.lock_file.name}.')
 
             pkgs_info = list(pkgs_dict.values()) if isinstance(pkgs_dict, dict) else pkgs_dict
+            for pkg in pkgs_info:
+                pkg_name = pkg.get('name') if isinstance(pkg, dict) else 'unknown'
+                pkg_sha = pkg.get('sha256') if isinstance(pkg, dict) else None
+                if not pkg_sha or not isinstance(pkg_sha, str) or not re.fullmatch(r'[0-9a-f]{64}', pkg_sha):
+                    raise RuntimeError(f"Package '{pkg_name}' has invalid or missing sha256 in lock file.")
 
         async def _do_build():
             nonlocal pkgs_info, expected_tree_hash

@@ -181,7 +181,7 @@ flutter run -d <device_id>
 
 ### `PLATFORM_ABI_LIST` unresolved
 
-代表 post-install 的 Flutter Gradle plugin 模板或 Gradle cache 是舊的。更新到 v3.44.0 deb 後執行：
+代表 post-install 的 Flutter Gradle plugin 模板或 Gradle cache 是舊的。更新到 v3.44.2 deb 後執行：
 
 ```bash
 bash $PREFIX/share/flutter/post_install.sh

@@ -13,6 +13,10 @@ import pytest
 from pathlib import Path
 import yaml
 
+REPO_ROOT = Path(__file__).parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import scripts.ci.verify_release_asset as verify_release_asset
 import scripts.ci.check_repo as check_repo
 

@@ -2,7 +2,8 @@
 """Check for version drift across configuration, scripts, and documentation files.
 
 Reads single source of truth version parameters from `build.toml` and verifies that
-all references in README, RELEASE_NOTES, installer scripts, and build scripts match.
+all references in README, RELEASE_NOTES, agent guidance, guides, package.yaml,
+installer scripts, and build scripts match.
 """
 from __future__ import annotations
 
@@ -26,8 +27,9 @@ def fail(msg: str) -> None:
     ERRORS.append(msg)
 
 
-def load_build_config() -> dict[str, str]:
-    config_path = ROOT / "build.toml"
+def load_build_config(root_path: Path | None = None) -> dict[str, str]:
+    base_root = root_path or ROOT
+    config_path = base_root / "build.toml"
     if not config_path.is_file():
         fail(f"build.toml not found at {config_path}")
         return {}
@@ -64,8 +66,9 @@ def load_build_config() -> dict[str, str]:
     }
 
 
-def check_build_py(cfg: dict[str, str]) -> None:
-    build_py = ROOT / "build.py"
+def check_build_py(cfg: dict[str, str], root_path: Path | None = None) -> None:
+    base_root = root_path or ROOT
+    build_py = base_root / "build.py"
     if not build_py.is_file():
         fail("build.py missing")
         return
@@ -80,7 +83,24 @@ def check_build_py(cfg: dict[str, str]) -> None:
         fail("build.py missing sync() method")
 
 
-def check_markdown_docs(cfg: dict[str, str]) -> None:
+def check_package_yaml(cfg: dict[str, str], root_path: Path | None = None) -> None:
+    base_root = root_path or ROOT
+    pkg_yaml = base_root / "package.yaml"
+    if not pkg_yaml.is_file():
+        return
+    text = pkg_yaml.read_text(encoding="utf-8")
+    if "Version: $tag" not in text:
+        fail("package.yaml control block must specify 'Version: $tag'")
+    if "FLUTTER_PREBUILT_ENGINE_VERSION=" in text:
+        match = re.search(r'export FLUTTER_PREBUILT_ENGINE_VERSION=["\']?([^"\'\n]+)', text)
+        if match:
+            found_eng = match.group(1).strip()
+            if found_eng not in ("$version", cfg.get("engine_commit")):
+                fail(f"package.yaml: FLUTTER_PREBUILT_ENGINE_VERSION mismatch: found '{found_eng}', expected '$version' or '{cfg.get('engine_commit')}'")
+
+
+def check_markdown_docs(cfg: dict[str, str], root_path: Path | None = None) -> None:
+    base_root = root_path or ROOT
     release_tag = cfg["release_tag"]
     dart_version = cfg["dart_version"]
     engine_commit = cfg.get("engine_commit")
@@ -92,7 +112,7 @@ def check_markdown_docs(cfg: dict[str, str]) -> None:
     ]
 
     for rel_path in docs_to_check:
-        path = ROOT / rel_path
+        path = base_root / rel_path
         if not path.is_file():
             continue
 
@@ -114,7 +134,80 @@ def check_markdown_docs(cfg: dict[str, str]) -> None:
                 fail(f"{rel_path}: Missing expected engine commit '{engine_commit}'")
 
 
-def check_installer_scripts(cfg: dict[str, str]) -> None:
+def check_agent_guidance_docs(cfg: dict[str, str], root_path: Path | None = None) -> None:
+    base_root = root_path or ROOT
+    tag = cfg["tag"]
+    asset_name = cfg["asset_name"]
+
+    guidance_docs = ["AGENTS.md", "GEMINI.md", "CLAUDE.md"]
+    for rel_path in guidance_docs:
+        path = base_root / rel_path
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+
+        # Check for active target version specification
+        target_match = re.search(r"Target:\s*aarch64,\s*Flutter\s+([0-9.]+)", text)
+        if target_match:
+            found_target_ver = target_match.group(1)
+            if found_target_ver != tag:
+                fail(f"{rel_path}: Target Flutter version mismatch: found '{found_target_ver}', expected '{tag}'")
+
+        # Check version-specific patch path diagram references
+        patch_dir_matches = re.findall(r"patches/([0-9.]+)/", text)
+        for pdir in patch_dir_matches:
+            if pdir != tag:
+                fail(f"{rel_path}: Patch directory diagram mismatch: found 'patches/{pdir}/', expected 'patches/{tag}/'")
+
+        # Check adb push deb file references
+        adb_deb_matches = re.findall(r"flutter_[0-9.]+_aarch64\.deb", text)
+        for deb in adb_deb_matches:
+            if deb != asset_name:
+                fail(f"{rel_path}: Deb filename mismatch: found '{deb}', expected '{asset_name}'")
+
+
+def check_guide_docs(cfg: dict[str, str], root_path: Path | None = None) -> None:
+    base_root = root_path or ROOT
+    tag = cfg["tag"]
+    asset_name = cfg["asset_name"]
+    engine_commit = cfg.get("engine_commit")
+    sha256 = cfg.get("sha256")
+
+    guides = [
+        "docs/guides/BUILD_GUIDE.md",
+        "docs/guides/BUILD_PROCESS.md",
+        "docs/guides/INSTALL_GUIDE.md",
+        "docs/guides/UPGRADE_GUIDE.md",
+    ]
+
+    for rel_path in guides:
+        path = base_root / rel_path
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+
+        if rel_path == "docs/guides/BUILD_GUIDE.md":
+            # Check version header table
+            if "Flutter tag |" in text:
+                m = re.search(r"Flutter tag \|\s*`([^`]+)`", text)
+                if m and m.group(1) != tag:
+                    fail(f"{rel_path}: Flutter tag mismatch in table: found '{m.group(1)}', expected '{tag}'")
+            if "Engine revision |" in text and engine_commit:
+                m = re.search(r"Engine revision \|\s*`([^`]+)`", text)
+                if m and m.group(1) != engine_commit:
+                    fail(f"{rel_path}: Engine revision mismatch in table: found '{m.group(1)}', expected '{engine_commit}'")
+            if "Package |" in text:
+                m = re.search(r"Package \|\s*`([^`]+)`", text)
+                if m and m.group(1) != asset_name:
+                    fail(f"{rel_path}: Package mismatch in table: found '{m.group(1)}', expected '{asset_name}'")
+            if "SHA256 |" in text and sha256:
+                m = re.search(r"SHA256 \|\s*`([^`]+)`", text)
+                if m and m.group(1).lower() != sha256.lower():
+                    fail(f"{rel_path}: SHA256 mismatch in table: found '{m.group(1)}', expected '{sha256}'")
+
+
+def check_installer_scripts(cfg: dict[str, str], root_path: Path | None = None) -> None:
+    base_root = root_path or ROOT
     tag = cfg["tag"]
     release_tag = cfg["release_tag"]
 
@@ -126,7 +219,7 @@ def check_installer_scripts(cfg: dict[str, str]) -> None:
     ]
 
     for rel_path in scripts:
-        path = ROOT / rel_path
+        path = base_root / rel_path
         if not path.is_file():
             continue
 
@@ -151,19 +244,27 @@ def check_installer_scripts(cfg: dict[str, str]) -> None:
                 fail(f"{rel_path}: EXPECTED_SHA256 line does not contain expected hash '{cfg['sha256']}': {line}")
 
 
-def main() -> int:
-    cfg = load_build_config()
+def run_checks(root_path: Path | None = None) -> list[str]:
+    ERRORS.clear()
+    cfg = load_build_config(root_path)
     if not cfg:
-        print("Failed to load build config from build.toml", file=sys.stderr)
-        return 1
+        return ERRORS
 
-    check_build_py(cfg)
-    check_markdown_docs(cfg)
-    check_installer_scripts(cfg)
+    check_build_py(cfg, root_path)
+    check_package_yaml(cfg, root_path)
+    check_markdown_docs(cfg, root_path)
+    check_agent_guidance_docs(cfg, root_path)
+    check_guide_docs(cfg, root_path)
+    check_installer_scripts(cfg, root_path)
 
-    if ERRORS:
+    return ERRORS
+
+
+def main() -> int:
+    errors = run_checks()
+    if errors:
         print("Version drift check FAILED:", file=sys.stderr)
-        for err in ERRORS:
+        for err in errors:
             print(f"  - {err}", file=sys.stderr)
         return 1
 
