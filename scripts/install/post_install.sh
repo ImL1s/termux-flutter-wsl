@@ -557,10 +557,30 @@ apply_patches
 
 # 1.5b. Fix engine.stamp and engine.realm (required for Maven artifact resolution)
 echo "[1.5b/13] Fixing engine.stamp and engine.realm, and injecting framework version tag..."
-[ -s $FLUTTER_ROOT/bin/internal/engine.version ] || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab" > $FLUTTER_ROOT/bin/internal/engine.version
-cp $FLUTTER_ROOT/bin/internal/engine.version $FLUTTER_ROOT/bin/cache/engine.stamp 2>/dev/null || true
-echo -n > $FLUTTER_ROOT/bin/cache/engine.realm 2>/dev/null || true
-echo "  ✓ engine.stamp=$(cat $FLUTTER_ROOT/bin/cache/engine.stamp 2>/dev/null || echo 'unknown')"
+mkdir -p "$FLUTTER_ROOT/bin/cache"
+[ -s "$FLUTTER_ROOT/bin/internal/engine.version" ] || echo -n "77e2e94772b6eb43759e34ed1ad7da4674e19cab" > "$FLUTTER_ROOT/bin/internal/engine.version"
+local_eng_ver="$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | tr -d '\n\r')"
+echo -n "$local_eng_ver" > "$FLUTTER_ROOT/bin/cache/engine.stamp" 2>/dev/null || true
+echo -n "$local_eng_ver" > "$FLUTTER_ROOT/bin/cache/engine_stamp.stamp" 2>/dev/null || true
+echo -n > "$FLUTTER_ROOT/bin/cache/engine.realm" 2>/dev/null || true
+mkdir -p "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts"
+mkdir -p "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper"
+touch "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew.bat" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradle-wrapper.jar" 2>/dev/null || true
+chmod 755 "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+for vfile in "$FLUTTER_ROOT"/bin/internal/*.version; do
+    [ -f "$vfile" ] || continue
+    vname=$(basename "$vfile" .version)
+    cp "$vfile" "$FLUTTER_ROOT/bin/cache/${vname}.stamp" 2>/dev/null || true
+done
+cat > "$FLUTTER_ROOT/bin/cache/engine_stamp.json" << EOF
+{
+  "build_time_ms": 1770000000000,
+  "git_revision": "$local_eng_ver",
+  "git_revision_date": "2026-06-09T00:00:00Z",
+  "content_hash": "$local_eng_ver"
+}
+EOF
+echo "  ✓ engine.stamp=$(cat "$FLUTTER_ROOT/bin/cache/engine.stamp" 2>/dev/null || echo 'unknown')"
 echo "  ✓ engine.realm cleared"
 
 if ! [ -d "$FLUTTER_ROOT/.git" ]; then
@@ -915,7 +935,20 @@ echo "  ✓ Android licenses accepted"
 
 # 10.5. Configure ANDROID_HOME in flutter config
 echo "[11.5/13] Setting Android SDK path in Flutter config..."
-$FLUTTER_ROOT/bin/flutter config --android-sdk $ANDROID_SDK --suppress-analytics 2>/dev/null || true
+mkdir -p "$HOME" 2>/dev/null || true
+if [ -f "$HOME/.flutter_settings" ]; then
+    grep -v '"android-sdk"' "$HOME/.flutter_settings" 2>/dev/null | grep -v '^[[:space:]]*}$' > "$HOME/.flutter_settings.tmp" 2>/dev/null || true
+    echo '  ,"android-sdk": "'"$ANDROID_SDK"'"' >> "$HOME/.flutter_settings.tmp"
+    echo '}' >> "$HOME/.flutter_settings.tmp"
+    mv "$HOME/.flutter_settings.tmp" "$HOME/.flutter_settings" 2>/dev/null || true
+else
+    cat > "$HOME/.flutter_settings" << SETTINGS
+{
+  "android-sdk": "$ANDROID_SDK",
+  "analytics": false
+}
+SETTINGS
+fi
 echo "  ✓ ANDROID_HOME=$ANDROID_SDK"
 
 # 11. 複製 VM snapshots (for debug mode)
@@ -1007,15 +1040,18 @@ finalize_flutter_tools_cache() {
 
     # Ensure pubspec.lock exists and is strictly newer than pubspec.yaml
     if [ -f "$PUBSPEC_YAML" ]; then
-        touch "$PUBSPEC_LOCK"
-        if [ "$PUBSPEC_YAML" -nt "$PUBSPEC_LOCK" ]; then
-            sleep 1
-            touch "$PUBSPEC_LOCK"
-        fi
+        touch -t 202701010000 "$PUBSPEC_LOCK" 2>/dev/null || touch "$PUBSPEC_LOCK"
     fi
 
     # Ensure bin/cache directory exists
     mkdir -p "$FLUTTER_ROOT/bin/cache"
+
+    # Ensure environment variables are active during snapshot generation
+    export PATH="/data/data/com.termux/files/usr/bin:$PATH"
+    export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+    if [ -n "$REVISION" ]; then
+        export FLUTTER_PREBUILT_ENGINE_VERSION="$REVISION"
+    fi
 
     # Compile snapshot with --snapshot-kind="app-jit" and --no-enable-mirrors matching shared.sh
     # Note: passing "--version" as argument allows flutter_tools.dart to execute and produce complete App-JIT snapshot

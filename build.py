@@ -1024,10 +1024,11 @@ class Build:
         jobs = jobs or self.jobs
         out_dir = utils.target_output(root, arch, mode)
 
-        # Build dart binary and dartaotruntime_product
+        # Build dart binary, dartvm, and dartaotruntime_product
         cmd = [
             'ninja', '-C', out_dir,
             'exe.unstripped/dart',
+            'exe.unstripped/dartvm',
             'dartaotruntime_product',
         ]
         if jobs:
@@ -1047,16 +1048,19 @@ class Build:
             shutil.copy(src, dst)
             logger.info(f'{label} binary copied to {dst}')
 
-        # Copy dart to dart-sdk/bin/ and dartvm.
+        # Copy dart and dartvm to dart-sdk/bin/.
         #
-        # Dart 3.10+ Flutter wrappers may re-exec dartvm next to dart. On
-        # Termux both entries point at the same JIT-capable VM binary.
+        # Dart 3.10+ Flutter wrappers re-exec dartvm next to dart.
+        # dart_src is the CLI frontend driver; dartvm_src is the actual VM engine.
         dart_src = os.path.join(out_dir, 'exe.unstripped', 'dart')
+        dartvm_src = os.path.join(out_dir, 'exe.unstripped', 'dartvm')
+        if not os.path.exists(dartvm_src):
+            dartvm_src = os.path.join(out_dir, 'dartvm')
         dart_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dart')
         dartvm_dst = os.path.join(out_dir, 'dart-sdk', 'bin', 'dartvm')
 
         copy_runtime_binary(dart_src, dart_dst, 'dart')
-        copy_runtime_binary(dart_src, dartvm_dst, 'dartvm')
+        copy_runtime_binary(dartvm_src, dartvm_dst, 'dartvm')
 
         # Copy dartaotruntime_product to dart-sdk/bin/dartaotruntime
         aotruntime_src = os.path.join(out_dir, 'dartaotruntime_product')

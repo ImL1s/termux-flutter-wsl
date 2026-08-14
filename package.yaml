@@ -217,6 +217,7 @@ resource:
   profile:
     source: |-
       export PATH=${PREFIX}/opt/flutter/bin:${PATH}
+      export TMPDIR="${PREFIX}/tmp"
       export FLUTTER_PREBUILT_ENGINE_VERSION="77e2e94772b6eb43759e34ed1ad7da4674e19cab"
       # Force Gradle to use our pre-configured NDK (prevents auto-download of new versions)
       if [ -z "$ANDROID_NDK_HOME" ]; then
@@ -231,10 +232,14 @@ resource:
   stamps:
     source: $version
     output:
+      - $out/engine.stamp
+      - $out/engine_stamp.stamp
       - $out/engine-dart-sdk.stamp
       - $out/flutter_sdk.stamp
       - $out/font-subset.stamp
       - $out/linux-sdk.stamp
+      - $out/material_fonts.stamp
+      - $out/gradle_wrapper.stamp
       # Android stamps: prevent Flutter from downloading x64 tools
       # All combos needed even though only arm64 gen_snapshot exists
       - $out/android-arm-release.stamp
