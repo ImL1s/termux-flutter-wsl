@@ -1403,8 +1403,10 @@ class Build:
         debug_outputs = [
             Path(out_debug) / 'libflutter_linux_gtk.so',
             Path(out_debug) / 'dart-sdk/bin/dart',
+            Path(out_debug) / 'dart-sdk/bin/dartvm',
             Path(out_debug) / 'impellerc',
             Path(out_debug) / 'gen/const_finder.dart.snapshot',
+            Path(out_debug) / 'gen/dart-pkg/sky_engine',
         ]
         if not force and all(p.exists() for p in debug_outputs):
             logger.info(f'[6/{total}] debug tools output already exists, skipping (use --force to rebuild).')
