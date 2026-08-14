@@ -281,6 +281,15 @@ while ((Get-Date) -lt $startDeadline) {
         $started = $true
         break
     }
+
+    # Direct launch fallback via run-as com.termux if touch input is blocked by OS overlays
+    Invoke-AdbAllowFail -Args @("shell", "run-as", "com.termux", "/data/data/com.termux/files/usr/bin/bash", "-c", "`"export PREFIX=/data/data/com.termux/files/usr; export PATH=`$PREFIX/bin:`$PATH; nohup bash $RemoteScript >/dev/null 2>&1 &`"") | Out-Null
+    Start-Sleep -Seconds 3
+    $probe = (& $Adb @AdbArgs shell "cat $RemoteLog 2>/dev/null || true") -join "`n"
+    if ($probe -match "TERMUX_CI_SMOKE") {
+        $started = $true
+        break
+    }
 }
 if (-not $started) {
     Invoke-AdbAllowFail -Args @("shell", "screencap", "-p", "/sdcard/Download/termux_ci_smoke_start_failed.png") | Out-Null
