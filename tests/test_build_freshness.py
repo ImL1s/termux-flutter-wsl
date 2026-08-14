@@ -328,6 +328,7 @@ def test_build_all_deb_exists_no_typeerror_and_skips_when_fresh(tmp_path, monkey
     b.patch_engine = lambda: None
     b.patch_dart = lambda: None
     b.patch_skia = lambda: None
+    b.sysroot = lambda **kw: None
     b.is_sync_complete = lambda **kw: True
     b._sysroot.verify = lambda arch: True
     b.configure = lambda **kw: None
@@ -397,6 +398,7 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
     b.patch_engine = lambda: None
     b.patch_dart = lambda: None
     b.patch_skia = lambda: None
+    b.sysroot = lambda **kw: None
     b.is_sync_complete = lambda **kw: True
     b._sysroot.verify = lambda arch: True
     b.configure = lambda **kw: None

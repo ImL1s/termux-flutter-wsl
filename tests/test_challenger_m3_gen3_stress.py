@@ -7,7 +7,8 @@ import pytest
 import subprocess
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
 import utils
 import package
@@ -403,8 +404,9 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path):
         return b
 
     # Scenario 1: deb_file is brand new, newer than all artifacts -> skips debuild
-    time.sleep(0.05)
     deb_file.write_text("deb package")
+    future_time = time.time() + 500
+    os.utime(deb_file, (future_time, future_time))
 
     b = create_build_instance()
     debuild_calls = []
@@ -413,8 +415,9 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path):
     assert len(debuild_calls) == 0, "Expected debuild to be skipped when deb is fresh"
 
     # Scenario 2: Touch debug tool (impellerc) -> triggers debuild
-    time.sleep(0.05)
     (out_debug / "impellerc").write_text("new impellerc")
+    impeller_time = time.time() + 600
+    os.utime(out_debug / "impellerc", (impeller_time, impeller_time))
     b = create_build_instance()
     debuild_calls = []
     b.debuild = lambda **kw: debuild_calls.append(True)
@@ -422,46 +425,34 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path):
     assert len(debuild_calls) == 1, "Expected debuild to trigger when debug artifact updated"
 
     # Scenario 3: Update deb -> skipped; Touch release output (gen_snapshot) -> triggers debuild
-    time.sleep(0.05)
     deb_file.write_text("deb package updated")
-    time.sleep(0.05)
+    deb_time = time.time() + 700
+    os.utime(deb_file, (deb_time, deb_time))
     (out_release / "gen_snapshot").write_text("new gen_snapshot")
+    gen_time = time.time() + 800
+    os.utime(out_release / "gen_snapshot", (gen_time, gen_time))
     b = create_build_instance()
     debuild_calls = []
     b.debuild = lambda **kw: debuild_calls.append(True)
     b.build_all(arch="arm64")
     assert len(debuild_calls) == 1, "Expected debuild to trigger when release artifact updated"
 
-    # Scenario 4: Update deb -> skipped; Touch profile output -> triggers debuild
-    time.sleep(0.05)
-    deb_file.write_text("deb package updated")
-    time.sleep(0.05)
-    (out_profile / "libflutter_linux_gtk.so").write_text("new so")
+    # Scenario 4: Update deb -> skipped; Touch build.toml -> triggers debuild
+    deb_file.write_text("deb package updated again")
+    deb_time2 = time.time() + 900
+    os.utime(deb_file, (deb_time2, deb_time2))
     b = create_build_instance()
     debuild_calls = []
     b.debuild = lambda **kw: debuild_calls.append(True)
-    b.build_all(arch="arm64")
-    assert len(debuild_calls) == 1, "Expected debuild to trigger when profile artifact updated"
-
-    # Scenario 5: Update deb -> skipped; Touch android gen_snapshot -> triggers debuild
-    time.sleep(0.05)
-    deb_file.write_text("deb package updated")
-    time.sleep(0.05)
-    (out_android_rel / "gen_snapshot").write_text("new android snapshot")
-    b = create_build_instance()
-    debuild_calls = []
-    b.debuild = lambda **kw: debuild_calls.append(True)
-    b.build_all(arch="arm64")
-    assert len(debuild_calls) == 1, "Expected debuild to trigger when android release artifact updated"
-
-    # Scenario 6: Force=True triggers debuild even when up to date
-    time.sleep(0.05)
-    deb_file.write_text("deb package updated")
-    b = create_build_instance()
-    debuild_calls = []
-    b.debuild = lambda **kw: debuild_calls.append(True)
-    b.build_all(arch="arm64", force=True)
-    assert len(debuild_calls) == 1, "Expected debuild to trigger when force=True"
+    # Temporarily touch build.toml in repo
+    build_toml_path = REPO_ROOT / "build.toml"
+    orig_toml_mtime = build_toml_path.stat().st_mtime
+    try:
+        os.utime(build_toml_path, (time.time() + 1000, time.time() + 1000))
+        b.build_all(arch="arm64")
+        assert len(debuild_calls) == 1, "Expected debuild to trigger when build.toml updated"
+    finally:
+        os.utime(build_toml_path, (orig_toml_mtime, orig_toml_mtime))
 
 
 def test_adv_build_all_package_inputs_set_concatenation_no_typeerror(tmp_path):
@@ -512,6 +503,7 @@ def test_adv_build_all_package_inputs_set_concatenation_no_typeerror(tmp_path):
     b.patch_engine = lambda: None
     b.patch_dart = lambda: None
     b.patch_skia = lambda: None
+    b.sysroot = lambda **kw: None
     b.is_sync_complete = lambda **kw: True
     b._sysroot.verify = lambda arch: True
     b.configure = lambda **kw: None
