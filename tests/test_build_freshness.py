@@ -312,11 +312,14 @@ def test_build_all_deb_exists_no_typeerror_and_skips_when_fresh(tmp_path, monkey
         p.write_text("dummy")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
 
     deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
     deb_file.write_text("deb package")
     future_time = time.time() + 500
     os.utime(deb_file, (future_time, future_time))
+
+    monkeypatch.setattr(Build, "is_sync_complete", lambda self, *a, **kw: True)
 
     b = Build()
     b.root = Path(root)
@@ -328,8 +331,9 @@ def test_build_all_deb_exists_no_typeerror_and_skips_when_fresh(tmp_path, monkey
     b.patch_engine = lambda: None
     b.patch_dart = lambda: None
     b.patch_skia = lambda: None
-    b.sysroot = lambda **kw: None
-    b.is_sync_complete = lambda **kw: True
+    sysroot_dir = tmp_path / "sysroot"
+    (sysroot_dir / "usr").mkdir(parents=True, exist_ok=True)
+    b._sysroot.path = sysroot_dir
     b._sysroot.verify = lambda arch: True
     b.configure = lambda **kw: None
     b.build = lambda **kw: None
@@ -380,6 +384,7 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
         p.write_text("dummy")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
 
     deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
     deb_file.write_text("deb package")
@@ -387,6 +392,8 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
     time.sleep(0.05)
     # Touch an engine output after deb creation
     (out_debug / "impellerc").write_text("updated impellerc")
+
+    monkeypatch.setattr(Build, "is_sync_complete", lambda self, *a, **kw: True)
 
     b = Build()
     b.root = Path(root)
@@ -398,8 +405,9 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
     b.patch_engine = lambda: None
     b.patch_dart = lambda: None
     b.patch_skia = lambda: None
-    b.sysroot = lambda **kw: None
-    b.is_sync_complete = lambda **kw: True
+    sysroot_dir = tmp_path / "sysroot"
+    (sysroot_dir / "usr").mkdir(parents=True, exist_ok=True)
+    b._sysroot.path = sysroot_dir
     b._sysroot.verify = lambda arch: True
     b.configure = lambda **kw: None
     b.build = lambda **kw: None

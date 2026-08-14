@@ -340,8 +340,9 @@ def test_adv_package_debuild_malicious_manifest_rejection(tmp_path):
 # 4. Stress Testing build_all Mtime Staleness & Concatenation Freshness
 # ============================================================================
 
-def test_adv_build_all_mtime_staleness_comprehensive(tmp_path):
+def test_adv_build_all_mtime_staleness_comprehensive(tmp_path, monkeypatch):
     """Verify build_all staleness logic across all tracked inputs without TypeError."""
+    monkeypatch.setattr(Build, "is_sync_complete", lambda self, *a, **kw: True)
     root = tmp_path / "flutter"
     root.mkdir()
     out_debug = root / "engine" / "src" / "out" / "linux_debug_arm64"
@@ -376,6 +377,7 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path):
         p.write_text("content")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
 
     deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
 
@@ -390,9 +392,9 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path):
         b.patch = lambda **kw: None
         b.patch_engine = lambda: None
         b.patch_dart = lambda: None
-        b.patch_skia = lambda: None
-        b.sysroot = lambda **kw: None
-        b.is_sync_complete = lambda **kw: True
+        sysroot_dir = tmp_path / "sysroot"
+        (sysroot_dir / "usr").mkdir(parents=True, exist_ok=True)
+        b._sysroot.path = sysroot_dir
         b._sysroot.verify = lambda arch: True
         b.configure = lambda **kw: None
         b.build = lambda **kw: None
@@ -455,8 +457,9 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path):
         os.utime(build_toml_path, (orig_toml_mtime, orig_toml_mtime))
 
 
-def test_adv_build_all_package_inputs_set_concatenation_no_typeerror(tmp_path):
+def test_adv_build_all_package_inputs_set_concatenation_no_typeerror(tmp_path, monkeypatch):
     """Regression test for Issue #50: verify list(package_inputs) concatenation prevents TypeError."""
+    monkeypatch.setattr(Build, "is_sync_complete", lambda self, *a, **kw: True)
     root = tmp_path / "flutter"
     root.mkdir()
     out_debug = root / "engine" / "src" / "out" / "linux_debug_arm64"
@@ -488,6 +491,7 @@ def test_adv_build_all_package_inputs_set_concatenation_no_typeerror(tmp_path):
         p.write_text("dummy")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
 
     deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
     deb_file.write_text("deb package")
@@ -503,8 +507,9 @@ def test_adv_build_all_package_inputs_set_concatenation_no_typeerror(tmp_path):
     b.patch_engine = lambda: None
     b.patch_dart = lambda: None
     b.patch_skia = lambda: None
-    b.sysroot = lambda **kw: None
-    b.is_sync_complete = lambda **kw: True
+    sysroot_dir = tmp_path / "sysroot"
+    (sysroot_dir / "usr").mkdir(parents=True, exist_ok=True)
+    b._sysroot.path = sysroot_dir
     b._sysroot.verify = lambda arch: True
     b.configure = lambda **kw: None
     b.build = lambda **kw: None
