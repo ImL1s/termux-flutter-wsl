@@ -97,14 +97,22 @@ if ($DeviceSerial) {
 }
 
 function Invoke-Adb {
-    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
-    & $Adb @AdbArgs @Args
-    if ($LASTEXITCODE -ne 0) { throw "adb $($Args -join ' ') failed with exit code $LASTEXITCODE" }
+    param(
+        [Parameter(Position=0, ValueFromRemainingArguments=$true)]
+        [Alias("Args")]
+        [string[]]$CommandArgs
+    )
+    & $Adb @AdbArgs @CommandArgs
+    if ($LASTEXITCODE -ne 0) { throw "adb $($CommandArgs -join ' ') failed with exit code $LASTEXITCODE" }
 }
 
 function Invoke-AdbAllowFail {
-    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
-    & $Adb @AdbArgs @Args
+    param(
+        [Parameter(Position=0, ValueFromRemainingArguments=$true)]
+        [Alias("Args")]
+        [string[]]$CommandArgs
+    )
+    & $Adb @AdbArgs @CommandArgs
 }
 
 function Get-Sha256Hex {
@@ -283,7 +291,7 @@ while ((Get-Date) -lt $startDeadline) {
     }
 
     # Direct launch fallback via run-as com.termux if touch input is blocked by OS overlays
-    Invoke-AdbAllowFail -Args @("shell", "run-as", "com.termux", "/data/data/com.termux/files/usr/bin/bash", "-c", "`"export PREFIX=/data/data/com.termux/files/usr; export PATH=`$PREFIX/bin:`$PATH; nohup bash $RemoteScript >/dev/null 2>&1 &`"") | Out-Null
+    Invoke-AdbAllowFail -Args @("shell", "run-as", "com.termux", "/data/data/com.termux/files/usr/bin/bash", "-c", "`"export PREFIX=/data/data/com.termux/files/usr; export PATH=`$PREFIX/bin:`$PATH; /data/data/com.termux/files/usr/bin/bash $RemoteScript`"") | Out-Null
     Start-Sleep -Seconds 3
     $probe = (& $Adb @AdbArgs shell "cat $RemoteLog 2>/dev/null || true") -join "`n"
     if ($probe -match "TERMUX_CI_SMOKE") {
@@ -300,7 +308,7 @@ $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 $last = ""
 while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 20
-    $tail = (& $Adb @AdbArgs shell "tail -120 $RemoteLog 2>&1") -join "`n"
+    $tail = ((Invoke-AdbAllowFail -Args @("shell", "tail", "-120", $RemoteLog)) -join "`n")
     if ($tail -ne $last) {
         Write-Host "----- Termux smoke tail -----"
         Write-Host $tail
@@ -309,7 +317,7 @@ while ((Get-Date) -lt $deadline) {
     if ($tail -match "(?m)^DONE\s*$") { break }
 }
 
-$log = (& $Adb @AdbArgs shell "cat $RemoteLog 2>&1") -join "`n"
+$log = ((Invoke-AdbAllowFail -Args @("shell", "cat", $RemoteLog)) -join "`n")
 Write-Host "===== Full Termux smoke log ====="
 Write-Host $log
 
@@ -391,7 +399,7 @@ $appPid = ""
 $initialPid = ""
 for ($check = 1; $check -le 3; $check++) {
     Start-Sleep -Seconds 2
-    $pidCurrent = ((& $Adb @AdbArgs shell "pidof com.example.flutter_ci_smoke 2>/dev/null || true") -join "").Trim()
+    $pidCurrent = ((Invoke-AdbAllowFail -Args @("shell", "pidof", "com.example.flutter_ci_smoke")) -join "").Trim()
     if (-not $pidCurrent) {
         $livenessPassed = $false
         break
@@ -405,8 +413,8 @@ for ($check = 1; $check -le 3; $check++) {
     }
 }
 
-$crashLogs = (& $Adb @AdbArgs shell "logcat -d 2>/dev/null | grep -E -i 'FATAL EXCEPTION.*com\.example\.flutter_ci_smoke|AndroidRuntime.*com\.example\.flutter_ci_smoke|SIGSEGV.*com\.example\.flutter_ci_smoke|SIGABRT.*com\.example\.flutter_ci_smoke' || true") -join "`n"
-$hasCrash = ($crashLogs -match "FATAL EXCEPTION" -or $crashLogs -match "SIGSEGV" -or $crashLogs -match "SIGABRT")
+$crashLogs = ((Invoke-AdbAllowFail -Args @("shell", "logcat", "-d")) -join "`n")
+$hasCrash = ($crashLogs -match "com\.example\.flutter_ci_smoke.*(FATAL EXCEPTION|AndroidRuntime|SIGSEGV|SIGABRT)")
 
 $apkLaunchHost = [bool]($initialPid -ne "" -and $livenessPassed)
 $crashFreeHost = [bool]($apkLaunchHost -and (-not $hasCrash))
@@ -416,9 +424,9 @@ Write-Host "Host APK launch verification: initialPid=$initialPid, liveness=$live
 $hostEvidencePath = if ([System.IO.Path]::IsPathRooted($EvidencePath)) { $EvidencePath } else { Join-Path (Get-Location) $EvidencePath }
 $remoteEvidence = "/sdcard/Download/evidence.json"
 
-$model = ((& $Adb @AdbArgs shell "getprop ro.product.model 2>/dev/null || true") -join "").Trim()
-$sdk = ((& $Adb @AdbArgs shell "getprop ro.build.version.sdk 2>/dev/null || true") -join "").Trim()
-$abi = ((& $Adb @AdbArgs shell "getprop ro.product.cpu.abi 2>/dev/null || true") -join "").Trim()
+$model = ((Invoke-AdbAllowFail -Args @("shell", "getprop", "ro.product.model")) -join "").Trim()
+$sdk = ((Invoke-AdbAllowFail -Args @("shell", "getprop", "ro.build.version.sdk")) -join "").Trim()
+$abi = ((Invoke-AdbAllowFail -Args @("shell", "getprop", "ro.product.cpu.abi")) -join "").Trim()
 $serial = "[REDACTED]"
 if (-not $model) { $model = "unknown" }
 if (-not $sdk) { $sdk = "unknown" }
@@ -456,17 +464,20 @@ $artifactCommitMeasured = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } e
 
 $launchPassed = [bool]($apkLaunchHost -and $crashFreeHost)
 $exitStatus = if ($launchPassed) { 0 } else { 1 }
-$modeA = if ($rawEv -and $rawEv.mode_a_status) { $rawEv.mode_a_status } else { "failed" }
-$modeB = if ($rawEv -and $rawEv.mode_b_status) { $rawEv.mode_b_status } else { "failed" }
+$modeALog = ($log -match "BUILD_APK_STATUS=0" -and $log -match "APK_MANIFEST_STATUS=0" -and $log -match "APK_RESOURCES_STATUS=0" -and $log -match "APK_COPY_STATUS=0")
+$modeBLog = ($log -match "BUILD_AAB_STATUS=0" -and $log -match "AAB_COPY_STATUS=0")
 
-$modeAApkBuild = if ($rawEv -and $rawEv.mode_a -and $rawEv.mode_a.apk_build) { $rawEv.mode_a.apk_build } else { $modeA }
-$modeBAabBuild = if ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_build) { $rawEv.mode_b.aab_build } else { $modeB }
+$modeA = if ($modeALog) { "passed" } elseif ($rawEv -and $rawEv.mode_a_status) { $rawEv.mode_a_status } else { "failed" }
+$modeB = if ($modeBLog) { "passed" } elseif ($rawEv -and $rawEv.mode_b_status) { $rawEv.mode_b_status } else { "failed" }
+
+$modeAApkBuild = if ($modeA -eq "passed") { "passed" } elseif ($rawEv -and $rawEv.mode_a -and $rawEv.mode_a.apk_build) { $rawEv.mode_a.apk_build } else { $modeA }
+$modeBAabBuild = if ($modeB -eq "passed") { "passed" } elseif ($rawEv -and $rawEv.mode_b -and $rawEv.mode_b.aab_build) { $rawEv.mode_b.aab_build } else { $modeB }
 $overallStatus = if ($launchPassed -and $modeA -eq "passed" -and $modeB -eq "passed") { "passed" } else { "failed" }
 
-$apkSha256 = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_sha256) { $rawEv.artifacts.apk_sha256 } else { "unknown" }
-$apkSize = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_size) { $rawEv.artifacts.apk_size } else { 0 }
-$aabSha256 = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_sha256) { $rawEv.artifacts.aab_sha256 } else { "unknown" }
-$aabSize = if ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_size) { $rawEv.artifacts.aab_size } else { 0 }
+$apkSha256 = if ($apkSha256 -and $apkSha256 -ne "unknown") { $apkSha256 } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_sha256) { $rawEv.artifacts.apk_sha256 } else { "unknown" }
+$apkSize = if ($apkSize -gt 0) { $apkSize } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_size) { $rawEv.artifacts.apk_size } else { 0 }
+$aabSha256 = if ($aabSha256 -and $aabSha256 -ne "unknown") { $aabSha256 } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_sha256) { $rawEv.artifacts.aab_sha256 } else { "unknown" }
+$aabSize = if ($aabSize -gt 0) { $aabSize } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_size) { $rawEv.artifacts.aab_size } else { 0 }
 
 $evObj = [ordered]@{
     status = $overallStatus
@@ -517,8 +528,11 @@ $evObj = [ordered]@{
 }
 
 
-$evObj | ConvertTo-Json -Depth 5 | Set-Content -Path $hostEvidencePath -Encoding UTF8
+$evJson = $evObj | ConvertTo-Json -Depth 5
+Set-Content -Path $hostEvidencePath -Value $evJson -Encoding UTF8
 Write-Host "Wrote evidence artifact to $hostEvidencePath"
+Write-Host "Evidence JSON Content:"
+Write-Host $evJson
 
 if (-not $apkLaunchHost) {
     throw "APK launch verification failed on host"

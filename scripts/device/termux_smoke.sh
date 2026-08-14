@@ -155,7 +155,7 @@ echo "Updating apt package index..."
 apt-get update -y || true
 
 echo "Pre-installing required 7zip/p7zip dependencies..."
-apt-get install -y 7zip || apt-get install -y p7zip || pkg install -y 7zip || pkg install -y p7zip || true
+DEBIAN_FRONTEND=noninteractive apt-get install -y 7zip 2>/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip 2>/dev/null || true
 
 echo "Installing candidate package $DEB..."
 dpkg -i "$DEB" || true
