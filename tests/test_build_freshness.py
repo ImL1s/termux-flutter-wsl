@@ -313,9 +313,10 @@ def test_build_all_deb_exists_no_typeerror_and_skips_when_fresh(tmp_path, monkey
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
 
-    time.sleep(0.05)
     deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
     deb_file.write_text("deb package")
+    future_time = time.time() + 500
+    os.utime(deb_file, (future_time, future_time))
 
     b = Build()
     b.root = Path(root)

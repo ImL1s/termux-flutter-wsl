@@ -604,7 +604,7 @@ exit 0
     subprocess.run(["bash", "-c", chmod_cmd], check=True)
 
     # 1. Run with AAPT2_OVERRIDE unset in environment under set -euo pipefail
-    cmd1 = f"export PATH='{to_bash_path(fake_bin)}:$PATH' HOME='{to_bash_path(fake_home)}' PREFIX='{to_bash_path(fake_home / 'usr')}'; unset AAPT2_OVERRIDE; bash -euo pipefail '{to_bash_path(script_copy)}'"
+    cmd1 = f'export PATH="{to_bash_path(fake_bin)}:$PATH" HOME="{to_bash_path(fake_home)}" PREFIX="{to_bash_path(fake_home / "usr")}"; unset AAPT2_OVERRIDE; bash -euo pipefail "{to_bash_path(script_copy)}"'
     res1 = subprocess.run(["bash", "-c", cmd1], capture_output=True)
     out1 = res1.stdout.decode("utf-8", errors="replace")
     err1 = res1.stderr.decode("utf-8", errors="replace")
@@ -617,7 +617,7 @@ exit 0
     assert f"android.aapt2FromMavenOverride={expected_default_aapt2}" in prop_text1
 
     # 2. Run with explicit AAPT2_OVERRIDE set
-    cmd2 = f"export PATH='{to_bash_path(fake_bin)}:$PATH' HOME='{to_bash_path(fake_home)}' PREFIX='{to_bash_path(fake_home / 'usr')}' AAPT2_OVERRIDE='/custom/override/bin/aapt2'; bash -euo pipefail '{to_bash_path(script_copy)}'"
+    cmd2 = f'export PATH="{to_bash_path(fake_bin)}:$PATH" HOME="{to_bash_path(fake_home)}" PREFIX="{to_bash_path(fake_home / "usr")}" AAPT2_OVERRIDE="/custom/override/bin/aapt2"; bash -euo pipefail "{to_bash_path(script_copy)}"'
     res2 = subprocess.run(["bash", "-c", cmd2], capture_output=True)
     out2 = res2.stdout.decode("utf-8", errors="replace")
     err2 = res2.stderr.decode("utf-8", errors="replace")
