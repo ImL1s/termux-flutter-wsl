@@ -11,17 +11,16 @@ control:
   Package: flutter
   Version: $tag
   Architecture: $architecture
-  Maintainer: mumumusuc <mumumusuc@gmail.com>
+  Maintainer: Termux Flutter WSL <termux-flutter-wsl@github.com>
   Pre-Depends: x11-repo
-  Depends: git, which, gtk3, xorgproto, ninja, cmake, clang, pkg-config, openjdk-21, wget, unzip, p7zip, binutils
-  Homepage: https://www.github.com/flutter/flutter
+  Depends: git, which, openjdk-21, wget, unzip, binutils, gtk3, xorgproto, ninja, cmake, clang, pkg-config
+  Homepage: https://github.com/ImL1s/termux-flutter-wsl
   Description: Flutter makes it easy and fast to build beautiful apps for mobile and beyond
 
 resource:
   flutter:
     source: $root
     output: $distro
-    git: true
 
   flutter_gpu:
     source: $root/engine/src/flutter/lib/gpu
@@ -42,6 +41,8 @@ resource:
   dart_sdk:
     source: $any/dart-sdk
     output: $out/dart-sdk
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       any: *any
       out: &cache f'{distro}/bin/cache'
@@ -54,6 +55,8 @@ resource:
   dart_bin:
     source: $debug/exe.unstripped/dart
     output: $out/dart-sdk/bin/dart
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       debug: output.debug
       out: *cache
@@ -61,8 +64,10 @@ resource:
 
   # Dart 3.10+ Flutter wrappers expect dartvm next to dart.
   dartvm_bin:
-    source: $debug/exe.unstripped/dart
+    source: $debug/exe.unstripped/dartvm
     output: $out/dart-sdk/bin/dartvm
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       debug: output.debug
       out: *cache
@@ -72,6 +77,8 @@ resource:
   dart_snapshots:
     source: $debug/dart-sdk/bin/snapshots
     output: $out/dart-sdk/bin/snapshots
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       debug: output.debug
       out: *cache
@@ -80,6 +87,8 @@ resource:
   dartaotruntime:
     source: $any/dartaotruntime_product
     output: $out/dart-sdk/bin/dartaotruntime
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       any: *any
       out: *cache
@@ -90,6 +99,8 @@ resource:
   dartdev_aot:
     source: $release/dartdev_aot.dart.snapshot
     output: $out/dart-sdk/bin/snapshots/dartdev_aot.dart.snapshot
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       release: output.release
       out: *cache
@@ -100,10 +111,13 @@ resource:
   frontend_server_aot:
     source: $any/frontend_server_aot_product.dart.snapshot
     output: $out/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot
+    replace: true
+    replace_scope: $distro/bin/cache/dart-sdk
     define:
       any: *any
       out: *cache
     mode: 0o644
+
 
   artifacts:
     source:
@@ -132,6 +146,8 @@ resource:
       - $out/libflutter_linux_gtk.so
     output:
       - $eng/linux-$arch$fix
+    replace: true
+    replace_scope: $distro/bin/cache/artifacts/engine
     define:
       eng: *eng
       out: output.debug
@@ -201,6 +217,8 @@ resource:
   profile:
     source: |-
       export PATH=${PREFIX}/opt/flutter/bin:${PATH}
+      export TMPDIR="${PREFIX}/tmp"
+      export FLUTTER_PREBUILT_ENGINE_VERSION="77e2e94772b6eb43759e34ed1ad7da4674e19cab"
       # Force Gradle to use our pre-configured NDK (prevents auto-download of new versions)
       if [ -z "$ANDROID_NDK_HOME" ]; then
         for ndk in ${PREFIX}/opt/android-sdk/ndk/*/; do
@@ -214,10 +232,14 @@ resource:
   stamps:
     source: $version
     output:
+      - $out/engine.stamp
+      - $out/engine_stamp.stamp
       - $out/engine-dart-sdk.stamp
       - $out/flutter_sdk.stamp
       - $out/font-subset.stamp
       - $out/linux-sdk.stamp
+      - $out/material_fonts.stamp
+      - $out/gradle_wrapper.stamp
       # Android stamps: prevent Flutter from downloading x64 tools
       # All combos needed even though only arm64 gen_snapshot exists
       - $out/android-arm-release.stamp
@@ -270,6 +292,8 @@ resource:
       - $debug/gen/flutter/lib/snapshot/isolate_snapshot.bin
     output:
       - $eng/linux-$arch
+    replace: true
+    replace_scope: $distro/bin/cache/artifacts/engine
     define:
       eng: *eng
       debug: output.debug
@@ -294,5 +318,10 @@ resource:
   setup_modern_tools:
     source: $root/../scripts/install/setup_modern_tools.sh
     output: $prefix/share/flutter/setup_modern_tools.sh
+    mode: 0o755
+
+  flutter_project_config:
+    source: $root/../scripts/install/flutter_project_config.sh
+    output: $prefix/share/flutter/flutter_project_config.sh
     mode: 0o755
 

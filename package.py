@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import os
+import re
 import io
 import utils
 import string
@@ -15,16 +17,25 @@ from loguru import logger
 from pathlib import Path
 
 
+
 def explore_file(src: Path):
     assert src.exists()
 
+    EXCLUDED_DIR_NAMES = {'.git', 'engine', 'depot_tools', 'staging', 'out', '.build'}
+
     if src.is_dir():
-        for root, dirs, files in src.walk():
-            rel = root.relative_to(src)
+        for root, dirs, files in os.walk(src):
+            rel = Path(root).relative_to(src)
+            # Exclude giant build trees, .git, engine, depot_tools, staging from general SDK traversal
+            dirs[:] = [
+                d for d in dirs
+                if d not in EXCLUDED_DIR_NAMES
+                and not (d == 'src' and rel.as_posix().endswith('engine'))
+            ]
             for it in dirs:
-                yield rel/it
+                yield rel / it
             for it in files:
-                yield rel/it
+                yield rel / it
 
 
 def explore_git(src: Path):
@@ -51,28 +62,62 @@ def emit(out, src, git):
             'src': src/it}
 
 
-def explore(src, git):
-    explore = explore_git if git else explore_file
+def safe_eval(expr, globals_dict, defines_dict=None):
+    if not isinstance(expr, str):
+        return expr
+    context = {**globals_dict, **(defines_dict or {})}
+    if expr.startswith("f'") and expr.endswith("'"):
+        inner = expr[2:-1]
+        def replace(match):
+            var = match.group(1)
+            if var in context:
+                val = context[var]
+                if isinstance(val, str) and (val.startswith("f'") or val.startswith("'") or val.startswith('"')):
+                    return str(safe_eval(val, globals_dict, defines_dict))
+                return str(val)
+            return f'{{{var}}}'
+        return re.sub(r'\{([^}]+)\}', replace, inner)
+    elif expr.startswith("'") and expr.endswith("'"):
+        return expr[1:-1]
+    elif expr.startswith('"') and expr.endswith('"'):
+        return expr[1:-1]
+    elif expr.startswith('output.'):
+        attr = expr.split('.', 1)[1]
+        return getattr(context['output'], attr)
+    else:
+        val = context.get(expr, expr)
+        if isinstance(val, str) and val != expr and (val.startswith("f'") or val.startswith("'") or val.startswith('"')):
+            return safe_eval(val, globals_dict, defines_dict)
+        return val
+
+
+
+def explore(src, git=False):
+    # Always use explore_file to prevent git repository object traversal into .deb
+    explore_fn = explore_file
 
     if not isinstance(src, list):
         src = [src]
     for src in src:
         src = src.absolute()
-        if not src.exists():
-            logger.warning(f'source not found: "{src}"')
-            continue
+        if not src.exists() and not src.is_symlink():
+            raise FileNotFoundError(f'missing required resource: "{src}"')
         yield src, Path('.')
-        for it in explore(src):
+        for it in explore_fn(src):
             yield src, it
+
 
 
 def reset(info):
     info.uid = 0
     info.gid = 0
-    info.mtime = 0
+    info.mtime = int(os.environ.get('SOURCE_DATE_EPOCH', 0))
     info.uname = 'root'
     info.gname = 'root'
-    info.mode |= 0o200
+    if info.isdir():
+        info.mode |= 0o755
+    else:
+        info.mode |= 0o200
 
 
 def add_bin(tar, out, src, mod=None):
@@ -178,25 +223,19 @@ def download(url, out):
         return dst
 
 
-class Output(object):
-    def __init__(self, root, arch):
-        self.any = None
-        for it in utils.__MODE__:
-            out = utils.target_output(root, arch, it)
-            self.__dict__[it] = out
-            if not self.any and Path(out).is_dir():
-                self.any = out
+class Output(utils.Output):
+    pass
 
-        assert self.any, 'no valid out path found.'
 
 
 @utils.record
 class Package(object):
-    def __init__(self, root, arch, control, resource, define=None):
+    def __init__(self, root, arch, control, resource, define=None, tag=None, release_tag=None, **kwargs):
         root = Path(root).resolve()
         assert root.is_dir(), f'bad flutter root path: "{root}"'
         self.globals = {
-            'tag': utils.flutter_tag(root),
+            'tag': tag or utils.flutter_tag(root),
+            'release_tag': release_tag or tag or utils.flutter_tag(root),
             'root': root,
             'arch': arch,
             'output': Output(root, arch),
@@ -204,14 +243,28 @@ class Package(object):
             'architecture': utils.termux_arch(arch),
         }
         self.defines = {
-            k: eval(v, self.globals) for k, v in define.items()
+            k: safe_eval(v, self.globals) for k, v in (define or {}).items()
         }
         self.control = control
         self.resource = resource
+        self.validate_control_headers()
         self.__dict__.update(self.globals)
         self.__dict__.update(self.defines)
 
+    def validate_control_headers(self):
+
+        mandatory = ('Package', 'Version', 'Architecture', 'Maintainer', 'Description')
+        if not isinstance(self.control, dict):
+            raise ValueError('Debian control header section must be a dictionary')
+        for header in mandatory:
+            if header not in self.control:
+                raise ValueError(f"Missing mandatory Debian control header: '{header}'")
+            val = self.control[header]
+            if not val or not str(val).strip():
+                raise ValueError(f"Mandatory Debian control header '{header}' cannot be empty")
+
     def __format__(self, s, **extra):
+
         return string.Template(s).safe_substitute(
             **self.globals,
             **self.defines,
@@ -245,10 +298,12 @@ class Package(object):
         bin = data.get('binary', False)
         mod = data.get('mode')
         dep = data.get('define', {})
+        replace = data.get('replace', False)
+        replace_scope = data.get('replace_scope', None)
         ext = {}
 
         for k, v in dep.items():
-            dep[k] = eval(v, self.globals, self.defines)
+            dep[k] = safe_eval(v, self.globals, self.defines)
 
         # expect None, str, int
         if isinstance(mod, str):
@@ -273,6 +328,11 @@ class Package(object):
         elif not isinstance(src, (bytes, Path)):
             raise ValueError(f'bad source type: "{type(src)}"')
 
+        ext['rule'] = name
+        ext['replace'] = replace
+        if replace_scope:
+            ext['replace_scope'] = self.__format__(replace_scope, **dep)
+
         for out in out:
             for it in emit(out, src, git):
                 yield it | ext
@@ -296,7 +356,7 @@ class Package(object):
         if not (test := data.get('test', {})):
             return None
         deps = data.get('define', {}).items()
-        deps = {k: eval(v, self.globals, self.defines) for k, v in deps}
+        deps = {k: safe_eval(v, self.globals, self.defines) for k, v in deps}
         file = self.__format__(test['file'], **deps)
         path = self.__format__(test['path'], **deps)
         if not (dest := download(file, Path('~/storage/downloads/1DMP/General').expanduser())):
@@ -312,24 +372,109 @@ class Package(object):
 
     def debuild(self, output, section=None):
         output = Path(output or '.').expanduser().resolve()
-        if not output.parent.is_dir() or output.is_dir():
-            raise ValueError(f'bad output path: "{output}"')
+        if output.is_dir():
+            output = output / f"{self.control['Package']}_{self.control['Version']}_{self.control['Architecture']}.deb"
+        output.parent.mkdir(parents=True, exist_ok=True)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            info = Path(tmp, 'debian-binary')
-            ctrl = Path(tmp, 'control.tar.xz')
-            data = Path(tmp, 'data.tar.xz')
+        inventory = []
+        seen_outputs = {}
+
+        def track_resources():
+            for it in self.gen_resource(section):
+                src = it.get('src')
+                out = it.get('out')
+                mod = it.get('mod')
+                rule = it.get('rule', 'unknown')
+                replace = it.get('replace', False)
+                replace_scope = it.get('replace_scope', None)
+
+                out_str = str(out)
+                src_str = str(src)
+
+                # 1. Target path collision & overlay detection
+                if out_str in seen_outputs:
+                    prev = seen_outputs[out_str]
+                    if not replace:
+                        raise ValueError(
+                            f"Duplicate target output path collision detected in package: '{out_str}'. "
+                            f"Rule '{rule}' (source: '{src_str}') collides with earlier rule '{prev['rule']}' (source: '{prev['src']}'). "
+                            f"If intentional, declare 'replace: true' on resource '{rule}'."
+                        )
+                    if replace_scope:
+                        scope_path = Path(replace_scope)
+                        out_path = Path(out_str)
+                        try:
+                            out_path.relative_to(scope_path)
+                        except ValueError:
+                            raise ValueError(
+                                f"Overlay scope violation for resource '{rule}': target path '{out_str}' "
+                                f"is outside declared replace_scope '{scope_path}'"
+                            )
+                    logger.info(f"Overlaying '{out_str}': rule '{rule}' replaces earlier entry from rule '{prev['rule']}'")
+
+                # 2. Symlink validation
+                if isinstance(src, Path):
+                    try:
+                        target = os.readlink(src)
+                        target_path = Path(target)
+                        if not target_path.is_absolute():
+                            target_path = src.parent / target_path
+                        if not target_path.exists():
+                            raise ValueError(f"Invalid or broken symlink mapping: '{src}' points to '{target}' which does not exist")
+                    except OSError:
+                        pass
+
+                if isinstance(src, bytes):
+                    size = len(src)
+                    sha = hashlib.sha256(src).hexdigest()
+                elif not src or src.is_dir():
+                    size = 0
+                    sha = "-"
+                elif src.exists():
+                    size = src.stat().st_size
+                    with open(src, 'rb') as f:
+                        sha = hashlib.file_digest(f, 'sha256').hexdigest()
+                else:
+                    size = 0
+                    sha = "-"
+
+                seen_outputs[out_str] = {
+                    'rule': rule,
+                    'src': src_str,
+                    'item': it,
+                    'inv': f"{out}\t{sha}\t{size}\t{mod if mod else '-'}"
+                }
+
+            for out_str, data_info in seen_outputs.items():
+                inventory.append(data_info['inv'])
+                yield data_info['item']
+
+        with tempfile.TemporaryDirectory(dir=output.parent) as tmp_dir:
+            tmp = Path(tmp_dir)
+            ctrl = tmp / 'control.tar.xz'
+            data = tmp / 'data.tar.xz'
+            info = tmp / 'debian-binary'
 
             with open(info, 'wb+') as f:
                 f.write(b'2.0\n')
-            tar(ctrl, self.gen_control())
-            tar(data, self.gen_resource(section))
 
+            tar(ctrl, self.gen_control())
+            tar(data, track_resources())
+
+            tmp_deb = tmp / output.name
             subprocess.run(
-                    ['ar', 'rc', output, info, ctrl, data],
-                    check=True,
-                    stderr=True,
-                    stdout=True)
+                ['ar', 'rc', tmp_deb, info, ctrl, data],
+                check=True,
+                stderr=True,
+                stdout=True
+            )
+
+            os.replace(tmp_deb, output)
+
+        inv_path = output.with_name(output.name + '.inventory')
+        with open(inv_path, 'w', encoding='utf-8') as f:
+            f.write("Path\tSHA256\tSize\tMode\n")
+            f.write("\n".join(inventory))
 
         logger.info(f'✓ 构建完成 {output}')
 

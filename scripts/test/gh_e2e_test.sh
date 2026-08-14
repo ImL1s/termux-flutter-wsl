@@ -16,9 +16,12 @@ export EXPECTED_SHA256=${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d709
 export DEB_NAME="flutter_${FLUTTER_VERSION}_aarch64.deb"
 export DEB_URL=${DEB_URL:-"https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/${DEB_NAME}"}
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+source "$(dirname "$0")/../install/lib_common.sh" || {
+    echo "Fetching lib_common.sh..."
+    curl -sLO https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/lib_common.sh
+    source ./lib_common.sh
+}
+
 FAILED=0
 
 pass() { echo -e "${GREEN}✅ PASS: $1${NC}"; }
@@ -73,14 +76,7 @@ echo "=== Download release deb ==="
 rm -f "$DEB_NAME"
 wget -q --show-progress "$DEB_URL" -O "$DEB_NAME"
 if [ -n "$EXPECTED_SHA256" ]; then
-    actual=$(sha256sum "$DEB_NAME" | awk '{print $1}')
-    if [ "$actual" = "$EXPECTED_SHA256" ]; then
-        pass "SHA256 $actual"
-    else
-        fail "SHA256 mismatch: actual $actual != expected $EXPECTED_SHA256"
-        rm -f "$DEB_NAME"
-        exit 1
-    fi
+    verify_sha256 "$DEB_NAME" "$EXPECTED_SHA256" || { fail "SHA256 mismatch"; exit 1; }
 fi
 ls -lh "$DEB_NAME"
 

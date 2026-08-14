@@ -18,7 +18,7 @@ index 184a68be58d..04c3dc12de3 100644
 @@ -69,8 +69,11 @@ class BuildApkCommand extends BuildSubCommand {
      return BuildMode.release;
    }
- 
+
 -  static const _kDefaultJitArchs = <String>['android-arm', 'android-arm64', 'android-x64'];
 -  static const _kDefaultAotArchs = <String>['android-arm', 'android-arm64', 'android-x64'];
 +  // Modified for Termux ARM64: default to android-arm64 only
@@ -94,3 +94,23 @@ index 2d41ab695f5..25dfac64ead 100644
      return kLinuxExecutable;
    }
    if (platform.isMacOS) {
+diff --git a/bin/internal/update_engine_version.sh b/bin/internal/update_engine_version.sh
+index 5178550..4731872 100755
+--- a/bin/internal/update_engine_version.sh
++++ b/bin/internal/update_engine_version.sh
+@@ -53,8 +53,8 @@ if [ -n "${FLUTTER_PREBUILT_ENGINE_VERSION}" ]; then
+ # This is intended for a user-shipped stable or beta release, where the release
+ # has a specific (pinned) engine artifacts version.
+ #
+ # If set, it takes precedence over the git hash.
+-elif [ -n "$(git -C "$FLUTTER_ROOT" ls-files bin/internal/engine.version)" ]; then
+-  ENGINE_VERSION="$(< "$FLUTTER_ROOT/bin/internal/engine.version")"
++elif [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
++  ENGINE_VERSION="$(tr -d '\r\n' < "$FLUTTER_ROOT/bin/internal/engine.version")"
+diff --git a/bin/internal/shared.sh b/bin/internal/shared.sh
+index 8e47f20..9f81a32 100755
+--- a/bin/internal/shared.sh
++++ b/bin/internal/shared.sh
+@@ -124,1 +124,1 @@
+-  local revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD)"
++  local revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab")"

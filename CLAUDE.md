@@ -186,9 +186,9 @@ bash $PREFIX/share/flutter/post_install.sh
 
 ```
 Host: Windows + WSL2 Ubuntu
-Build dir: /home/iml1s/projects/termux-flutter-3.44-src/
-Engine src: /home/iml1s/projects/termux-flutter-3.44-src/flutter/engine/src/
-Output: /home/iml1s/projects/termux-flutter-3.44-src/flutter/engine/src/out/
+Build dir: <workspace-root>/
+Engine src: <workspace-root>/flutter/engine/src/
+Output: <workspace-root>/flutter/engine/src/out/
 Recommended jobs: -j24
 ```
 

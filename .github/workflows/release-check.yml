@@ -1,20 +1,16 @@
 name: Release check
 
 on:
+  pull_request:
+    paths:
+      - "build.toml"
+      - "scripts/ci/verify_release_asset.py"
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to verify
-        required: true
-        default: v3.44.0
-      expected_asset:
-        description: Expected release asset name
-        required: true
-        default: flutter_3.44.0_aarch64.deb
-      expected_sha256:
-        description: Expected asset SHA256 digest
-        required: true
-        default: b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846
+        description: "Release tag to verify (leave empty to use build.toml)"
+        required: false
+        default: ""
   release:
     types: [published, edited]
 
@@ -31,52 +27,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve release inputs
-        id: release
-        shell: bash
-        env:
-          DEFAULT_ASSET: flutter_3.44.0_aarch64.deb
-          DEFAULT_SHA256: b8af08d26ee4ae4b3dcf1aab4ee6b05965529587ddf1bc9b936b48b5f01f9846
-          INPUT_TAG: ${{ inputs.tag }}
-          INPUT_ASSET: ${{ inputs.expected_asset }}
-          INPUT_SHA256: ${{ inputs.expected_sha256 }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "release" ]; then
-            tag="$RELEASE_TAG"
-          else
-            tag="${INPUT_TAG:-v3.44.0}"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "asset=${INPUT_ASSET:-$DEFAULT_ASSET}" >> "$GITHUB_OUTPUT"
-          echo "sha=${INPUT_SHA256:-$DEFAULT_SHA256}" >> "$GITHUB_OUTPUT"
-
-      - name: Check release asset
+      - name: Verify release asset
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          ASSET: ${{ steps.release.outputs.asset }}
-          SHA: ${{ steps.release.outputs.sha }}
-        shell: bash
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          set -euo pipefail
-          gh release view "$TAG" --json assets,tagName,name,isDraft,isPrerelease,publishedAt,url > release.json
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          data = json.loads(Path('release.json').read_text())
-          asset_name = os.environ['ASSET']
-          expected = 'sha256:' + os.environ['SHA'].lower()
-          assets = {asset['name']: asset for asset in data.get('assets', [])}
-          if asset_name not in assets:
-              raise SystemExit(f'missing release asset: {asset_name}')
-          asset = assets[asset_name]
-          digest = (asset.get('digest') or '').lower()
-          if digest and digest != expected:
-              raise SystemExit(f'digest mismatch: expected {expected}, got {digest}')
-          if asset.get('size', 0) < 100_000_000:
-              raise SystemExit(f'asset size too small: {asset.get("size")}')
-          print(f"release OK: {data['tagName']} {asset_name} {asset.get('size')} bytes {digest or 'digest unavailable'}")
-          PY
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Lightweight check for PRs to verify manifest resolution and hash mismatch logic
+            export LIGHTWEIGHT_CHECK=1
+          fi
+          python scripts/ci/verify_release_asset.py

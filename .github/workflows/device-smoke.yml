@@ -15,21 +15,31 @@ on:
         description: Optional adb serial
         required: false
         default: ''
-      deb_url:
-        description: Deb URL to test. Leave default for latest v3.44.2-termux release asset.
+      artifact_run_id:
+        description: "Run ID of the build-deb workflow"
         required: true
-        default: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb
+      artifact_name:
+        description: "Name of the artifact to download"
+        required: true
       expected_sha256:
         description: Expected SHA256 for the deb under test
         required: true
-        default: 66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
+      promote_release:
+        description: "Promote to GitHub Release after successful smoke test"
+        type: boolean
+        required: false
+        default: false
+      release_tag:
+        description: "Tag for the release (e.g. v3.44.2-termux)"
+        required: false
       timeout_minutes:
         description: Device smoke timeout in minutes. Keep the tablet awake/unlocked before starting.
         required: true
         default: '45'
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 concurrency:
   group: device-smoke-${{ github.ref }}
@@ -45,13 +55,171 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh run download $env:ARTIFACT_RUN_ID -n $env:ARTIFACT_NAME -D ./candidate
+          Get-ChildItem -Path ./candidate
+
+      - name: Verify artifact SHA256
+        shell: pwsh
+        env:
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $debs = Get-ChildItem -Path ./candidate -Recurse -Filter "*.deb"
+          $shas = Get-ChildItem -Path ./candidate -Recurse -Filter "*.sha256"
+          $sizes = Get-ChildItem -Path ./candidate -Recurse -Filter "*.size.txt"
+          $metadatas = Get-ChildItem -Path ./candidate -Recurse -Filter "build_metadata.json"
+          $inventories = Get-ChildItem -Path ./candidate -Recurse -Filter "inventory.txt"
+
+          if ($debs.Count -ne 1) { throw "Error: Ambiguous or missing candidate .deb file. Expected 1, found $($debs.Count)" }
+          if ($shas.Count -ne 1) { throw "Error: Ambiguous or missing candidate .sha256 file. Expected 1, found $($shas.Count)" }
+          if ($sizes.Count -ne 1) { throw "Error: Ambiguous or missing candidate .size.txt file. Expected 1, found $($sizes.Count)" }
+          if ($metadatas.Count -ne 1) { throw "Error: Ambiguous or missing candidate build_metadata.json file. Expected 1, found $($metadatas.Count)" }
+          if ($inventories.Count -ne 1) { throw "Error: Ambiguous or missing candidate inventory.txt file. Expected 1, found $($inventories.Count)" }
+
+          $deb = $debs[0].FullName
+          $shaFile = $shas[0].FullName
+          $sizeFile = $sizes[0].FullName
+          $metadataFile = $metadatas[0].FullName
+          $inventoryFile = $inventories[0].FullName
+
+          $actualSha = (Get-FileHash -Path $deb -Algorithm SHA256).Hash.ToLower().Trim()
+          $actualSize = (Get-Item $deb).Length
+          $expectedClean = $env:EXPECTED_SHA256.ToLower().Trim()
+
+          if ($actualSha -ne $expectedClean) {
+              throw "SHA256 MISMATCH: expected $expectedClean, got $actualSha"
+          }
+
+          $shaFileContent = (Get-Content $shaFile -Raw).Trim().Split()[0].ToLower()
+          if ($shaFileContent -ne $actualSha) {
+              throw "Error: Companion .sha256 content ($shaFileContent) != actual deb SHA256 ($actualSha)"
+          }
+
+          $sizeFileContent = (Get-Content $sizeFile -Raw).Trim()
+          if ($sizeFileContent -ne "$actualSize") {
+              throw "Error: Companion .size.txt content ($sizeFileContent) != actual deb size ($actualSize)"
+          }
+
+          $metadata = Get-Content $metadataFile -Raw | ConvertFrom-Json
+          $metaSha = $metadata.sha256.ToLower().Trim()
+          $metaSize = $metadata.size_bytes
+          $metaRunId = "$($metadata.run_id)"
+
+          if ($metaSha -ne $actualSha) {
+              throw "Error: build_metadata.json sha256 ($metaSha) != actual deb SHA256 ($actualSha)"
+          }
+          if ("$metaSize" -ne "$actualSize") {
+              throw "Error: build_metadata.json size_bytes ($metaSize) != actual deb size ($actualSize)"
+          }
+          if ($env:ARTIFACT_RUN_ID -and ($metaRunId -ne $env:ARTIFACT_RUN_ID)) {
+              throw "Error: build_metadata.json run_id ($metaRunId) != artifact_run_id ($($env:ARTIFACT_RUN_ID))"
+          }
+
+          $artifactSourceCommit = $metadata.source_commit.ToLower().Trim()
+          $verifierCommit = (git rev-parse HEAD).Trim().ToLower()
+
+          if ($artifactSourceCommit -notmatch '^[0-9a-f]{40}$') {
+              throw "Error: artifact_source_commit ($artifactSourceCommit) is not a valid 40-hex commit"
+          }
+          if ($verifierCommit -notmatch '^[0-9a-f]{40}$') {
+              throw "Error: verifier_commit ($verifierCommit) is not a valid 40-hex commit"
+          }
+          if ($artifactSourceCommit -ne $verifierCommit) {
+              throw "Error: Commit mismatch! artifact_source_commit ($artifactSourceCommit) != verifier_commit ($verifierCommit)"
+          }
+
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_DEB=$deb"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_SHA_FILE=$shaFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_SIZE_FILE=$sizeFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_METADATA=$metadataFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_INVENTORY=$inventoryFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "ARTIFACT_SOURCE_COMMIT=$artifactSourceCommit"
+          Add-Content -Path $env:GITHUB_ENV -Value "VERIFIER_COMMIT=$verifierCommit"
+          Write-Host "✓ Candidate set cryptographically bound and verified: DEB=$deb, SHA256=$actualSha, COMMIT=$artifactSourceCommit"
+
       - name: Run Termux smoke through ADB
         shell: pwsh
+        env:
+          INPUT_ADB_PATH: ${{ inputs.adb_path }}
+          INPUT_DEVICE_SERIAL: ${{ inputs.device_serial }}
+          INPUT_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+          RESOLVED_DEB: ${{ env.RESOLVED_DEB }}
+          ARTIFACT_SOURCE_COMMIT: ${{ env.ARTIFACT_SOURCE_COMMIT }}
+          VERIFIER_COMMIT: ${{ env.VERIFIER_COMMIT }}
         run: |
           $ErrorActionPreference = 'Stop'
           scripts/device/run_termux_smoke.ps1 `
-            -AdbPath '${{ inputs.adb_path }}' `
-            -DeviceSerial '${{ inputs.device_serial }}' `
-            -DebUrl '${{ inputs.deb_url }}' `
-            -ExpectedSha256 '${{ inputs.expected_sha256 }}' `
-            -TimeoutMinutes ${{ inputs.timeout_minutes }}
+            -AdbPath $env:INPUT_ADB_PATH `
+            -DeviceSerial $env:INPUT_DEVICE_SERIAL `
+            -DebPath $env:RESOLVED_DEB `
+            -ExpectedSha256 $env:INPUT_EXPECTED_SHA256 `
+            -TimeoutMinutes $env:INPUT_TIMEOUT_MINUTES `
+            -ArtifactSourceCommit "$env:ARTIFACT_SOURCE_COMMIT" `
+            -VerifierCommit "$env:VERIFIER_COMMIT"
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-smoke-evidence
+          path: evidence.json
+          if-no-files-found: error
+
+      - name: Promote Release
+        if: inputs.promote_release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          RESOLVED_DEB: ${{ env.RESOLVED_DEB }}
+          RESOLVED_SHA_FILE: ${{ env.RESOLVED_SHA_FILE }}
+          RESOLVED_SIZE_FILE: ${{ env.RESOLVED_SIZE_FILE }}
+          RESOLVED_METADATA: ${{ env.RESOLVED_METADATA }}
+          RESOLVED_INVENTORY: ${{ env.RESOLVED_INVENTORY }}
+          ARTIFACT_SOURCE_COMMIT: ${{ env.ARTIFACT_SOURCE_COMMIT }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:INPUT_RELEASE_TAG) { throw "release_tag is required for promotion" }
+          if (-not (Test-Path "evidence.json")) { throw "Error: evidence.json missing. Cannot promote." }
+
+          $ev = Get-Content "evidence.json" -Raw | ConvertFrom-Json
+          if ($ev.status -ne "passed" -or $ev.mode_b_status -ne "passed") {
+              throw "Error: Promotion rejected! Evidence status is '$($ev.status)' and mode_b_status is '$($ev.mode_b_status)' (both must be 'passed')"
+          }
+          if ($ev.artifact_source_commit -ne $ev.verifier_commit -or -not $ev.artifact_source_commit) {
+              throw "Error: Promotion rejected! artifact_source_commit ($($ev.artifact_source_commit)) != verifier_commit ($($ev.verifier_commit))"
+          }
+
+          $debSha = $ev.artifacts.deb_sha256
+          $debSz = $ev.artifacts.deb_size
+          $apkSha = $ev.artifacts.apk_sha256
+          $apkSz = $ev.artifacts.apk_size
+          $aabSha = $ev.artifacts.aab_sha256
+          $aabSz = $ev.artifacts.aab_size
+
+          if ($debSha -notmatch '^[0-9a-f]{64}$' -or $debSz -le 0) { throw "Error: Promotion rejected! Invalid DEB artifact evidence: SHA=$debSha, size=$debSz" }
+          if ($apkSha -notmatch '^[0-9a-f]{64}$' -or $apkSz -le 0) { throw "Error: Promotion rejected! Invalid APK artifact evidence: SHA=$apkSha, size=$apkSz" }
+          if ($aabSha -notmatch '^[0-9a-f]{64}$' -or $aabSz -le 0) { throw "Error: Promotion rejected! Invalid AAB artifact evidence: SHA=$aabSha, size=$aabSz" }
+
+          $tag = $env:INPUT_RELEASE_TAG
+          $existing = gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists. Cannot clobber existing published assets." }
+
+          $notesFile = "docs/releases/RELEASE_NOTES.md"
+          $notesArg = @()
+          if (Test-Path $notesFile) { $notesArg = @("--notes-file", $notesFile) }
+
+          $sourceCommit = if ($env:ARTIFACT_SOURCE_COMMIT) { $env:ARTIFACT_SOURCE_COMMIT } else { $ev.artifact_source_commit }
+          if (-not $sourceCommit) { throw "Error: source_commit is required" }
+
+          gh release create $tag $env:RESOLVED_DEB $env:RESOLVED_SHA_FILE $env:RESOLVED_SIZE_FILE $env:RESOLVED_METADATA $env:RESOLVED_INVENTORY --target $sourceCommit --title "Flutter Termux $tag" @notesArg

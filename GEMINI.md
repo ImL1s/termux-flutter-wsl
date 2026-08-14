@@ -137,7 +137,7 @@ android {
 
 - Host: Windows + WSL2 Ubuntu, Ryzen 9950X3D (24 threads allocated)
 - NDK: r27d at `/opt/android-ndk-r27d`
-- WSL build dir: `/home/iml1s/projects/termux-flutter-3.44-src/`
+- WSL build dir: `<workspace-root>/`
 - Flutter: 3.44.0
 - Target: aarch64 (ARM64)
 - Test device: `R52Y100VWGM` (Samsung SM-X716B / Android 16)

@@ -16,22 +16,185 @@
 # 完成後你可以直接使用 flutter build apk 構建任何專案
 #
 
-set -e
+set -euo pipefail
 
-# 顏色定義
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+DO_UPGRADE=false
+for arg in "$@"; do
+    if [ "$arg" == "--upgrade" ]; then
+        DO_UPGRADE=true
+    fi
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo ".")"
+if [ -f "$SCRIPT_DIR/scripts/install/lib_common.sh" ]; then
+    source "$SCRIPT_DIR/scripts/install/lib_common.sh"
+elif [ -f "scripts/install/lib_common.sh" ]; then
+    source "scripts/install/lib_common.sh"
+else
+    echo "Fetching lib_common.sh..."
+    mkdir -p scripts/install
+    curl -sLO https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/lib_common.sh || true
+    if [ -f lib_common.sh ]; then
+        mv lib_common.sh scripts/install/
+    fi
+    if [ -f scripts/install/lib_common.sh ]; then
+        source scripts/install/lib_common.sh
+    fi
+fi
+
+ROLLBACK_FAILED=false
+rollback_packages() {
+    echo -e "${RED}[ROLLBACK] Install failed — executing truthful environment rollback...${NC}"
+    record_stage rollback triggered
+
+    local flutter_was_installed="${FLUTTER_WAS_INSTALLED:-false}"
+    local flutter_old_ver="${FLUTTER_OLD_VER:-}"
+    local android_sdk_was_installed="${ANDROID_SDK_WAS_INSTALLED:-false}"
+    local android_sdk_old_ver="${ANDROID_SDK_OLD_VER:-}"
+    local backup_dir="${BACKUP_DIR:-.}"
+    local ndk_preexisting="${NDK_PREEXISTING:-true}"
+    local ndk_path="${NDK_PATH:-}"
+
+    # 1. Rollback Flutter
+    if [ "$flutter_was_installed" = true ]; then
+        echo -e "${YELLOW}[ROLLBACK] Restoring previous Flutter version ($flutter_old_ver)...${NC}"
+        local flutter_bak=$(ls "$backup_dir"/flutter*.deb 2>/dev/null | head -n 1 || true)
+        if [ -n "$flutter_bak" ] && [ -f "$flutter_bak" ]; then
+            if dpkg -i "$flutter_bak"; then
+                local restored_ver=$(dpkg-query -W -f='${Version}' flutter 2>/dev/null | tr -d '\r' || true)
+                if [ "$restored_ver" = "$flutter_old_ver" ]; then
+                    echo -e "${GREEN}[ROLLBACK] Flutter successfully restored to $flutter_old_ver.${NC}"
+                else
+                    echo -e "${RED}[ROLLBACK ERROR] Flutter restored version mismatch ($restored_ver != $flutter_old_ver).${NC}"
+                    ROLLBACK_FAILED=true
+                fi
+            else
+                echo -e "${RED}[ROLLBACK ERROR] Failed to reinstall previous Flutter package from $flutter_bak.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+        else
+            echo -e "${RED}[ROLLBACK ERROR] Restorable Flutter package artifact not found in backup.${NC}"
+            ROLLBACK_FAILED=true
+        fi
+    else
+        if dpkg-query -W -f='${Status}' flutter 2>/dev/null | grep -q 'ok installed'; then
+            echo -e "${YELLOW}[ROLLBACK] Removing newly installed Flutter package...${NC}"
+            if ! dpkg -r flutter >/dev/null 2>&1; then
+                echo -e "${RED}[ROLLBACK ERROR] Failed to remove newly installed Flutter package.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+            if dpkg-query -W -f='${Status}' flutter 2>/dev/null | grep -q 'ok installed'; then
+                echo -e "${RED}[ROLLBACK ERROR] Flutter package is still installed after removal.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+        fi
+    fi
+
+    # 2. Rollback Android SDK
+    if [ "$android_sdk_was_installed" = true ]; then
+        echo -e "${YELLOW}[ROLLBACK] Restoring previous Android SDK version ($android_sdk_old_ver)...${NC}"
+        local sdk_bak=$(ls "$backup_dir"/android-sdk*.deb 2>/dev/null | head -n 1 || true)
+        if [ -n "$sdk_bak" ] && [ -f "$sdk_bak" ]; then
+            if dpkg -i "$sdk_bak" >/dev/null 2>&1; then
+                local restored_ver=$(dpkg-query -W -f='${Version}' android-sdk 2>/dev/null | tr -d '\r' || true)
+                if [ "$restored_ver" = "$android_sdk_old_ver" ]; then
+                    echo -e "${GREEN}[ROLLBACK] Android SDK successfully restored to $android_sdk_old_ver.${NC}"
+                else
+                    echo -e "${RED}[ROLLBACK ERROR] Android SDK restored version mismatch ($restored_ver != $android_sdk_old_ver).${NC}"
+                    ROLLBACK_FAILED=true
+                fi
+            else
+                echo -e "${RED}[ROLLBACK ERROR] Failed to reinstall previous Android SDK package from $sdk_bak.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+        else
+            echo -e "${RED}[ROLLBACK ERROR] Restorable Android SDK package artifact not found in backup.${NC}"
+            ROLLBACK_FAILED=true
+        fi
+    else
+        if dpkg-query -W -f='${Status}' android-sdk 2>/dev/null | grep -q 'ok installed'; then
+            echo -e "${YELLOW}[ROLLBACK] Removing newly installed Android SDK package...${NC}"
+            if ! dpkg -r android-sdk >/dev/null 2>&1; then
+                echo -e "${RED}[ROLLBACK ERROR] Failed to remove newly installed Android SDK package.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+            if dpkg-query -W -f='${Status}' android-sdk 2>/dev/null | grep -q 'ok installed'; then
+                echo -e "${RED}[ROLLBACK ERROR] Android SDK package is still installed after removal.${NC}"
+                ROLLBACK_FAILED=true
+            fi
+        fi
+    fi
+
+    # 3. Rollback NDK
+    if [ "$ndk_preexisting" = false ] && [ -n "$ndk_path" ] && [ -d "$ndk_path" ]; then
+        echo -e "${YELLOW}[ROLLBACK] Removing newly extracted NDK directory...${NC}"
+        rm -rf "$ndk_path"
+    fi
+
+    if [ "$ROLLBACK_FAILED" = true ]; then
+        echo -e "${RED}[ROLLBACK FAILED] Environment restoration could not be fully completed.${NC}"
+        record_stage rollback failed
+        return 1
+    else
+        echo -e "${GREEN}[ROLLBACK SUCCESS] Environment successfully restored to original state.${NC}"
+        record_stage rollback success
+        return 0
+    fi
+}
+
+MUTATION_STARTED=false
+MUTATION_COMMITTED=false
+
+cleanup_and_exit() {
+    local orig_code=$?
+    trap - EXIT
+    local exit_code=$orig_code
+    local should_rollback=false
+
+    if [ "$orig_code" -ne 0 ] || [ "${INSTALL_FAILED:-false}" = true ]; then
+        if [ "${MUTATION_STARTED:-false}" = true ] || [ "${INSTALL_FAILED:-false}" = true ]; then
+            if [ "${MUTATION_COMMITTED:-false}" = false ]; then
+                should_rollback=true
+            fi
+        fi
+    fi
+
+    if [ "$should_rollback" = true ]; then
+        echo -e "${RED}[EXIT HANDLER] Failure ($orig_code) during mutation phase (MUTATION_STARTED=$MUTATION_STARTED, COMMITTED=$MUTATION_COMMITTED). Triggering rollback...${NC}"
+        if ! rollback_packages; then
+            exit_code=70
+        else
+            if [ "$orig_code" -eq 0 ]; then
+                exit_code=1
+            else
+                exit_code=$orig_code
+            fi
+        fi
+    fi
+
+    if [ -n "${WORK_DIR:-}" ] && [ -d "${WORK_DIR:-}" ]; then
+        rm -rf "$WORK_DIR"
+    fi
+    print_summary
+    exit $exit_code
+}
+trap cleanup_and_exit EXIT
+
+if [ "${TERMUX_TEST_MODE:-false}" = "true" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 # 版本配置
 FLUTTER_VERSION="3.44.2"
-RELEASE_TAG="v3.44.2-termux"
-EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000}}"
+EXPECTED_SHA256="66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000"
+
+# 其他版本配置
+ANDROID_SDK_EXPECTED_SHA256="fc727c848b8ca4e3011515850702adc1bf98ceae7205d7acc82d026bc94d2601"
+NDK_EXPECTED_SHA256="21ca4237997da6c601eda6de48418609d6d8308b26c631620ae57cf1fa06c4c7"
+SNAPSHOT_EXPECTED_SHA256="527f074d86660fd3f7c900fc8c1ebd5a2ebc4581e174eb8cf9fe343a1664402d"
 NDK_VERSION="29.0.14206865"
 REPO_BASE="https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master"
+
 
 echo -e "${CYAN}"
 echo "╔═══════════════════════════════════════════════════════════╗"
@@ -51,23 +214,10 @@ echo ""
 # ========================================
 echo -e "${GREEN}[檢查]${NC} 驗證環境..."
 
-# 檢查架構
-ARCH=$(uname -m)
-if [ "$ARCH" != "aarch64" ]; then
-    echo -e "${RED}錯誤: 此腳本只支援 ARM64 (aarch64) 設備${NC}"
-    echo "你的架構: $ARCH"
-    exit 1
-fi
-
-# 檢查是否在 Termux 中
-if [ ! -d "/data/data/com.termux" ]; then
-    echo -e "${RED}錯誤: 此腳本必須在 Termux 中執行${NC}"
-    exit 1
-fi
-
+preflight_check 2000000
 echo "  ✓ 架構: ARM64"
 echo "  ✓ 環境: Termux"
-echo ""
+echo "  ✓ 空間: 充足"
 
 # 詢問是否繼續
 echo -e "${YELLOW}此腳本將安裝：${NC}"
@@ -94,12 +244,9 @@ echo ""
 echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} 更新系統套件..."
 
 # 清理可能存在的舊包（避免依賴衝突）
-dpkg --purge android-sdk 2>/dev/null || true
-dpkg --purge flutter 2>/dev/null || true
-apt --fix-broken install -y 2>/dev/null || true
 
 pkg update -y
-pkg upgrade -y
+if [ "$DO_UPGRADE" = true ]; then pkg upgrade -y; fi
 
 # ========================================
 # Step 2: 安裝 Flutter
@@ -117,39 +264,135 @@ for pkg in d8 dx aidl apksigner googletest android-tools; do
     apt download $pkg 2>/dev/null && dpkg -i ${pkg}*.deb 2>/dev/null && rm -f ${pkg}*.deb
 done
 
-# 下載 Flutter deb
+# 預先下載並驗證所有套件（Staging Phase）
+echo "預先下載並驗證所有套件..."
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
-FLUTTER_DEB="$HOME/flutter_${FLUTTER_VERSION}_aarch64.deb"
+ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
+NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
 
-if [ ! -f "$FLUTTER_DEB" ]; then
-    echo "下載 Flutter SDK..."
-    wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB"
+WORK_DIR=$(mktemp -d)
+INSTALL_FAILED=false
+
+# Snapshot existing package state for rollback
+FLUTTER_WAS_INSTALLED=false
+ANDROID_SDK_WAS_INSTALLED=false
+FLUTTER_OLD_VER=""
+ANDROID_SDK_OLD_VER=""
+
+if dpkg-query -W -f='${Status} ${Version}' flutter 2>/dev/null | grep -q 'ok installed'; then
+    FLUTTER_WAS_INSTALLED=true
+    FLUTTER_OLD_VER=$(dpkg-query -W -f='${Version}' flutter 2>/dev/null || true)
+fi
+if dpkg-query -W -f='${Status} ${Version}' android-sdk 2>/dev/null | grep -q 'ok installed'; then
+    ANDROID_SDK_WAS_INSTALLED=true
+    ANDROID_SDK_OLD_VER=$(dpkg-query -W -f='${Version}' android-sdk 2>/dev/null || true)
 fi
 
-# 驗證 SHA256 校驗碼
-echo "驗證 SHA256 校驗碼..."
-if command -v sha256sum &> /dev/null; then
-    ACTUAL_SHA256=$(sha256sum "$FLUTTER_DEB" | awk '{print $1}')
-    if [ -n "$EXPECTED_SHA256" ] && [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-        echo -e "${RED}"
-        echo "==========================================================="
-        echo " 錯誤: SHA256 校驗碼不符！(Security Alert / Checksum Mismatch)"
-        echo " 預期 (Expected): $EXPECTED_SHA256"
-        echo " 實際 (Actual)  : $ACTUAL_SHA256"
-        echo " 警告: 下載檔案可能已損壞或被篡改！已自動刪除損壞檔案。"
-        echo "==========================================================="
-        echo -e "${NC}"
-        rm -f "$FLUTTER_DEB"
-        exit 1
+ANDROID_HOME="$PREFIX/opt/android-sdk"
+NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
+NDK_PREEXISTING=false
+if [ -d "$NDK_PATH" ]; then
+    NDK_PREEXISTING=true
+fi
+
+BACKUP_DIR="$WORK_DIR/backup"
+mkdir -p "$BACKUP_DIR"
+
+if [ "$FLUTTER_WAS_INSTALLED" = true ] || [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
+    if ! command -v dpkg-repack >/dev/null 2>&1; then
+        echo -e "${YELLOW}[SETUP] Installing dpkg-repack prerequisite for rollback backup...${NC}"
+        pkg install -y dpkg-repack 2>/dev/null || apt-get install -y dpkg-repack 2>/dev/null || true
     fi
-    echo "  ✓ SHA256 驗證成功 ($ACTUAL_SHA256)"
-else
-    echo -e "${YELLOW}  ⚠ 未找到 sha256sum 工具，跳過 SHA256 驗證${NC}"
 fi
 
-# 安裝
-dpkg -i "$FLUTTER_DEB" || true
-apt --fix-broken install -y
+if [ "$FLUTTER_WAS_INSTALLED" = true ]; then
+    if command -v dpkg-repack >/dev/null 2>&1; then
+        (cd "$BACKUP_DIR" && dpkg-repack flutter 2>/dev/null) || true
+    fi
+    if ! ls "$BACKUP_DIR"/flutter*.deb 1>/dev/null 2>&1; then
+        # Fallback to apt-get download if dpkg-repack did not produce .deb
+        (cd "$BACKUP_DIR" && apt-get download "flutter=$FLUTTER_OLD_VER" 2>/dev/null) || true
+    fi
+    if ! ls "$BACKUP_DIR"/flutter*.deb 1>/dev/null 2>&1; then
+        if [ "${ALLOW_NO_ROLLBACK:-false}" != "true" ]; then
+            echo -e "${RED}[ERROR] Cannot backup existing Flutter package for rollback restoration.${NC}"
+            INSTALL_FAILED=false
+            exit 35
+        fi
+    fi
+fi
+if [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
+    if command -v dpkg-repack >/dev/null 2>&1; then
+        (cd "$BACKUP_DIR" && dpkg-repack android-sdk 2>/dev/null) || true
+    fi
+    if ! ls "$BACKUP_DIR"/android-sdk*.deb 1>/dev/null 2>&1; then
+        # Fallback to apt-get download if dpkg-repack did not produce .deb
+        (cd "$BACKUP_DIR" && apt-get download "android-sdk=$ANDROID_SDK_OLD_VER" 2>/dev/null) || true
+    fi
+    if ! ls "$BACKUP_DIR"/android-sdk*.deb 1>/dev/null 2>&1; then
+        if [ "${ALLOW_NO_ROLLBACK:-false}" != "true" ]; then
+            echo -e "${RED}[ERROR] Cannot backup existing Android SDK package for rollback restoration.${NC}"
+            INSTALL_FAILED=false
+            exit 35
+        fi
+    fi
+fi
+
+
+FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
+ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
+NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.7z"
+
+echo "下載 Flutter SDK..."
+wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+record_stage download success
+
+echo "驗證 Flutter SDK SHA256 校驗碼..."
+verify_sha256 "$FLUTTER_DEB" "$EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
+record_stage integrity success
+
+echo "下載 Android SDK..."
+wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+echo "驗證 Android SDK SHA256 校驗碼..."
+verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
+
+ANDROID_HOME="$PREFIX/opt/android-sdk"
+NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
+if [ ! -d "$NDK_PATH" ]; then
+    echo "下載 ARM64 NDK..."
+    wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+    echo "驗證 NDK SHA256 校驗碼..."
+    verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
+fi
+
+# 預先驗證 deb 結構完整性 (hard failure)
+echo "驗證 Android SDK deb 結構完整性..."
+dpkg-deb --info "$ANDROID_SDK_DEB" >/dev/null 2>&1 || { INSTALL_FAILED=true; record_stage integrity failed; echo "Android SDK deb is corrupt"; exit 30; }
+
+# 所有下載與驗證均已成功完成，開始安裝
+echo "所有下載與驗證均已成功完成，開始安裝 SDK..."
+MUTATION_STARTED=true
+
+# ========================================
+# Step 2: 安裝 Android SDK (install-first, never purge-first)
+# ========================================
+echo ""
+echo -e "${GREEN}[2/${TOTAL_STEPS}]${NC} 安裝 Android SDK..."
+
+# Transactional: install new package directly (dpkg handles upgrade)
+echo "安裝 Android SDK..."
+dpkg -i --force-architecture "$ANDROID_SDK_DEB" || dpkg --force-depends --configure android-sdk || { INSTALL_FAILED=true; record_stage package failed; exit 40; }
+echo "  ✓ Android SDK 已安裝"
+
+# ========================================
+# Step 3: 安裝 Flutter SDK
+# ========================================
+echo ""
+echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} 安裝 Flutter SDK..."
+
+echo "安裝 Flutter SDK..."
+apt-get install -f -y "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage package failed; exit 40; }
+record_stage package success
 
 # 載入環境
 source $PREFIX/etc/profile.d/flutter.sh 2>/dev/null || true
@@ -160,7 +403,7 @@ DART_SDK=$FLUTTER_ROOT/bin/cache/dart-sdk
 if [ ! -x "$DART_SDK/bin/dartvm" ]; then
     echo -e "${RED}錯誤: Dart VM binary missing: $DART_SDK/bin/dartvm${NC}"
     echo "Dart 3.10+ requires dartvm next to dart. Re-download the fixed flutter_${FLUTTER_VERSION}_aarch64.deb release."
-    exit 1
+    INSTALL_FAILED=true; record_stage integrity failed; exit 30
 fi
 if [ -f "$DART_SDK/bin/dart" ] && [ -f "$FLUTTER_ROOT/packages/flutter_tools/bin/flutter_tools.dart" ]; then
     echo "重新編譯 flutter_tools.snapshot..."
@@ -180,6 +423,11 @@ if [ -n "$ENGINE_VERSION" ] && [ ! -f "$SNAPSHOTS_DIR/dds_aot.dart.snapshot" ]; 
     echo "  從官方 Flutter 儲存下載 snapshots..."
     wget -q --show-progress "$SNAPSHOTS_URL" -O "$HOME/dart-sdk.zip" || true
     if [ -f "$HOME/dart-sdk.zip" ]; then
+        if [ "$ENGINE_VERSION" = "77e2e94772b6eb43759e34ed1ad7da4674e19cab" ]; then
+            verify_sha256 "$HOME/dart-sdk.zip" "$SNAPSHOT_EXPECTED_SHA256" || { rm -f "$HOME/dart-sdk.zip"; INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
+        else
+            echo "  ⚠ 引擎版本不匹配，跳過 Dart SDK snapshots 校驗碼驗證"
+        fi
         unzip -o -j "$HOME/dart-sdk.zip" 'dart-sdk/bin/snapshots/*' -d "$SNAPSHOTS_DIR" 2>/dev/null || true
         rm -f "$HOME/dart-sdk.zip"
         echo "  ✓ Dart SDK snapshots 已安裝"
@@ -192,7 +440,7 @@ fi
 echo "清理 ELF binaries..."
 apt download termux-elf-cleaner 2>/dev/null || true
 if ls termux-elf-cleaner*.deb 1>/dev/null 2>&1; then
-    dpkg -i termux-elf-cleaner*.deb 2>/dev/null || true
+    dpkg -i termux-elf-cleaner*.deb 2>/dev/null
     rm -f termux-elf-cleaner*.deb
 fi
 if command -v termux-elf-cleaner &> /dev/null; then
@@ -205,45 +453,14 @@ else
 fi
 
 # ========================================
-# Step 3: 安裝 Android SDK
-# ========================================
-echo ""
-echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} 安裝 Android SDK..."
-
-ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
-ANDROID_SDK_DEB="$HOME/android-sdk_35.0.0_aarch64.deb"
-
-if [ ! -f "$ANDROID_SDK_DEB" ]; then
-    echo "下載 Android SDK..."
-    wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB"
-fi
-
-# 安裝 (忽略 openjdk-17 依賴)
-dpkg -i --force-architecture "$ANDROID_SDK_DEB" 2>/dev/null || true
-dpkg --force-depends --configure android-sdk 2>/dev/null || true
-
-echo "  ✓ Android SDK 已安裝"
-
-# ========================================
 # Step 4: 安裝 ARM64 NDK
 # ========================================
 echo ""
 echo -e "${GREEN}[4/${TOTAL_STEPS}]${NC} 安裝 ARM64 NDK..."
 
-ANDROID_HOME="$PREFIX/opt/android-sdk"
-NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
-
 if [ -d "$NDK_PATH" ]; then
     echo "  ✓ NDK 已安裝"
 else
-    NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
-    NDK_ARCHIVE="$HOME/android-ndk-r29-aarch64.7z"
-
-    if [ ! -f "$NDK_ARCHIVE" ]; then
-        echo "下載 ARM64 NDK (約 350MB)..."
-        wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE"
-    fi
-
     echo "解壓 NDK..."
     mkdir -p "$ANDROID_HOME/ndk"
     7z x -y "$NDK_ARCHIVE" "-o$ANDROID_HOME/ndk" >/dev/null
@@ -322,7 +539,8 @@ done
 # 也運行 post_install.sh（如果存在）
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
     echo "執行 post_install.sh..."
-    bash $PREFIX/share/flutter/post_install.sh 2>/dev/null || true
+    bash $PREFIX/share/flutter/post_install.sh || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
+    record_stage post-install success
 fi
 
 # ========================================
@@ -349,7 +567,8 @@ EOF
 fi
 
 # 修復 CMake
-rm -rf $ANDROID_HOME/cmake/*/bin 2>/dev/null || true
+# removed wildcard deletion
+# rm -rf $ANDROID_HOME/cmake/*/bin 2>/dev/null || true
 mkdir -p $ANDROID_HOME/cmake/3.22.1/bin
 ln -sf $PREFIX/bin/cmake $ANDROID_HOME/cmake/3.22.1/bin/cmake
 ln -sf $PREFIX/bin/ninja $ANDROID_HOME/cmake/3.22.1/bin/ninja
@@ -393,14 +612,14 @@ if ! command -v aapt2 &> /dev/null; then
     # 下載依賴包
     apt download libprotobuf fmt libzopfli aapt aapt2 2>/dev/null || true
     # 安裝（使用 dpkg 避免觸發 apt 的依賴解析）
-    dpkg -i libprotobuf*.deb 2>/dev/null || true
-    dpkg -i fmt*.deb libzopfli*.deb 2>/dev/null || true
-    dpkg -i aapt_*.deb 2>/dev/null || true
-    dpkg -i aapt2*.deb 2>/dev/null || true
+    dpkg -i libprotobuf*.deb 2>/dev/null
+    dpkg -i fmt*.deb libzopfli*.deb 2>/dev/null
+    dpkg -i aapt_*.deb 2>/dev/null
+    dpkg -i aapt2*.deb 2>/dev/null
     rm -f *.deb 2>/dev/null || true
 fi
 
-TEST_APP_DIR="$HOME/flutter_test_app"
+TEST_APP_DIR="$WORK_DIR/flutter_test_app"
 
 # 創建測試專案
 if [ -d "$TEST_APP_DIR" ]; then
@@ -489,7 +708,8 @@ flutter build apk --release --target-platform android-arm64 2>&1 | tee /tmp/buil
 # Gradle 可能下載了新的 SDK 組件（如 build-tools/35.0.0-2），重新配置
 echo "配置 Gradle 下載的 SDK 組件..."
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
-    bash $PREFIX/share/flutter/post_install.sh 2>/dev/null || true
+    bash $PREFIX/share/flutter/post_install.sh || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
+    record_stage post-install success
 fi
 
 # 檢查是否因 NDK clang 問題失敗（Gradle 可能下載了新 NDK）
@@ -507,12 +727,15 @@ fi
 
 # 檢查 APK 結果
 if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+    record_stage smoke success
     APK_SIZE=$(ls -lh build/app/outputs/flutter-apk/app-release.apk | awk '{print $5}')
     APK_BUILD_SUCCESS=true
     echo "  ✓ APK 構建成功 ($APK_SIZE)"
 else
     APK_BUILD_SUCCESS=false
     echo "  ✗ APK 構建失敗"
+    record_stage smoke failed
+    INSTALL_FAILED=true; exit 60
 fi
 
 # 測試 Linux 構建（如果已安裝 gtk3）
@@ -531,6 +754,7 @@ else
 fi
 
 BUILD_SUCCESS=$APK_BUILD_SUCCESS
+MUTATION_COMMITTED=true
 
 cd $HOME
 
@@ -548,8 +772,6 @@ echo ""
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
 if [ "$BUILD_SUCCESS" = true ]; then
     echo -e "${CYAN}║     ${GREEN}安裝完成！APK 構建測試成功！${CYAN}                        ║${NC}"
-else
-    echo -e "${CYAN}║     ${YELLOW}安裝完成！APK 構建測試需要手動檢查${CYAN}                  ║${NC}"
 fi
 echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
 echo ""

@@ -31,23 +31,54 @@ jobs:
           cache: pip
 
       - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt pytest
 
       - name: Python compile check
-        run: python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py scripts/ci/check_version_drift.py
+        run: python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py
+
+      - name: Run pytest unit tests
+        run: pytest tests/
 
       - name: Shell syntax check
         shell: bash
         run: |
           set -euo pipefail
+          find scripts -name "*.sh" -exec bash -n {} +
           bash -n install_flutter_complete.sh
-          bash -n scripts/install/install.sh
-          bash -n scripts/install/install_termux_flutter.sh
-          bash -n scripts/install/post_install.sh
-          bash -n scripts/test/gh_e2e_test.sh
-          bash -n scripts/device/termux_smoke.sh
-          bash -n scripts/install/setup_modern_tools.sh
-          bash -n scripts/ci/check_toolchain.sh
+
+      - name: ShellCheck lint shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exclude .sh files that are actually Python scripts (e.g. config_jdk.sh)
+          mapfile -t SHELL_FILES < <(find scripts -name "*.sh" -exec grep -l '^#!/.*\(ba\)\?sh' {} +  2>/dev/null || true)
+          shellcheck --severity=error install_flutter_complete.sh "${SHELL_FILES[@]}"
+
+      - name: actionlint workflow lint
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! type -p actionlint &>/dev/null; then
+            bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          fi
+          # Disable embedded shellcheck (handled by separate ShellCheck step)
+          ./actionlint -shellcheck="" .github/workflows/*.yml
+
+      - name: Validate build.toml schema
+        run: |
+          python -c "
+          import tomllib
+          with open('build.toml', 'rb') as f:
+              data = tomllib.load(f)
+          assert 'flutter' in data, 'Missing [flutter]'
+          assert 'tag' in data['flutter'], 'Missing flutter.tag'
+          assert 'ndk' in data, 'Missing [ndk]'
+          assert 'path' in data['ndk'], 'Missing ndk.path'
+          assert isinstance(data['ndk']['path'], str), 'ndk.path must be string'
+          print('build.toml schema valid!')
+          "
 
       - name: PowerShell syntax check
         shell: pwsh

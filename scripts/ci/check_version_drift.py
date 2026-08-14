@@ -43,6 +43,7 @@ def load_build_config() -> dict[str, str]:
     tag = flutter_cfg.get("tag", "")
     release_tag = flutter_cfg.get("release_tag", "")
     dart_version = flutter_cfg.get("dart_version", "")
+    engine_commit = flutter_cfg.get("engine_commit", "")
     sha256 = flutter_cfg.get("sha256", "")
     asset_name = flutter_cfg.get("asset_name", "")
 
@@ -57,6 +58,7 @@ def load_build_config() -> dict[str, str]:
         "tag": str(tag),
         "release_tag": str(release_tag),
         "dart_version": str(dart_version),
+        "engine_commit": str(engine_commit),
         "sha256": str(sha256),
         "asset_name": str(asset_name) or f"flutter_{tag}_aarch64.deb",
     }
@@ -80,6 +82,8 @@ def check_build_py(cfg: dict[str, str]) -> None:
 
 def check_markdown_docs(cfg: dict[str, str]) -> None:
     release_tag = cfg["release_tag"]
+    dart_version = cfg["dart_version"]
+    engine_commit = cfg.get("engine_commit")
 
     docs_to_check = [
         "README.md",
@@ -99,6 +103,15 @@ def check_markdown_docs(cfg: dict[str, str]) -> None:
         for found_tag in url_matches:
             if found_tag != release_tag:
                 fail(f"{rel_path}: download URL tag mismatch: found '{found_tag}', expected '{release_tag}'")
+
+        # Check dart version in shields or table if present
+        if "3.12.0" in text and dart_version != "3.12.0":
+            fail(f"{rel_path}: Contains hardcoded '3.12.0' but expected '{dart_version}'")
+
+        # We can also check if engine commit matches
+        if engine_commit and "Engine | [" in text:
+            if engine_commit not in text:
+                fail(f"{rel_path}: Missing expected engine commit '{engine_commit}'")
 
 
 def check_installer_scripts(cfg: dict[str, str]) -> None:

@@ -9,6 +9,7 @@ release/
 depot_tools/
 *.deb
 out/
+!.gclient
 
 # ----- 臨時文件存檔 -----
 _archive/
@@ -126,3 +127,11 @@ temp_*.*
 *.ps1
 !scripts/**/*.ps1
 !scripts/**/*.sh
+
+# ----- Agent / Orchestrator Metadata -----
+.agents/
+ORIGINAL_REQUEST.md
+PROJECT.md
+GATE_STATUS.md
+evidence.json
+
