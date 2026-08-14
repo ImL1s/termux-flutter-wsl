@@ -64,7 +64,7 @@ resource:
 
   # Dart 3.10+ Flutter wrappers expect dartvm next to dart.
   dartvm_bin:
-    source: $debug/exe.unstripped/dart
+    source: $debug/exe.unstripped/dartvm
     output: $out/dart-sdk/bin/dartvm
     replace: true
     replace_scope: $distro/bin/cache/dart-sdk
