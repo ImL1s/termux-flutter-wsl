@@ -156,6 +156,8 @@ export OPT_YES=false
 export OPT_NON_INTERACTIVE=false
 export OPT_UPGRADE=false
 export OPT_SKIP_SMOKE=false
+export DO_UPGRADE=false
+export NON_INTERACTIVE=false
 
 parse_installer_args() {
     while [ "$#" -gt 0 ]; do
@@ -205,7 +207,7 @@ handle_android_licenses() {
     local auto_accept="${1:-${OPT_YES:-false}}"
     local non_interactive="${2:-${OPT_NON_INTERACTIVE:-false}}"
 
-    if [ "$auto_accept" = "true" ] || [ "${NON_INTERACTIVE:-false}" = "true" ]; then
+    if [ "$auto_accept" = "true" ]; then
         echo -e "${BLUE}Auto-accepting Android SDK licenses...${NC}"
         if command -v flutter >/dev/null 2>&1; then
             yes 2>/dev/null | flutter doctor --android-licenses 2>/dev/null || true

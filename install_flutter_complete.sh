@@ -423,7 +423,7 @@ echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} 更新系統套件..."
 # 清理可能存在的舊包（避免依賴衝突）
 
 pkg update -y
-if [ "$DO_UPGRADE" = true ]; then pkg upgrade -y; fi
+if [ "${DO_UPGRADE:-false}" = true ]; then pkg upgrade -y; fi
 
 # ========================================
 # Step 2: 安裝 Flutter

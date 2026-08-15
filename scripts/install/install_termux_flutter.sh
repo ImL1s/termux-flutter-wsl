@@ -36,7 +36,7 @@ TOTAL_STEPS=6
 echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} Updating packages..."
 pkg update -y
 # Use non-interactive mode to avoid config file prompts
-if [ "$DO_UPGRADE" = true ]; then
+if [ "${DO_UPGRADE:-false}" = true ]; then
     DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-confdef" upgrade -y
 fi
 
