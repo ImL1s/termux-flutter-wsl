@@ -704,3 +704,30 @@ def test_normalize_pthread_shim_preserves_directory_and_file_symlinks(tmp_path):
     assert (termux_usr / "lib64").is_symlink()
     assert (termux_usr / "lib" / "liblink.so").is_symlink()
 
+
+def test_normalize_pthread_shim_replaces_colliding_real_directories_before_symlink(tmp_path):
+    """Proves usr migration removes/replaces existing real destination directory when source is a directory symlink."""
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    usr = staging / "usr"
+    usr.mkdir()
+
+    # Pre-create real directory in destination that will collide with symlink in source
+    termux_usr = staging / "data" / "data" / "com.termux" / "files" / "usr"
+    colliding_dest_dir = termux_usr / "lib64"
+    colliding_dest_dir.mkdir(parents=True)
+    (colliding_dest_dir / "stale.so").write_text("stale data")
+
+    try:
+        # Create directory symlink lib64 -> lib in source
+        (usr / "lib64").symlink_to("lib", target_is_directory=True)
+    except OSError:
+        pytest.skip("Symlink creation not permitted in this test environment")
+
+    sysroot._normalize_pthread_shim(staging)
+
+    assert termux_usr.exists()
+    assert (termux_usr / "lib64").is_symlink()
+    assert os.readlink(termux_usr / "lib64") == "lib"
+
+

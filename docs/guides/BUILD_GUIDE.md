@@ -714,15 +714,15 @@ flutter build linux --release
 ### 1. 準備新版本目錄
 
 ```bash
-# 複製現有 patches 作為起點
-cp -r patches/3.44.0 patches/3.45.0
+# 複製現有 patches 作為起點（例如從 3.44.2 複製）
+cp -r patches/3.44.2 patches/<NEW_TAG>
 ```
 
 ### 2. 更新 build.toml
 
 ```toml
 [flutter]
-tag = '3.45.0'  # 更新版本號
+tag = '<NEW_TAG>'  # 更新版本號
 ```
 
 ### 3. 同步新版本
@@ -744,7 +744,7 @@ python3 build.py patch_flutter_sdk
 **如果 patch 失敗：**
 
 1. 查看錯誤訊息，找出衝突的位置
-2. 手動修復 `patches/3.45.0/` 中的 patch 檔案
+2. 手動修復 `patches/<NEW_TAG>/` 中的 patch 檔案
 3. 重新執行 patch 命令
 
 ### 5. 建置新版本
@@ -761,7 +761,7 @@ python3 build.py debuild --arch=arm64
 
 ```bash
 # 安裝
-dpkg -i flutter_3.45.0_aarch64.deb
+dpkg -i flutter_<NEW_TAG>_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh
 
@@ -777,17 +777,17 @@ flutter build linux
 ```bash
 # 提交變更
 git add -A
-git commit -m "feat: Support Flutter 3.45.0"
+git commit -m "feat: Support Flutter <NEW_TAG>"
 
 # 打 tag
-git tag -a v3.45.0-termux -m "Flutter 3.45.0 for Termux ARM64"
+git tag -a v<NEW_TAG>-termux -m "Flutter <NEW_TAG> for Termux ARM64"
 git push origin master --tags
 
 # 建立 GitHub Release
-gh release create v3.45.0-termux \
-  --title "Flutter 3.45.0 for Termux" \
+gh release create v<NEW_TAG>-termux \
+  --title "Flutter <NEW_TAG> for Termux" \
   --notes "See docs/releases/CHANGELOG.md" \
-  flutter_3.45.0_aarch64.deb
+  flutter_<NEW_TAG>_aarch64.deb
 ```
 
 ### Patch 維護技巧

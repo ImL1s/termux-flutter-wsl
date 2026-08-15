@@ -186,24 +186,35 @@ def check_guide_docs(cfg: dict[str, str], root_path: Path | None = None) -> None
             continue
         text = path.read_text(encoding="utf-8")
 
-        if rel_path == "docs/guides/BUILD_GUIDE.md":
-            # Check version header table
-            if "Flutter tag |" in text:
-                m = re.search(r"Flutter tag \|\s*`([^`]+)`", text)
-                if m and m.group(1) != tag:
-                    fail(f"{rel_path}: Flutter tag mismatch in table: found '{m.group(1)}', expected '{tag}'")
-            if "Engine revision |" in text and engine_commit:
-                m = re.search(r"Engine revision \|\s*`([^`]+)`", text)
-                if m and m.group(1) != engine_commit:
-                    fail(f"{rel_path}: Engine revision mismatch in table: found '{m.group(1)}', expected '{engine_commit}'")
-            if "Package |" in text:
-                m = re.search(r"Package \|\s*`([^`]+)`", text)
-                if m and m.group(1) != asset_name:
-                    fail(f"{rel_path}: Package mismatch in table: found '{m.group(1)}', expected '{asset_name}'")
-            if "SHA256 |" in text and sha256:
-                m = re.search(r"SHA256 \|\s*`([^`]+)`", text)
-                if m and m.group(1).lower() != sha256.lower():
-                    fail(f"{rel_path}: SHA256 mismatch in table: found '{m.group(1)}', expected '{sha256}'")
+        # Check version header table in any guide where present
+        if "Flutter tag |" in text:
+            m = re.search(r"Flutter tag \|\s*`([^`]+)`", text)
+            if m and m.group(1) != tag:
+                fail(f"{rel_path}: Flutter tag mismatch in table: found '{m.group(1)}', expected '{tag}'")
+        if "Engine revision |" in text and engine_commit:
+            m = re.search(r"Engine revision \|\s*`([^`]+)`", text)
+            if m and m.group(1) != engine_commit:
+                fail(f"{rel_path}: Engine revision mismatch in table: found '{m.group(1)}', expected '{engine_commit}'")
+        if "Package |" in text:
+            m = re.search(r"Package \|\s*`([^`]+)`", text)
+            if m and m.group(1) != asset_name:
+                fail(f"{rel_path}: Package mismatch in table: found '{m.group(1)}', expected '{asset_name}'")
+        if "SHA256 |" in text and sha256:
+            m = re.search(r"SHA256 \|\s*`([^`]+)`", text)
+            if m and m.group(1).lower() != sha256.lower():
+                fail(f"{rel_path}: SHA256 mismatch in table: found '{m.group(1)}', expected '{sha256}'")
+
+        # Check package deb mentions across all guides
+        for deb_match in re.finditer(r"flutter_(\d+\.\d+\.\d+)_aarch64\.deb", text):
+            found_tag = deb_match.group(1)
+            if found_tag != tag:
+                fail(f"{rel_path}: Package deb name version mismatch: found '{deb_match.group(0)}', expected '{asset_name}'")
+
+        # Check patch paths across all guides
+        for patch_match in re.finditer(r"patches/(\d+\.\d+\.\d+)/", text):
+            found_patch_ver = patch_match.group(1)
+            if found_patch_ver != tag:
+                fail(f"{rel_path}: Patch path version mismatch: found '{patch_match.group(0)}', expected 'patches/{tag}/'")
 
 
 def check_installer_scripts(cfg: dict[str, str], root_path: Path | None = None) -> None:

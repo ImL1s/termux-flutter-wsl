@@ -307,9 +307,14 @@ def _normalize_pthread_shim(staging_root: pathlib.Path) -> pathlib.Path:
             for f in files:
                 src_file = pathlib.Path(root) / f
                 dst_file = target_dir / f
-                if dst_file.exists() or dst_file.is_symlink():
+                if dst_file.is_symlink() or dst_file.is_file():
                     try:
                         dst_file.unlink()
+                    except OSError:
+                        pass
+                elif dst_file.is_dir():
+                    try:
+                        shutil.rmtree(dst_file)
                     except OSError:
                         pass
                 if src_file.is_symlink():
@@ -328,9 +333,14 @@ def _normalize_pthread_shim(staging_root: pathlib.Path) -> pathlib.Path:
                 dir_path = pathlib.Path(root) / d
                 if dir_path.is_symlink():
                     dst_symlink = target_dir / d
-                    if dst_symlink.exists() or dst_symlink.is_symlink():
+                    if dst_symlink.is_symlink() or dst_symlink.is_file():
                         try:
                             dst_symlink.unlink()
+                        except OSError:
+                            pass
+                    elif dst_symlink.is_dir():
+                        try:
+                            shutil.rmtree(dst_symlink)
                         except OSError:
                             pass
                     link_target = os.readlink(dir_path)
