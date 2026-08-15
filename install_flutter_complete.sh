@@ -18,13 +18,6 @@
 
 set -euo pipefail
 
-DO_UPGRADE=false
-for arg in "$@"; do
-    if [ "$arg" == "--upgrade" ]; then
-        DO_UPGRADE=true
-    fi
-done
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo ".")"
 if [ -f "$SCRIPT_DIR/scripts/install/lib_common.sh" ]; then
     source "$SCRIPT_DIR/scripts/install/lib_common.sh"
@@ -42,24 +35,36 @@ else
     fi
 fi
 
+if command -v parse_installer_args >/dev/null 2>&1; then
+    parse_installer_args "$@"
+fi
+
 backup_ndk_file() {
     local file="$1"
-    if [ -e "$file" ] || [ -L "$file" ]; then
-        local rel_path=""
-        if [ -n "${ANDROID_HOME:-}" ] && [[ "$file" == "$ANDROID_HOME/"* ]]; then
-            rel_path="${file#$ANDROID_HOME/}"
-        elif [ -n "${NDK_PATH:-}" ] && [[ "$file" == "$NDK_PATH/"* ]]; then
-            rel_path="ndk/$(basename "$NDK_PATH")/${file#$NDK_PATH/}"
-        else
-            rel_path="$(basename "$file")"
-        fi
+    local backup_dir="${BACKUP_DIR:-${WORK_DIR:-.}/backup}"
+    local absent_list="$backup_dir/ndk_absent.list"
+    local backup_target=""
 
+    local rel_path=""
+    if [ -n "${ANDROID_HOME:-}" ] && [[ "$file" == "$ANDROID_HOME/"* ]]; then
+        rel_path="${file#$ANDROID_HOME/}"
+    elif [ -n "${NDK_PATH:-}" ] && [[ "$file" == "$NDK_PATH/"* ]]; then
+        rel_path="ndk/$(basename "$NDK_PATH")/${file#$NDK_PATH/}"
+    else
+        rel_path="$(basename "$file")"
+    fi
+
+    # If already recorded as absent in this session, do not back it up as existing
+    if [ -f "$absent_list" ] && grep -Fxq "$file" "$absent_list" 2>/dev/null; then
+        return 0
+    fi
+
+    if [ -e "$file" ] || [ -L "$file" ]; then
         if [ -z "$rel_path" ]; then
             return 0
         fi
 
-        local backup_dir="${BACKUP_DIR:-${WORK_DIR:-.}/backup}"
-        local backup_target="$backup_dir/ndk_backups/$rel_path"
+        backup_target="$backup_dir/ndk_backups/$rel_path"
         if [ ! -e "$backup_target" ] && [ ! -L "$backup_target" ]; then
             local target_dir="$(dirname "$backup_target")"
             if [ -n "$target_dir" ] && [ "$target_dir" != "." ]; then
@@ -67,11 +72,52 @@ backup_ndk_file() {
             fi
             cp -a "$file" "$backup_target" 2>/dev/null || true
         fi
+    else
+        # File does not pre-exist -> record as absent for clean rollback removal
+        local absent_dir="$(dirname "$absent_list")"
+        if [ -n "$absent_dir" ] && [ "$absent_dir" != "." ]; then
+            mkdir -p "$absent_dir"
+        fi
+        if ! grep -Fxq "$file" "$absent_list" 2>/dev/null; then
+            echo "$file" >> "$absent_list"
+        fi
+        if command -v record_absent_preimage >/dev/null 2>&1; then
+            record_absent_preimage "$file"
+        fi
     fi
 }
 
 restore_ndk_backups() {
     local backup_dir="${BACKUP_DIR:-${WORK_DIR:-.}/backup}"
+
+    # 1. Unconditionally remove newly created files recorded as absent
+    local absent_list="$backup_dir/ndk_absent.list"
+    if [ -f "$absent_list" ]; then
+        echo -e "${YELLOW}[ROLLBACK] Removing newly created NDK artifacts...${NC}"
+        while IFS= read -r absent_file || [ -n "$absent_file" ]; do
+            if [ -n "$absent_file" ] && [ -e "$absent_file" -o -L "$absent_file" ]; then
+                rm -f "$absent_file" 2>/dev/null || rm -rf "$absent_file" 2>/dev/null || true
+                echo "  ✓ Removed created NDK artifact: $absent_file"
+                local parent_dir="$(dirname "$absent_file")"
+                while [ -n "$parent_dir" ] && [ "$parent_dir" != "/" ] && [ "$parent_dir" != "." ] && [ "$parent_dir" != "${ANDROID_HOME:-}" ] && [ "$parent_dir" != "${PREFIX:-}" ] && [ "$parent_dir" != "${WORK_DIR:-}" ] && [ -d "$parent_dir" ]; do
+                    if [ -z "$(ls -A "$parent_dir" 2>/dev/null)" ]; then
+                        rmdir "$parent_dir" 2>/dev/null || break
+                        parent_dir="$(dirname "$parent_dir")"
+                    else
+                        break
+                    fi
+                done
+            fi
+        done < "$absent_list"
+        rm -f "$absent_list" 2>/dev/null || true
+    fi
+
+    # Also clean up any general absent preimages from lib_common if present
+    if command -v cleanup_absent_preimages >/dev/null 2>&1; then
+        cleanup_absent_preimages
+    fi
+
+    # 2. Restore all pre-existing NDK files from backup
     if [ -d "$backup_dir/ndk_backups" ]; then
         echo -e "${YELLOW}[ROLLBACK] Restoring pre-existing NDK files from backup...${NC}"
         (
@@ -254,9 +300,8 @@ rollback_packages() {
             echo -e "${YELLOW}[ROLLBACK] Removing newly extracted NDK directory ($ndk_path)...${NC}"
             rm -rf "$ndk_path"
         fi
-    else
-        restore_ndk_backups
     fi
+    restore_ndk_backups
 
     if [ "$ROLLBACK_FAILED" = true ]; then
         echo -e "${RED}[ROLLBACK FAILED] Environment restoration could not be fully completed.${NC}"
@@ -318,7 +363,7 @@ EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9
 
 # 其他版本配置
 ANDROID_SDK_EXPECTED_SHA256="fc727c848b8ca4e3011515850702adc1bf98ceae7205d7acc82d026bc94d2601"
-NDK_EXPECTED_SHA256="21ca4237997da6c601eda6de48418609d6d8308b26c631620ae57cf1fa06c4c7"
+NDK_EXPECTED_SHA256="02e10e4ddfe8deaeb0bd0cf29d04c981ed5bc8a5d6b560ebb9e7661f472d684b"
 SNAPSHOT_EXPECTED_SHA256="527f074d86660fd3f7c900fc8c1ebd5a2ebc4581e174eb8cf9fe343a1664402d"
 NDK_VERSION="29.0.14206865"
 REPO_BASE="https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master"
@@ -378,7 +423,7 @@ echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} 更新系統套件..."
 # 清理可能存在的舊包（避免依賴衝突）
 
 pkg update -y
-if [ "$DO_UPGRADE" = true ]; then pkg upgrade -y; fi
+if [ "${DO_UPGRADE:-false}" = true ]; then pkg upgrade -y; fi
 
 # ========================================
 # Step 2: 安裝 Flutter
@@ -410,7 +455,7 @@ mkdir -p "$WORK_DIR/apt_staging"
 echo "預先下載並驗證所有套件..."
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
 ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
-NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
+NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.tar.xz"
 
 # Snapshot existing package state for rollback
 FLUTTER_WAS_INSTALLED=false
@@ -480,7 +525,7 @@ fi
 
 FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
 ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
-NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.7z"
+NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.tar.xz"
 
 echo "下載 Flutter SDK..."
 wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
@@ -612,7 +657,13 @@ else
     rm -rf "$NDK_STAGE" 2>/dev/null || true
     mkdir -p "$NDK_STAGE"
 
-    if ! 7z x -y "$NDK_ARCHIVE" "-o$NDK_STAGE" >/dev/null; then
+    if [[ "$NDK_ARCHIVE" == *.tar.xz ]] || [[ "$NDK_ARCHIVE" == *.txz ]]; then
+        if ! tar -xf "$NDK_ARCHIVE" -C "$NDK_STAGE" >/dev/null 2>&1 && ! 7z x -y "$NDK_ARCHIVE" "-o$NDK_STAGE" >/dev/null 2>&1; then
+            echo -e "${RED}[ERROR] NDK extraction (tar.xz) failed. Cleaning up stage...${NC}"
+            rm -rf "$NDK_STAGE" 2>/dev/null || true
+            { INSTALL_FAILED=true; record_stage package failed; exit 40; }
+        fi
+    elif ! 7z x -y "$NDK_ARCHIVE" "-o$NDK_STAGE" >/dev/null && ! tar -xf "$NDK_ARCHIVE" -C "$NDK_STAGE" >/dev/null 2>&1; then
         echo -e "${RED}[ERROR] NDK extraction failed. Cleaning up stage...${NC}"
         rm -rf "$NDK_STAGE" 2>/dev/null || true
         { INSTALL_FAILED=true; record_stage package failed; exit 40; }
@@ -711,7 +762,11 @@ echo "  ✓ build-tools 已配置"
 flutter config --android-sdk $ANDROID_HOME 2>/dev/null || true
 
 # 接受授權
-yes | flutter doctor --android-licenses 2>/dev/null || true
+if command -v handle_android_licenses >/dev/null 2>&1; then
+    handle_android_licenses "${OPT_YES:-false}" "${OPT_NON_INTERACTIVE:-false}"
+else
+    yes | flutter doctor --android-licenses 2>/dev/null || true
+fi
 
 echo "  ✓ 環境已配置"
 

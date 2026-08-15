@@ -114,5 +114,5 @@ flutter/engine/src/out/
 - Build: WSL2 Ubuntu on Windows, NDK r27d at `/opt/android-ndk-r27d`
 - WSL path: `<workspace-root>/`
 - Target: aarch64, Flutter 3.44.2
-- Test device: `R52Y100VWGM` (Samsung SM-X716B / Android 16)
+- Test device: `[REDACTED]` (Samsung SM-X716B / Android 16)
 - Use PowerShell (not Git Bash) for `adb push` to avoid path mangling

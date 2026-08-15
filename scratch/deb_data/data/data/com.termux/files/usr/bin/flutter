@@ -1,2 +1,0 @@
-#!/data/data/com.termux/files/usr/bin/sh
-exec /data/data/com.termux/files/usr/opt/flutter/bin/flutter "$@"

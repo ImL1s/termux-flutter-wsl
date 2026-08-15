@@ -11,18 +11,13 @@
 
 set -euo pipefail
 
-DO_UPGRADE=false
-for arg in "$@"; do
-    if [ "$arg" == "--upgrade" ]; then
-        DO_UPGRADE=true
-    fi
-done
-
 source "$(dirname "$0")/lib_common.sh" || {
     echo "Fetching lib_common.sh..."
     curl -sLO https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/lib_common.sh
     source ./lib_common.sh
 }
+
+parse_installer_args "$@"
 
 trap print_summary EXIT
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
@@ -41,7 +36,7 @@ TOTAL_STEPS=6
 echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} Updating packages..."
 pkg update -y
 # Use non-interactive mode to avoid config file prompts
-if [ "$DO_UPGRADE" = true ]; then
+if [ "${DO_UPGRADE:-false}" = true ]; then
     DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-confdef" upgrade -y
 fi
 

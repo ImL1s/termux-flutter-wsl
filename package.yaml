@@ -9,11 +9,12 @@ define:
 
 control:
   Package: flutter
-  Version: $tag
+  Version: $package_version
   Architecture: $architecture
   Maintainer: Termux Flutter WSL <termux-flutter-wsl@github.com>
   Pre-Depends: x11-repo
-  Depends: git, which, openjdk-21, wget, unzip, binutils, gtk3, xorgproto, ninja, cmake, clang, pkg-config
+  Depends: git, which, openjdk-21, wget, unzip, binutils, clang
+  Recommends: gtk3, xorgproto, ninja, cmake, pkg-config
   Homepage: https://github.com/ImL1s/termux-flutter-wsl
   Description: Flutter makes it easy and fast to build beautiful apps for mobile and beyond
 
@@ -323,5 +324,10 @@ resource:
   flutter_project_config:
     source: $root/../scripts/install/flutter_project_config.sh
     output: $prefix/share/flutter/flutter_project_config.sh
+    mode: 0o755
+
+  flutter_termux_doctor:
+    source: $root/../scripts/install/flutter_termux_doctor.sh
+    output: $prefix/bin/flutter-termux
     mode: 0o755
 

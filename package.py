@@ -288,12 +288,17 @@ class Output(utils.Output):
 
 @utils.record
 class Package(object):
-    def __init__(self, root, arch, control, resource, define=None, tag=None, release_tag=None, **kwargs):
+    def __init__(self, root, arch, control, resource, define=None, tag=None, release_tag=None, revision=None, **kwargs):
         root = Path(root).resolve()
         assert root.is_dir(), f'bad flutter root path: "{root}"'
+        tag_val = tag or utils.flutter_tag(root)
+        rev_val = str(revision) if revision is not None else str(kwargs.get('revision', '0'))
+        pkg_ver = f"{tag_val}-{rev_val}" if rev_val and str(rev_val) != '0' else tag_val
         self.globals = {
-            'tag': tag or utils.flutter_tag(root),
-            'release_tag': release_tag or tag or utils.flutter_tag(root),
+            'tag': tag_val,
+            'release_tag': release_tag or tag_val,
+            'revision': rev_val,
+            'package_version': pkg_ver,
             'root': root,
             'arch': arch,
             'output': Output(root, arch),

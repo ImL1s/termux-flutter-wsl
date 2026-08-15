@@ -89,8 +89,8 @@ def check_package_yaml(cfg: dict[str, str], root_path: Path | None = None) -> No
     if not pkg_yaml.is_file():
         return
     text = pkg_yaml.read_text(encoding="utf-8")
-    if "Version: $tag" not in text:
-        fail("package.yaml control block must specify 'Version: $tag'")
+    if "Version: $package_version" not in text and "Version: $tag" not in text:
+        fail("package.yaml control block must specify 'Version: $package_version' or 'Version: $tag'")
     if "FLUTTER_PREBUILT_ENGINE_VERSION=" in text:
         match = re.search(r'export FLUTTER_PREBUILT_ENGINE_VERSION=["\']?([^"\'\n]+)', text)
         if match:

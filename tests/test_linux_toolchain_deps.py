@@ -4,56 +4,32 @@ import pytest
 
 PACKAGE_YAML = Path(__file__).parent.parent / "package.yaml"
 
-def test_package_yaml_depends_contains_all_linux_build_tools():
+def test_package_yaml_tiered_dependencies():
     with open(PACKAGE_YAML, "rb") as f:
         data = yaml.safe_load(f)
 
     depends_str = data.get("control", {}).get("Depends", "")
     recommends_str = data.get("control", {}).get("Recommends", "")
 
-    required_linux_tools = ["gtk3", "xorgproto", "ninja", "cmake", "clang", "pkg-config"]
+    core_deps = ["git", "which", "openjdk-21", "wget", "unzip", "binutils", "clang"]
+    recommended_tools = ["gtk3", "xorgproto", "ninja", "cmake", "pkg-config"]
 
-    # Verify every required Linux build tool is in Depends
-    for tool in required_linux_tools:
-        assert tool in depends_str, f"Tool '{tool}' must be in control.Depends, but was missing (Depends: '{depends_str}')"
+    for dep in core_deps:
+        assert dep in depends_str, f"Core dependency '{dep}' must be in control.Depends (Depends: '{depends_str}')"
 
-    # Verify none of the required tools remain in Recommends
-    for tool in required_linux_tools:
-        assert tool not in recommends_str, f"Tool '{tool}' must NOT be in control.Recommends"
+    for tool in recommended_tools:
+        assert tool in recommends_str, f"Desktop tool '{tool}' must be in control.Recommends (Recommends: '{recommends_str}')"
 
-def test_clean_install_contract_verifies_all_required_linux_commands_and_libs():
-    """Verify that every tool needed for 'flutter build linux' is declared as a hard dependency."""
+def test_clean_install_contract_verifies_tiered_dependencies():
+    """Verify that core and desktop tools are cleanly declared across Depends and Recommends."""
     with open(PACKAGE_YAML, "rb") as f:
         data = yaml.safe_load(f)
 
     depends_list = [t.strip() for t in data["control"]["Depends"].split(",")]
+    recommends_list = [t.strip() for t in data["control"]["Recommends"].split(",")]
+    all_packages = depends_list + recommends_list
 
-    # Essential tools needed for flutter build linux --release
-    linux_build_requirements = {
-        "cmake": "CMake build system",
-        "ninja": "Ninja build engine",
-        "clang": "C/C++ compiler toolchain",
-        "pkg-config": "Package compiler flag configuration",
-        "gtk3": "GTK3 headers and libraries",
-        "xorgproto": "X11 protocol headers",
-    }
+    required_tools = ["git", "which", "openjdk-21", "wget", "unzip", "binutils", "clang", "cmake", "ninja", "pkg-config", "gtk3", "xorgproto"]
+    missing = [tool for tool in required_tools if tool not in all_packages]
 
-    missing = []
-    for req, desc in linux_build_requirements.items():
-        if req not in depends_list:
-            missing.append(f"{req} ({desc})")
-
-    assert not missing, f"Clean-install contract broken: missing Linux build dependencies in control.Depends: {missing}"
-
-def test_fails_when_required_tool_is_in_recommends():
-    """Contract check: simulating a configuration where a tool is in Recommends fails contract."""
-    mock_control = {
-        "Depends": "git, which, openjdk-21",
-        "Recommends": "gtk3, xorgproto, ninja, cmake, clang, pkg-config"
-    }
-
-    required_tools = ["gtk3", "xorgproto", "ninja", "cmake", "clang", "pkg-config"]
-    depends_list = [t.strip() for t in mock_control["Depends"].split(",")]
-
-    missing_tools = [t for t in required_tools if t not in depends_list]
-    assert len(missing_tools) == 6, f"Expected 6 tools missing from Depends, found: {missing_tools}"
+    assert not missing, f"Packaging contract broken: missing dependencies across Depends/Recommends: {missing}"

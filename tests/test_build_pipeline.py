@@ -455,3 +455,97 @@ def test_build_all_sole_owner_avoids_dirty_checkout_sequence(tmp_path, monkeypat
     assert first_clone_idx < first_patch_idx, "clone must execute before patch"
     assert sequence_log.count('clone') == 1, "clone must execute exactly once during build_all"
     assert 'debuild' in sequence_log, "debuild must complete single-owner pipeline"
+
+
+def test_clone_uses_uuid_staging_and_cleans_up_on_clone_error(tmp_path, monkeypatch):
+    conf_path = tmp_path / 'build.toml'
+    flutter_dir = tmp_path / 'flutter'
+    package_yaml = tmp_path / 'package.yaml'
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.0\n", encoding='utf-8')
+
+    flutter_str = str(flutter_dir).replace('\\', '/')
+    package_str = str(package_yaml).replace('\\', '/')
+
+    conf_content = f"""
+    [flutter]
+    tag = "3.44.0"
+    path = "{flutter_str}"
+    [package]
+    conf = "{package_str}"
+    """
+    conf_path.write_text(conf_content, encoding='utf-8')
+    b = Build(conf=str(conf_path))
+
+    import git
+    cloned_paths = []
+    def mock_clone_from(url, to_path, progress, branch):
+        cloned_paths.append(Path(to_path))
+        Path(to_path).mkdir(parents=True, exist_ok=True)
+        (Path(to_path) / "partial.txt").write_text("partial")
+        raise git.exc.GitCommandError("clone", 128)
+
+    monkeypatch.setattr(git.Repo, 'clone_from', mock_clone_from)
+
+    with pytest.raises(RuntimeError, match="Failed to clone flutter repo"):
+        b.clone(tag='3.44.0', force=True)
+
+    assert len(cloned_paths) == 1
+    staging_path = cloned_paths[0]
+    assert "staging_" in staging_path.name
+    assert not staging_path.exists(), "Staging path must be deleted after clone error"
+
+
+def test_clone_transactional_activation_rollback_on_rename_failure(tmp_path, monkeypatch):
+    conf_path = tmp_path / 'build.toml'
+    flutter_dir = tmp_path / 'flutter'
+    package_yaml = tmp_path / 'package.yaml'
+    flutter_dir.mkdir()
+    (flutter_dir / "original_file.txt").write_text("ORIGINAL_CONTENT")
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.0\n", encoding='utf-8')
+
+    flutter_str = str(flutter_dir).replace('\\', '/')
+    package_str = str(package_yaml).replace('\\', '/')
+
+    conf_content = f"""
+    [flutter]
+    tag = "3.44.0"
+    path = "{flutter_str}"
+    [package]
+    conf = "{package_str}"
+    """
+    conf_path.write_text(conf_content, encoding='utf-8')
+    b = Build(conf=str(conf_path))
+
+    import git
+    staging_dirs = []
+    def mock_clone_from(url, to_path, progress, branch):
+        p = Path(to_path)
+        staging_dirs.append(p)
+        p.mkdir(parents=True, exist_ok=True)
+        (p / "staged_file.txt").write_text("STAGED_CONTENT")
+
+    monkeypatch.setattr(git.Repo, 'clone_from', mock_clone_from)
+    monkeypatch.setattr(utils, 'flutter_tag', lambda path: '3.44.0')
+
+    real_rename = os.rename
+    rename_calls = []
+    def failing_rename(src, dst):
+        rename_calls.append((src, dst))
+        if len(rename_calls) == 2:
+            raise OSError("Simulated activation disk error")
+        return real_rename(src, dst)
+
+    monkeypatch.setattr(os, 'rename', failing_rename)
+
+    with pytest.raises(RuntimeError, match="Transactional activation failed"):
+        b.clone(tag='3.44.0', force=True)
+
+    # Verify original flutter_dir was restored
+    assert flutter_dir.exists(), "Original checkout directory must be restored upon activation failure"
+    assert (flutter_dir / "original_file.txt").read_text() == "ORIGINAL_CONTENT"
+
+    # Verify no staging or backup directories remain
+    parent_entries = [p.name for p in flutter_dir.parent.iterdir() if p.name != flutter_dir.name and p != conf_path and p != package_yaml]
+    for entry in parent_entries:
+        assert not entry.startswith("flutter.staging_"), f"Lingering staging directory found: {entry}"
+        assert not entry.startswith("flutter.backup_"), f"Lingering backup directory found: {entry}"

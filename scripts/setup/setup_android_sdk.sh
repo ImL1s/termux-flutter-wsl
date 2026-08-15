@@ -90,8 +90,8 @@ echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} Checking NDK..."
 
 NDK_VERSION="29.0.14206865"
 NDK_PATH="$PREFIX/opt/android-sdk/ndk/$NDK_VERSION"
-NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.7z"
-NDK_ARCHIVE="$HOME/android-ndk-r29-aarch64.7z"
+NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.tar.xz"
+NDK_ARCHIVE="$HOME/android-ndk-r29-aarch64.tar.xz"
 
 if [ -d "$NDK_PATH" ]; then
     echo "NDK $NDK_VERSION already installed."
@@ -101,7 +101,11 @@ else
         wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE"
     fi
     mkdir -p "$PREFIX/opt/android-sdk/ndk"
-    7z x -y "$NDK_ARCHIVE" "-o$PREFIX/opt/android-sdk/ndk" >/dev/null
+    if [[ "$NDK_ARCHIVE" == *.tar.xz ]]; then
+        tar -xf "$NDK_ARCHIVE" -C "$PREFIX/opt/android-sdk/ndk" >/dev/null 2>&1 || 7z x -y "$NDK_ARCHIVE" "-o$PREFIX/opt/android-sdk/ndk" >/dev/null
+    else
+        7z x -y "$NDK_ARCHIVE" "-o$PREFIX/opt/android-sdk/ndk" >/dev/null || tar -xf "$NDK_ARCHIVE" -C "$PREFIX/opt/android-sdk/ndk" >/dev/null 2>&1
+    fi
     rm -rf "$NDK_PATH"
     mv "$PREFIX/opt/android-sdk/ndk/android-ndk-r29" "$NDK_PATH"
     echo "NDK $NDK_VERSION installed."
