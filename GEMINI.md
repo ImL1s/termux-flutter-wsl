@@ -140,7 +140,7 @@ android {
 - WSL build dir: `<workspace-root>/`
 - Flutter: 3.44.2
 - Target: aarch64 (ARM64)
-- Test device: `R52Y100VWGM` (Samsung SM-X716B / Android 16)
+- Test device: `[REDACTED]` (Samsung SM-X716B / Android 16)
 
 ## Deployment
 

@@ -11,18 +11,13 @@
 
 set -euo pipefail
 
-DO_UPGRADE=false
-for arg in "$@"; do
-    if [ "$arg" == "--upgrade" ]; then
-        DO_UPGRADE=true
-    fi
-done
-
 source "$(dirname "$0")/lib_common.sh" || {
     echo "Fetching lib_common.sh..."
     curl -sLO https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/lib_common.sh
     source ./lib_common.sh
 }
+
+parse_installer_args "$@"
 
 trap print_summary EXIT
 FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"

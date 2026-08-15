@@ -573,3 +573,182 @@ def test_installer_ndk_staging_extraction_failure_cleans_up(tmp_path):
     # Assert destination NDK directories do not exist
     assert not (android_home / "ndk" / "29.0.14206865").exists()
     assert not (android_home / "ndk" / "android-ndk-r29").exists()
+
+
+def test_installer_absent_ndk_files_removed_and_parent_dirs_pruned_on_rollback(tmp_path):
+    """Verify absent preimage tracking unconditionally removes newly created files/symlinks and prunes empty parent dirs (#47, #55)."""
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+
+    android_home = prefix / "opt" / "android-sdk"
+    ndk1_version = "29.0.14206865"
+    ndk2_version = "28.0.12345"
+
+    ndk1_dir = android_home / "ndk" / ndk1_version
+    ndk2_dir = android_home / "ndk" / ndk2_version
+
+    for ndk_dir in (ndk1_dir, ndk2_dir):
+        prebuilt_bin = ndk_dir / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin"
+        prebuilt_lib = ndk_dir / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "sysroot" / "usr" / "lib" / "aarch64-linux-android" / "34"
+        cmake_dir = ndk_dir / "build" / "cmake"
+        prebuilt_bin.mkdir(parents=True, exist_ok=True)
+        prebuilt_lib.mkdir(parents=True, exist_ok=True)
+        cmake_dir.mkdir(parents=True, exist_ok=True)
+
+        (prebuilt_bin / "clang").write_bytes(f"ORIGINAL_CLANG_{ndk_dir.name}\n".encode())
+        (prebuilt_bin / "clang++").write_bytes(f"ORIGINAL_CLANGPP_{ndk_dir.name}\n".encode())
+        (prebuilt_lib / "libc++_shared.so").write_bytes(f"ORIGINAL_LIBCXX_{ndk_dir.name}\n".encode())
+        (cmake_dir / "android-legacy.toolchain.cmake").write_bytes(b'list(APPEND ANDROID_LINKER_FLAGS "-static-libstdc++")\n')
+
+    rel_script = script_copy.relative_to(tmp_path)
+    env = os.environ.copy()
+    env["PREFIX"] = to_wsl_posix(prefix)
+    env["HOME"] = to_wsl_posix(home)
+    env["PATH"] = f"{bin_dir.as_posix()}:{env['PATH']}"
+    env["TERMUX_TEST_MODE"] = "true"
+
+    android_home_posix = to_wsl_posix(android_home)
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_posix = to_wsl_posix(backup_dir)
+
+    bash_cmd = [
+        "bash", "-c",
+        f"export TERMUX_TEST_MODE=true; "
+        f"export PATH=\"$(pwd)/bin:$PATH\"; "
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
+        f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
+        f"ANDROID_HOME='{android_home_posix}'; "
+        f"NDK_PREEXISTING=true; "
+        f"BACKUP_DIR='{backup_posix}'; "
+        f"MUTATION_STARTED=true; "
+        f"for ndk_d in '{android_home_posix}'/ndk/*/; do "
+        f"    configure_ndk_clang \"$ndk_d\"; "
+        f"done; "
+        f"INSTALL_FAILED=true; "
+        f"(exit 60); "
+        f"cleanup_and_exit"
+    ]
+
+    res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 60, f"Expected returncode 60, got {res.returncode}. Output:\n{res.stdout}\n{res.stderr}"
+
+    for ndk_dir in (ndk1_dir, ndk2_dir):
+        prebuilt = ndk_dir / "toolchains" / "llvm" / "prebuilt"
+        api34_lib = prebuilt / "linux-x86_64" / "sysroot" / "usr" / "lib" / "aarch64-linux-android" / "34"
+
+        # 1. Newly created sysroot symlink must be removed
+        assert not (prebuilt / "sysroot").exists(), f"sysroot symlink still exists in {ndk_dir}"
+
+        # 2. Newly created bin directory and clang/clang++ symlinks must be removed and parent pruned
+        assert not (prebuilt / "bin" / "clang").exists(), f"bin/clang symlink still exists in {ndk_dir}"
+        assert not (prebuilt / "bin" / "clang++").exists(), f"bin/clang++ symlink still exists in {ndk_dir}"
+        assert not (prebuilt / "bin").exists(), f"Empty prebuilt/bin directory was not pruned in {ndk_dir}"
+
+        # 3. Newly created libatomic.a must be removed
+        assert not (api34_lib / "libatomic.a").exists(), f"libatomic.a still exists in {ndk_dir}"
+
+        # 4. Pre-existing files must be byte-identically restored
+        assert (prebuilt / "linux-x86_64" / "bin" / "clang").read_bytes() == f"ORIGINAL_CLANG_{ndk_dir.name}\n".encode()
+        assert (prebuilt / "linux-x86_64" / "bin" / "clang++").read_bytes() == f"ORIGINAL_CLANGPP_{ndk_dir.name}\n".encode()
+        assert (api34_lib / "libc++_shared.so").read_bytes() == f"ORIGINAL_LIBCXX_{ndk_dir.name}\n".encode()
+
+
+def test_lib_common_absent_preimages_cleanup(tmp_path):
+    """Verify lib_common.sh record_absent_preimage and cleanup_absent_preimages function as specified (#47, #55)."""
+    lib_path = to_wsl_posix(REPO_ROOT / "scripts" / "install" / "lib_common.sh")
+    manifest = tmp_path / "absent_test.txt"
+    manifest_posix = to_wsl_posix(manifest)
+
+    # Create target directory and files
+    test_sub = tmp_path / "test_subdir" / "nested"
+    test_sub.mkdir(parents=True)
+    f1 = test_sub / "artifact1.tmp"
+    f2 = test_sub / "artifact2.tmp"
+    f1.write_text("dummy 1")
+    f2.write_text("dummy 2")
+
+    f1_posix = to_wsl_posix(f1)
+    f2_posix = to_wsl_posix(f2)
+
+    bash_cmd = [
+        "bash", "-c",
+        f"source '{lib_path}'; "
+        f"export ABSENT_MANIFEST='{manifest_posix}'; "
+        f"record_absent_preimage '{f1_posix}'; "
+        f"record_absent_preimage '{f2_posix}'; "
+        f"cleanup_absent_preimages"
+    ]
+    res = subprocess.run(bash_cmd, capture_output=True, text=True)
+    assert res.returncode == 0, f"lib_common preimage cleanup failed: {res.stderr}"
+
+    assert not f1.exists(), "artifact1 was not removed"
+    assert not f2.exists(), "artifact2 was not removed"
+    assert not test_sub.exists(), "Empty nested directory was not pruned"
+    assert not manifest.exists(), "Manifest file was not removed upon cleanup"
+
+
+def test_installer_ndk_tar_xz_extraction_and_digest_validation(tmp_path):
+    """Verify that installer correctly extracts and handles .tar.xz NDK archives and validates SHA256 (Issue #62)."""
+    prefix, home, bin_dir, state_file, script_copy = create_executable_state_machine_harness(tmp_path)
+    rel_script = script_copy.relative_to(tmp_path)
+
+    android_home = prefix / "opt" / "android-sdk"
+    android_home.mkdir(parents=True, exist_ok=True)
+    android_home_posix = to_wsl_posix(android_home)
+
+    work_dir = tmp_path / "work_tar_xz"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    work_posix = to_wsl_posix(work_dir)
+    stage_posix = to_wsl_posix(work_dir / "ndk_stage")
+
+    # Create a real mini tar.xz archive with android-ndk-r29 structure
+    src_ndk = tmp_path / "src_ndk" / "android-ndk-r29"
+    (src_ndk / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin").mkdir(parents=True)
+    (src_ndk / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin" / "clang").write_text("mock clang binary")
+    
+    tar_xz_path = work_dir / "android-ndk-r29-aarch64.tar.xz"
+    subprocess.run(["tar", "-cJf", str(tar_xz_path), "-C", str(tmp_path / "src_ndk"), "android-ndk-r29"], check=True)
+    archive_posix = to_wsl_posix(tar_xz_path)
+
+    env = os.environ.copy()
+    env["PREFIX"] = to_wsl_posix(prefix)
+    env["HOME"] = to_wsl_posix(home)
+    env["TERMUX_TEST_MODE"] = "true"
+
+    script_file = tmp_path / "run_tar_test.sh"
+    script_file.write_text(
+        f"#!/bin/bash\n"
+        f"export TERMUX_TEST_MODE=true\n"
+        f"source ./{rel_script.as_posix()} 2>/dev/null || true\n"
+        f"trap - EXIT INT TERM HUP\n"
+        f"FLUTTER_WAS_INSTALLED=false\n"
+        f"ANDROID_SDK_WAS_INSTALLED=false\n"
+        f"ANDROID_HOME='{android_home_posix}'\n"
+        f"NDK_VERSION='29.0.14206865'\n"
+        f"NDK_PATH='{android_home_posix}/ndk/29.0.14206865'\n"
+        f"NDK_PREEXISTING=false\n"
+        f"WORK_DIR='{work_posix}'\n"
+        f"NDK_ARCHIVE='{archive_posix}'\n"
+        f"NDK_STAGE='{stage_posix}'\n"
+        f"rm -rf '{stage_posix}' 2>/dev/null || true\n"
+        f"mkdir -p '{stage_posix}'\n"
+        f"if [[ \"$NDK_ARCHIVE\" == *.tar.xz ]] || [[ \"$NDK_ARCHIVE\" == *.txz ]]; then\n"
+        f"    if ! tar -xf \"$NDK_ARCHIVE\" -C \"$NDK_STAGE\" >/dev/null 2>&1; then\n"
+        f"        rm -rf \"$NDK_STAGE\" 2>/dev/null || true\n"
+        f"        exit 40\n"
+        f"    fi\n"
+        f"fi\n"
+        f"EXTRACTED_NDK=\"$NDK_STAGE/android-ndk-r29\"\n"
+        f"mkdir -p \"$ANDROID_HOME/ndk\"\n"
+        f"mv \"$EXTRACTED_NDK\" \"$NDK_PATH\"\n"
+        f"rm -rf \"$NDK_STAGE\" 2>/dev/null || true\n"
+        f"exit 0\n",
+        encoding="utf-8",
+        newline="\n"
+    )
+
+    res = subprocess.run(["bash", to_wsl_posix(script_file)], env=env, cwd=tmp_path, capture_output=True, text=True)
+    assert res.returncode == 0, f"tar.xz extraction failed: {res.stderr}\nSTDOUT: {res.stdout}"
+    assert (android_home / "ndk" / "29.0.14206865" / "toolchains" / "llvm" / "prebuilt" / "linux-x86_64" / "bin" / "clang").exists()
+
+

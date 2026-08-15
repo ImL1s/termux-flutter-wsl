@@ -232,9 +232,9 @@ flutter doctor -v
 
 ## Test Device
 
-- Device ID: `R52Y100VWGM`
+- Device ID: `[REDACTED]`
 - Model: Samsung SM-X716B / Android 16
-- ADB: `adb -s R52Y100VWGM shell`
+- ADB: `adb shell`
 
 ## Version Info
 

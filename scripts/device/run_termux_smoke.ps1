@@ -16,57 +16,109 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory=$true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { return "unknown" }
+    $cmd = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    }
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = $sha256.ComputeHash($stream)
+            return -join ($hash | ForEach-Object { $_.ToString("x2") })
+        } finally {
+            if ($sha256) { $sha256.Dispose() }
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Write-UnifiedEvidence {
+    param(
+        [string]$Status = "failed",
+        [string]$Path = $EvidencePath,
+        [string]$ErrorMessage = "",
+        [string]$FailedStage = ""
+    )
+    $hostPath = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path (Get-Location) $Path }
+    $resolvedCommit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+    $resolvedVerifier = if ($VerifierCommit) { $VerifierCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+    $deviceModel = if ($model -and $model -ne "unknown") { $model } else { "unknown" }
+    $initObj = [ordered]@{
+        status = $Status
+        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        device = $deviceModel
+        apk_launch = [bool]$apkLaunchHost
+        crash_free = [bool]$crashFreeHost
+        commit_sha = $resolvedCommit
+        source_commit = $resolvedCommit
+        artifact_source_commit = $resolvedCommit
+        verifier_commit = $resolvedVerifier
+        device_serial = "[REDACTED]"
+        device_info = [ordered]@{
+            model = $deviceModel
+            sdk = if ($sdk) { $sdk } else { "unknown" }
+            abi = if ($abi) { $abi } else { "unknown" }
+            serial = "[REDACTED]"
+        }
+        artifacts = [ordered]@{
+            deb_sha256 = if (Test-Path -LiteralPath $DebPath) { Get-Sha256Hex -Path $DebPath } else { "unknown" }
+            deb_size = if (Test-Path -LiteralPath $DebPath) { (Get-Item -LiteralPath $DebPath).Length } else { 0 }
+            apk_sha256 = if ($apkSha256) { $apkSha256 } else { "unknown" }
+            apk_size = if ($apkSize) { $apkSize } else { 0 }
+            aab_sha256 = if ($aabSha256) { $aabSha256 } else { "unknown" }
+            aab_size = if ($aabSize) { $aabSize } else { 0 }
+        }
+        verification_details = [ordered]@{
+            package_name = "com.example.flutter_ci_smoke"
+            component = "com.example.flutter_ci_smoke/.MainActivity"
+            initial_pid = if ($initialPid) { $initialPid } else { "" }
+            app_pid = if ($initialPid) { $initialPid } else { "" }
+            same_pid_observations = if ($Status -eq "passed") { 3 } else { 0 }
+            observation_duration_seconds = if ($Status -eq "passed") { 6 } else { 0 }
+            scoped_crash_free = [bool](-not $hasCrash -and $Status -eq "passed")
+        }
+        launch_result = if ($launchPassed) { "passed" } else { "failed" }
+        exit_status = if ($exitStatus -ne $null -and $exitStatus -ne "") { [int]$exitStatus } else { 1 }
+        mode_a_status = if ($modeA) { $modeA } else { "failed" }
+        mode_b_status = if ($modeB) { $modeB } else { "failed" }
+        mode_a = [ordered]@{
+            status = if ($modeA) { $modeA } else { "failed" }
+            apk_build = if ($modeAApkBuild) { $modeAApkBuild } else { "failed" }
+        }
+        mode_b = [ordered]@{
+            status = if ($modeB) { $modeB } else { "failed" }
+            aab_build = if ($modeBAabBuild) { $modeBAabBuild } else { "failed" }
+        }
+    }
+    if ($ErrorMessage) {
+        $initObj["error_message"] = $ErrorMessage
+    }
+    if ($FailedStage) {
+        $initObj["failed_stage"] = $FailedStage
+    }
+    $initObj | ConvertTo-Json -Depth 5 | Set-Content -Path $hostPath -Encoding UTF8
+}
+
+function Write-InitialEvidence {
+    param([string]$Status = "failed", [string]$Path = $EvidencePath, [string]$Commit = "")
+    Write-UnifiedEvidence -Status $Status -Path $Path
+}
+
+Write-UnifiedEvidence -Status "failed" -Path $EvidencePath
+
 function Resolve-Adb {
     param([string]$Value)
     if (Test-Path -LiteralPath $Value) { return (Resolve-Path -LiteralPath $Value).Path }
     $cmd = Get-Command $Value -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
     throw "adb not found. Pass -AdbPath with the full platform-tools adb path."
-}
-
-function Write-InitialEvidence {
-    param([string]$Status = "failed", [string]$Path = "evidence.json")
-    $initObj = [ordered]@{
-        status = $Status
-        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-        apk_launch = $false
-        crash_free = $false
-        commit_sha = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
-        source_commit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
-        artifact_source_commit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
-        verifier_commit = if ($VerifierCommit) { $VerifierCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
-        device_serial = "[REDACTED]"
-        artifacts = [ordered]@{
-            deb_sha256 = if (Test-Path $DebPath) { Get-Sha256Hex -Path $DebPath } else { "unknown" }
-            deb_size = if (Test-Path $DebPath) { (Get-Item $DebPath).Length } else { 0 }
-            apk_sha256 = "unknown"
-            apk_size = 0
-            aab_sha256 = "unknown"
-            aab_size = 0
-        }
-        verification_details = [ordered]@{
-            package_name = "com.example.flutter_ci_smoke"
-            component = "com.example.flutter_ci_smoke/.MainActivity"
-            initial_pid = ""
-            app_pid = ""
-            same_pid_observations = 0
-            observation_duration_seconds = 0
-            scoped_crash_free = $false
-        }
-        launch_result = "failed"
-        exit_status = 1
-        mode_a_status = "failed"
-        mode_b_status = "failed"
-        mode_a = [ordered]@{
-            status = "failed"
-            apk_build = "failed"
-        }
-        mode_b = [ordered]@{
-            status = "failed"
-            aab_build = "failed"
-        }
-    }
-    $initObj | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
 }
 
 $Adb = Resolve-Adb $AdbPath
@@ -115,28 +167,6 @@ function Invoke-AdbAllowFail {
     & $Adb @AdbArgs @CommandArgs
 }
 
-function Get-Sha256Hex {
-    param([Parameter(Mandatory=$true)][string]$Path)
-
-    $cmd = Get-Command Get-FileHash -ErrorAction SilentlyContinue
-    if ($cmd) {
-        return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
-    }
-
-    $stream = [System.IO.File]::OpenRead($Path)
-    try {
-        $sha256 = [System.Security.Cryptography.SHA256]::Create()
-        try {
-            $hash = $sha256.ComputeHash($stream)
-            return -join ($hash | ForEach-Object { $_.ToString("x2") })
-        } finally {
-            if ($sha256) { $sha256.Dispose() }
-        }
-    } finally {
-        $stream.Dispose()
-    }
-}
-
 function Get-DisplayState {
     $display = (& $Adb @AdbArgs shell "dumpsys display 2>/dev/null | grep 'Display State=' | head -1") -join "`n"
     if ($display -match "Display State=([A-Z]+)") { return $Matches[1] }
@@ -177,41 +207,6 @@ function Assert-DeviceUnlocked {
         throw "Tablet is still on the lock screen. Unlock it before running device smoke; secure lock screens block ADB text injection into Termux."
     }
 }
-
-function Write-InitialEvidence {
-    param([string]$Path, [string]$Commit)
-    $hostPath = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path (Get-Location) $Path }
-    $initObj = [ordered]@{
-        status = "failed"
-        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-        device = "unknown"
-        apk_launch = $false
-        crash_free = $false
-        commit_sha = if ($Commit) { $Commit } else { "unknown" }
-        device_serial = "unknown"
-        device_info = [ordered]@{
-            model = "unknown"
-            sdk = "unknown"
-            abi = "unknown"
-            serial = "unknown"
-        }
-        launch_result = "failed"
-        exit_status = 1
-        mode_a_status = "failed"
-        mode_b_status = "failed"
-        mode_a = [ordered]@{
-            status = "failed"
-            apk_build = "failed"
-        }
-        mode_b = [ordered]@{
-            status = "failed"
-            aab_build = "failed"
-        }
-    }
-    $initObj | ConvertTo-Json -Depth 5 | Set-Content -Path $hostPath -Encoding UTF8
-}
-
-Write-InitialEvidence -Path $EvidencePath -Commit $CommitSha
 
 $KeepAwakeEnabled = $false
 
@@ -542,6 +537,11 @@ if (-not $crashFreeHost) {
 }
 
 Write-Host "Termux Flutter smoke passed."
+} catch {
+    $err = $_.Exception.Message
+    Write-Host "Smoke execution failed: $err" -ForegroundColor Red
+    Write-UnifiedEvidence -Status "failed" -Path $EvidencePath -ErrorMessage $err
+    throw $_
 } finally {
     if ($KeepAwakeEnabled) {
         Write-Host "Restoring tablet stay-awake setting"

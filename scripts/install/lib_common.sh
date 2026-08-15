@@ -113,3 +113,110 @@ preflight_check() {
 
     record_stage preflight success
 }
+
+# Preimage & Absent Tracking Utilities
+record_absent_preimage() {
+    local target="$1"
+    local absent_manifest="${ABSENT_MANIFEST:-${WORK_DIR:-.}/absent_preimages.txt}"
+    local target_dir="$(dirname "$absent_manifest")"
+    if [ -n "$target_dir" ] && [ "$target_dir" != "." ]; then
+        mkdir -p "$target_dir"
+    fi
+    if ! grep -Fxq "$target" "$absent_manifest" 2>/dev/null; then
+        echo "$target" >> "$absent_manifest"
+    fi
+}
+
+cleanup_absent_preimages() {
+    local absent_manifest="${ABSENT_MANIFEST:-${WORK_DIR:-.}/absent_preimages.txt}"
+    if [ -f "$absent_manifest" ]; then
+        echo -e "${YELLOW}[ROLLBACK] Removing newly created absent files...${NC}"
+        while IFS= read -r target || [ -n "$target" ]; do
+            if [ -n "$target" ] && [ -e "$target" -o -L "$target" ]; then
+                rm -f "$target" 2>/dev/null || rm -rf "$target" 2>/dev/null || true
+                echo "  ✓ Removed created artifact: $target"
+                # Prune empty parent directory if inside ANDROID_HOME, WORK_DIR, or PREFIX
+                local parent="$(dirname "$target")"
+                while [ -n "$parent" ] && [ "$parent" != "/" ] && [ "$parent" != "." ] && [ "$parent" != "${ANDROID_HOME:-}" ] && [ "$parent" != "${PREFIX:-}" ] && [ "$parent" != "${WORK_DIR:-}" ] && [ -d "$parent" ]; do
+                    if [ -z "$(ls -A "$parent" 2>/dev/null)" ]; then
+                        rmdir "$parent" 2>/dev/null || break
+                        parent="$(dirname "$parent")"
+                    else
+                        break
+                    fi
+                done
+            fi
+        done < "$absent_manifest"
+        rm -f "$absent_manifest" 2>/dev/null || true
+    fi
+}
+
+# Global installer options with defaults
+export OPT_YES=false
+export OPT_NON_INTERACTIVE=false
+export OPT_UPGRADE=false
+export OPT_SKIP_SMOKE=false
+
+parse_installer_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --yes|-y)
+                export OPT_YES=true
+                export NON_INTERACTIVE=true
+                shift
+                ;;
+            --non-interactive)
+                export OPT_NON_INTERACTIVE=true
+                export NON_INTERACTIVE=true
+                shift
+                ;;
+            --upgrade)
+                export OPT_UPGRADE=true
+                export DO_UPGRADE=true
+                shift
+                ;;
+            --skip-smoke)
+                export OPT_SKIP_SMOKE=true
+                shift
+                ;;
+            --help|-h)
+                echo "Usage: $0 [--yes|-y] [--non-interactive] [--upgrade] [--skip-smoke] [--help|-h] [--version]"
+                echo "  --yes, -y          Automatically confirm prompts and accept licenses"
+                echo "  --non-interactive  Run non-interactively"
+                echo "  --upgrade          Upgrade existing packages"
+                echo "  --skip-smoke       Skip smoke test verification"
+                echo "  --version          Print version information"
+                exit 0
+                ;;
+            --version)
+                echo "Flutter Termux Installer v${FLUTTER_VERSION} (${RELEASE_TAG})"
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                echo "Run '$0 --help' for usage." >&2
+                shift
+                ;;
+        esac
+    done
+}
+
+handle_android_licenses() {
+    local auto_accept="${1:-${OPT_YES:-false}}"
+    local non_interactive="${2:-${OPT_NON_INTERACTIVE:-false}}"
+
+    if [ "$auto_accept" = "true" ] || [ "${NON_INTERACTIVE:-false}" = "true" ]; then
+        echo -e "${BLUE}Auto-accepting Android SDK licenses...${NC}"
+        if command -v flutter >/dev/null 2>&1; then
+            yes 2>/dev/null | flutter doctor --android-licenses 2>/dev/null || true
+        fi
+    elif [ -t 0 ] && [ "$non_interactive" != "true" ]; then
+        echo -e "${BLUE}Accepting Android SDK licenses...${NC}"
+        if command -v flutter >/dev/null 2>&1; then
+            flutter doctor --android-licenses || true
+        fi
+    else
+        echo -e "${YELLOW}Non-interactive mode without --yes: skipping interactive license agreement.${NC}"
+        echo -e "${YELLOW}Run 'flutter doctor --android-licenses' manually if needed.${NC}"
+    fi
+}

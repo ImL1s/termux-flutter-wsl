@@ -209,14 +209,24 @@ This workflow is safe to run on GitHub-hosted runners because it only reads publ
 - Device smoke does not run untrusted PR code automatically.
 - Release publishing requires `contents: write` and only happens from the manual self-hosted build workflow when `publish_release=true`.
 
+## Branch Protection and Repository Governance
+
+The repository governance rules for the `master` branch are codified in `.github/rulesets/master_protection_ruleset.json`:
+
+- **Pull Request Requirements**: Mandatory PR review and thread resolution before merge.
+- **Status Checks**: Strict status checks require `ci.yml` (Python/Shell/Actionlint sanity, contract validation, version drift checks) to pass cleanly before merging.
+- **History & Integrity**: Linear git history is enforced; force pushes (`non_fast_forward`) and branch deletion are blocked.
+- **Repository Hygiene**: Automated pre-merge checks prevent scratch artifacts, test caches, backups, and stage receipts from leaking into git tracking.
+
 ## Local equivalents
 
 Fast local checks:
 
 ```bash
-python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py
-bash -n scripts/install/post_install.sh
+python -m py_compile build.py package.py sysroot.py utils.py scripts/ci/check_repo.py scripts/ci/check_version_drift.py
+bash -n install_flutter_complete.sh scripts/install/*.sh scripts/test/gh_e2e_test.sh scripts/device/termux_smoke.sh
 python scripts/ci/check_repo.py
+python scripts/ci/check_version_drift.py
 git diff --check
 ```
 

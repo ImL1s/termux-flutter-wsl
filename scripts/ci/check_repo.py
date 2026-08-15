@@ -292,6 +292,35 @@ def check_test_modules_and_ci_steps() -> None:
             fail(f".github/workflows/ci.yml missing job step for {req_tool}")
 
 
+def check_repository_hygiene() -> None:
+    """Ensure no scratch artifacts, test caches, backups, or receipts leak into the repository."""
+    import subprocess
+    gitignore = ROOT / ".gitignore"
+    if not gitignore.is_file():
+        fail("Missing .gitignore file")
+        return
+    gi_text = gitignore.read_text(encoding="utf-8")
+    for required_pattern in ("scratch/", ".pytest_cache/", "*.bak", "*.receipt.json"):
+        if required_pattern not in gi_text:
+            fail(f".gitignore missing essential hygiene pattern: {required_pattern}")
+
+    # Check git tracked files for scratch or hygiene leaks
+    try:
+        res = subprocess.run(
+            ["git", "ls-files", "scratch/"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            tracked_scratch = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+            if tracked_scratch:
+                fail(f"Tracked files found under scratch/ directory: {tracked_scratch[:5]}")
+    except Exception:
+        pass
+
+
 def main() -> int:
     check_ci_layout()
     check_doc_layout()
@@ -305,6 +334,7 @@ def main() -> int:
     check_sysroot_lock_contract()
     check_script_headers()
     check_test_modules_and_ci_steps()
+    check_repository_hygiene()
 
     if ERRORS:
         print("Repository sanity check failed:", file=sys.stderr)

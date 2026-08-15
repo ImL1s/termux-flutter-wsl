@@ -11,6 +11,7 @@ import time
 import json
 import utils
 import shutil
+import hashlib
 import tarfile
 import tomllib
 import platform
@@ -27,6 +28,16 @@ def windows_to_wsl_path(win_path: str) -> str:
     if not win_path:
         return win_path
 
+    clean_path = str(win_path).replace('\\', '/')
+    if clean_path.startswith('/mnt/'):
+        return clean_path
+
+    match = re.match(r'^([a-zA-Z]):[/\\]?(.*)', clean_path)
+    if match:
+        drive = match.group(1).lower()
+        rest = match.group(2)
+        return f'/mnt/{drive}/{rest}' if rest else f'/mnt/{drive}'
+
     if platform.system() == 'Linux':
         try:
             res = subprocess.run(
@@ -40,16 +51,6 @@ def windows_to_wsl_path(win_path: str) -> str:
         except FileNotFoundError:
             pass
 
-    clean_path = str(win_path).replace('\\', '/')
-    match = re.match(r'^([a-zA-Z]):[/\\]?(.*)', clean_path)
-    if match:
-        drive = match.group(1).lower()
-        rest = match.group(2)
-        return f'/mnt/{drive}/{rest}' if rest else f'/mnt/{drive}'
-
-    if clean_path.startswith('/mnt/'):
-        return clean_path
-
     return clean_path
 
 
@@ -57,6 +58,17 @@ def wsl_to_windows_path(wsl_path: str) -> str:
     """Convert WSL path (e.g. /mnt/c/foo/bar) to Windows path (C:\\foo\\bar)."""
     if not wsl_path:
         return wsl_path
+
+    clean_path = str(wsl_path).replace('\\', '/')
+    if re.match(r'^[a-zA-Z]:', clean_path):
+        return str(wsl_path).replace('/', '\\')
+
+    match = re.match(r'^/mnt/([a-zA-Z])(?:/(.*))?$', clean_path)
+    if match:
+        drive = match.group(1).upper()
+        rest = match.group(2) or ''
+        win_rest = rest.replace('/', '\\')
+        return f'{drive}:\\{win_rest}' if win_rest else f'{drive}:\\'
 
     if platform.system() == 'Linux':
         try:
@@ -71,16 +83,7 @@ def wsl_to_windows_path(wsl_path: str) -> str:
         except FileNotFoundError:
             pass
 
-    clean_path = str(wsl_path).replace('\\', '/')
-    match = re.match(r'^/mnt/([a-zA-Z])(?:/(.*))?$', clean_path)
-    if match:
-        drive = match.group(1).upper()
-        rest = match.group(2) or ''
-        win_rest = rest.replace('/', '\\')
-        return f'{drive}:\\{win_rest}' if win_rest else f'{drive}:\\'
-
-    if re.match(r'^[a-zA-Z]:', clean_path):
-        return str(wsl_path).replace('/', '\\')
+    return str(wsl_path).replace('/', '\\')
 
     return clean_path
 
@@ -262,6 +265,9 @@ class Build:
         self.ndk = ndk
         self.tag = tag
         self.release_tag = release_tag
+        revision = str(cfg.get('flutter', {}).get('revision', '0'))
+        self.revision = revision
+        self.package_version = f"{tag}-{revision}" if revision != '0' else tag
         self.dart_version = dart_version
         self.sha256 = sha256
         self.asset_name = asset_name
@@ -726,9 +732,9 @@ class Build:
                 except Exception as e:
                     logger.warning(f'Failed to checkout tag {tag} in existing directory {out_path}: {e}')
 
-        staging_path = out_path.parent / f'{out_path.name}.staging'
-        if staging_path.exists():
-            shutil.rmtree(staging_path)
+        import uuid
+        staging_uuid = uuid.uuid4().hex
+        staging_path = out_path.parent / f'{out_path.name}.staging_{staging_uuid}'
 
         logger.info(f'Cloning flutter {tag} from {url} to {staging_path}...')
         try:
@@ -739,24 +745,92 @@ class Build:
                 branch=tag)
         except git.exc.GitCommandError as e:
             if staging_path.exists():
-                shutil.rmtree(staging_path)
+                shutil.rmtree(staging_path, ignore_errors=True)
             raise RuntimeError(f'Failed to clone flutter repo:\n' + '\n'.join(progress.error_lines)) from e
 
         if utils.flutter_tag(str(staging_path)) != tag:
             if staging_path.exists():
-                shutil.rmtree(staging_path)
+                shutil.rmtree(staging_path, ignore_errors=True)
             raise RuntimeError(f'Staging checkout does not match tag {tag}')
 
+        # Transactional Activation with Rollback
+        backup_path = None
         if out_path.is_dir():
-            import time
-            timestamp = int(time.time())
-            backup_path = out_path.parent / f'{out_path.name}.backup.{timestamp}'
+            backup_path = out_path.parent / f'{out_path.name}.backup_{staging_uuid}'
             logger.info(f'Moving existing directory {out_path} to {backup_path}...')
-            os.rename(out_path, backup_path)
+            try:
+                os.rename(out_path, backup_path)
+            except Exception as e:
+                if staging_path.exists():
+                    shutil.rmtree(staging_path, ignore_errors=True)
+                raise RuntimeError(f'Failed to backup existing directory {out_path}: {e}') from e
 
-        logger.info(f'Moving staging directory {staging_path} to {out_path}...')
-        os.rename(staging_path, out_path)
-        logger.success(f'Successfully cloned flutter {tag} to {out_path}')
+        logger.info(f'Activating staging directory {staging_path} to {out_path}...')
+        try:
+            os.rename(staging_path, out_path)
+        except Exception as e:
+            logger.error(f'Failed to activate staging directory {staging_path} -> {out_path}: {e}')
+            if backup_path and backup_path.exists():
+                logger.info(f'Rolling back: restoring {backup_path} to {out_path}...')
+                try:
+                    os.rename(backup_path, out_path)
+                except Exception as r_err:
+                    logger.critical(f'FATAL: Failed to restore backup checkout from {backup_path}: {r_err}')
+            if staging_path.exists():
+                shutil.rmtree(staging_path, ignore_errors=True)
+            raise RuntimeError(f'Transactional activation failed for {out_path}: {e}') from e
+
+        if backup_path and backup_path.exists():
+            logger.info(f'Cleaning up superseded backup directory {backup_path}...')
+            shutil.rmtree(backup_path, ignore_errors=True)
+
+        logger.success(f'Successfully cloned and activated flutter {tag} at {out_path}')
+
+    def _stage_receipt_path(self, out_dir: Path) -> Path:
+        return Path(out_dir) / '.stage.receipt.json'
+
+    def save_stage_receipt(self, out_dir: Path, artifacts: list[Path]):
+        out_dir = Path(out_dir)
+        receipt_path = self._stage_receipt_path(out_dir)
+        artifact_hashes = {}
+        for art in artifacts:
+            art = Path(art)
+            if art.exists():
+                if art.is_file():
+                    h = hashlib.sha256(art.read_bytes()).hexdigest()
+                    artifact_hashes[art.name] = {'size': art.stat().st_size, 'sha256': h}
+                elif art.is_dir():
+                    artifact_hashes[art.name] = {'type': 'directory', 'exists': True}
+        receipt_data = {
+            'timestamp': time.time(),
+            'artifacts': artifact_hashes,
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt_data, indent=2), encoding='utf-8')
+
+    def verify_stage_receipt(self, out_dir: Path, artifacts: list[Path]) -> bool:
+        out_dir = Path(out_dir)
+        receipt_path = self._stage_receipt_path(out_dir)
+        if not receipt_path.exists():
+            return True
+        try:
+            data = json.loads(receipt_path.read_text(encoding='utf-8'))
+            recorded = data.get('artifacts', {})
+            for art in artifacts:
+                art = Path(art)
+                if not art.exists():
+                    return False
+                if art.is_file() and art.name in recorded:
+                    rec = recorded[art.name]
+                    if rec.get('size') is not None and rec.get('size') != art.stat().st_size:
+                        return False
+                    if rec.get('sha256') is not None:
+                        h = hashlib.sha256(art.read_bytes()).hexdigest()
+                        if rec.get('sha256') != h:
+                            return False
+            return True
+        except Exception:
+            return False
 
     def _sync_receipt_path(self, root: str = None) -> Path:
         src = Path(root or self.root)
@@ -1316,13 +1390,15 @@ class Build:
         root = root or self.root
         output = output or self.output(arch)
 
-        pkg = Package(root=root, arch=arch, tag=self.tag, release_tag=self.release_tag, **conf)
+        pkg = Package(root=root, arch=arch, tag=self.tag, release_tag=self.release_tag, revision=self.revision, **conf)
         pkg.debuild(output=output)
         validate_deb_artifacts(output)
 
     def output(self, arch: str):
+        rev = getattr(self, 'revision', '0')
+        pkg_ver = f"{self.tag}-{rev}" if rev and str(rev) != '0' else self.tag
         if self.release.is_dir():
-            name = f'flutter_{self.tag}_{utils.termux_arch(arch)}.deb'
+            name = f'flutter_{pkg_ver}_{utils.termux_arch(arch)}.deb'
             return self.release/name
         else:
             return self.release
@@ -1342,37 +1418,24 @@ class Build:
         """
         import time
         start_time = time.time()
-        logger.info('=== Starting complete Flutter Termux build ===')
-
-        rebuilt_any_artifact = [False]
-
-        def run_step(step, total, name, func, **kwargs):
-            logger.info(f'[{step}/{total}] {name}...')
-            t0 = time.time()
-            func(**kwargs)
-            logger.info(f'✓ {name} completed in {time.time() - t0:.1f}s')
-
-        def run_step_conditional(step, total, name, outputs, func, **kwargs):
-            if not force and outputs:
-                all_exist = True
-                for out_item in outputs:
-                    if not Path(out_item).exists():
-                        all_exist = False
-                        break
-                if all_exist:
-                    logger.info(f'[{step}/{total}] {name} output already exists, skipping (use --force to rebuild).')
-                    return
-            rebuilt_any_artifact[0] = True
-            run_step(step, total, name, func, **kwargs)
+        logger.info(f'=== Starting Full Flutter Termux Build (arch={arch}) ===')
 
         total = 14
+        rebuilt_any_artifact = [False]
+
+        def run_step(step_num, total_steps, name, func, *args, **kwargs):
+            logger.info(f'[{step_num}/{total_steps}] {name}...')
+            t0 = time.time()
+            try:
+                func(*args, **kwargs)
+                logger.info(f'✓ {name} completed in {time.time() - t0:.1f}s')
+            except Exception as e:
+                logger.error(f'✗ {name} failed: {e}')
+                raise
 
         # Step 1: preflight
-        logger.info(f'[1/{total}] preflight...')
-        t0 = time.time()
         if not self.preflight():
-            raise RuntimeError("Preflight checks failed")
-        logger.info(f'✓ preflight completed in {time.time() - t0:.1f}s')
+            raise RuntimeError("Preflight verification checks failed. Resolve issues above before building.")
 
         # Step 2: clone
         run_step(2, total, 'clone', self.clone, force=force)
@@ -1419,7 +1482,7 @@ class Build:
             Path(out_debug) / 'gen/const_finder.dart.snapshot',
             Path(out_debug) / 'gen/dart-pkg/sky_engine',
         ]
-        if not force and all(p.exists() for p in debug_outputs):
+        if not force and all(p.exists() for p in debug_outputs) and (not self._stage_receipt_path(out_debug).exists() or self.verify_stage_receipt(out_debug, debug_outputs)):
             logger.info(f'[6/{total}] debug tools output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
@@ -1430,6 +1493,7 @@ class Build:
             self.build_dart(arch=arch, mode='debug', jobs=jobs)
             self.build_impellerc(arch=arch, mode='debug', jobs=jobs)
             self.build_const_finder(arch=arch, mode='debug', jobs=jobs)
+            self.save_stage_receipt(out_debug, debug_outputs)
             logger.info(f'✓ debug tools completed in {time.time() - t0:.1f}s')
 
         # Step 7: configure release
@@ -1439,17 +1503,18 @@ class Build:
             Path(out_release) / 'gen_snapshot',
             Path(out_release) / 'dartdev_aot.dart.snapshot',
         ]
-        if not force and all(p.exists() for p in release_outputs):
+        if not force and all(p.exists() for p in release_outputs) and (not self._stage_receipt_path(out_release).exists() or self.verify_stage_receipt(out_release, release_outputs)):
             logger.info(f'[7/{total}] configure release skipped (output exists).')
         else:
             run_step(7, total, 'configure release', self.configure, arch=arch, mode='release')
 
         # Step 8: build release
-        if not force and all(p.exists() for p in release_outputs):
+        if not force and all(p.exists() for p in release_outputs) and (not self._stage_receipt_path(out_release).exists() or self.verify_stage_receipt(out_release, release_outputs)):
             logger.info(f'[8/{total}] build release output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
             run_step(8, total, 'build release', self.build, arch=arch, mode='release', jobs=jobs)
+            self.save_stage_receipt(out_release, release_outputs)
 
         # Step 9: configure profile
         out_profile = utils.target_output(str(self.root), arch, 'profile')
@@ -1457,21 +1522,23 @@ class Build:
             Path(out_profile) / 'libflutter_linux_gtk.so',
             Path(out_profile) / 'gen_snapshot',
         ]
-        if not force and all(p.exists() for p in profile_outputs):
+        if not force and all(p.exists() for p in profile_outputs) and (not self._stage_receipt_path(out_profile).exists() or self.verify_stage_receipt(out_profile, profile_outputs)):
             logger.info(f'[9/{total}] configure profile skipped (output exists).')
         else:
             run_step(9, total, 'configure profile', self.configure, arch=arch, mode='profile')
 
         # Step 10: build profile
-        if not force and all(p.exists() for p in profile_outputs):
+        if not force and all(p.exists() for p in profile_outputs) and (not self._stage_receipt_path(out_profile).exists() or self.verify_stage_receipt(out_profile, profile_outputs)):
             logger.info(f'[10/{total}] build profile output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
             run_step(10, total, 'build profile', self.build, arch=arch, mode='profile', jobs=jobs)
+            self.save_stage_receipt(out_profile, profile_outputs)
 
         # Step 11: configure and build android gen_snapshot release
-        android_rel_gen = self.root / 'engine/src/out/android_release_arm64/clang_arm64/gen_snapshot'
-        if not force and android_rel_gen.exists():
+        android_rel_dir = self.root / 'engine/src/out/android_release_arm64'
+        android_rel_gen = android_rel_dir / 'clang_arm64/gen_snapshot'
+        if not force and android_rel_gen.exists() and (not self._stage_receipt_path(android_rel_dir).exists() or self.verify_stage_receipt(android_rel_dir, [android_rel_gen])):
             logger.info(f'[11/{total}] android gen_snapshot release output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
@@ -1479,13 +1546,15 @@ class Build:
             t0 = time.time()
             self.configure_android(arch='arm64', mode='release')
             self.build_android_gen_snapshot(arch='arm64', mode='release', jobs=jobs)
+            self.save_stage_receipt(android_rel_dir, [android_rel_gen])
             logger.info(f'✓ android gen_snapshot release completed in {time.time() - t0:.1f}s')
 
         # Step 12: configure and build android gen_snapshot profile
-        android_prof_gen1 = self.root / 'engine/src/out/android_profile_arm64/exe.stripped/gen_snapshot'
-        android_prof_gen2 = self.root / 'engine/src/out/android_profile_arm64/clang_arm64/gen_snapshot'
+        android_prof_dir = self.root / 'engine/src/out/android_profile_arm64'
+        android_prof_gen1 = android_prof_dir / 'exe.stripped/gen_snapshot'
+        android_prof_gen2 = android_prof_dir / 'clang_arm64/gen_snapshot'
         android_prof_gen = android_prof_gen1 if android_prof_gen1.exists() else android_prof_gen2
-        if not force and android_prof_gen.exists():
+        if not force and android_prof_gen.exists() and (not self._stage_receipt_path(android_prof_dir).exists() or self.verify_stage_receipt(android_prof_dir, [android_prof_gen])):
             logger.info(f'[12/{total}] android gen_snapshot profile output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
@@ -1493,6 +1562,7 @@ class Build:
             t0 = time.time()
             self.configure_android(arch='arm64', mode='profile')
             self.build_android_gen_snapshot(arch='arm64', mode='profile', jobs=jobs)
+            self.save_stage_receipt(android_prof_dir, [android_prof_gen])
             logger.info(f'✓ android gen_snapshot profile completed in {time.time() - t0:.1f}s')
 
         # Step 13 & 14: debuild
@@ -1521,6 +1591,7 @@ class Build:
 
         if deb_file.exists():
             deb_mtime = deb_file.stat().st_mtime
+            # Re-collect all artifacts for staleness check
             all_tracked_inputs = debug_outputs + release_outputs + profile_outputs + [android_rel_gen, android_prof_gen] + list(package_inputs)
             for artifact in all_tracked_inputs:
                 if artifact.exists() and artifact.stat().st_mtime > deb_mtime:
@@ -1532,8 +1603,6 @@ class Build:
             run_step(14, total, 'debuild', self.debuild, arch=arch, output=self.output(arch))
         else:
             logger.info(f'[14/{total}] debuild output already up-to-date, skipping (use --force to rebuild).')
-
-
 
         logger.info(f'=== Build complete in {time.time() - start_time:.1f}s ===')
         logger.info(f'Output: {self.output(arch)}')

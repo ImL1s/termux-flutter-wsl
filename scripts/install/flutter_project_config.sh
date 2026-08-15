@@ -4,6 +4,11 @@
 
 set -e
 
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: python3 is required for flutter_project_config.sh (AST scope parsing and state serialization)." >&2
+    exit 1
+fi
+
 ROLLBACK=false
 SPECIFIED_MODE=""
 CUSTOM_AAPT2=""
@@ -117,6 +122,13 @@ TRACKED_CREATED=()
 MODIFIED_FILES=()
 CREATED_FILES=()
 
+STATE_FILE_PREEXISTED=false
+if [ -f "$STATE_FILE" ]; then
+    STATE_FILE_PREEXISTED=true
+    cp "$STATE_FILE" "${STATE_FILE}.bak"
+    TRACKED_BACKUPS+=("${STATE_FILE}.bak")
+fi
+
 cleanup_on_error() {
     local exit_code=$?
     if [ "$TRANSACTION_SUCCESS" != "true" ]; then
@@ -131,7 +143,9 @@ cleanup_on_error() {
         for created in "${TRACKED_CREATED[@]}"; do
             rm -f "$created" 2>/dev/null || true
         done
-        rm -f "$STATE_FILE" 2>/dev/null || true
+        if [ "$STATE_FILE_PREEXISTED" != "true" ]; then
+            rm -f "$STATE_FILE" 2>/dev/null || true
+        fi
         echo "Transactional rollback complete. Project restored." >&2
     fi
 }
@@ -448,24 +462,40 @@ if not target_sdk_found and default_config_block is not None:
 target_ndk_block = dc_ndk_block if dc_ndk_block is not None else root_ndk_block
 abi_line = '            abiFilters += listOf("arm64-v8a")' if is_kts else "            abiFilters 'arm64-v8a'"
 
-arm64_already_present = False
 if target_ndk_block is not None:
-    ndk_content = text[target_ndk_block[0]:target_ndk_block[1]]
-    uncommented_ndk = re.sub(r'//.*', '', ndk_content)
-    uncommented_ndk = re.sub(r'/\*.*?\*/', '', uncommented_ndk, flags=re.DOTALL)
-    if 'arm64-v8a' in uncommented_ndk:
-        arm64_already_present = True
+    s_idx, e_idx = target_ndk_block
+    ndk_inner = text[s_idx:e_idx+1]
 
-if arm64_already_present:
-    print(f"arm64-v8a ABI filter already present in {gradle_file}")
-elif target_ndk_block is not None:
-    open_brace_pos = target_ndk_block[0]
-    nl_pos = text.find('\n', open_brace_pos)
-    if nl_pos != -1:
-        text = text[:nl_pos+1] + abi_line + '\n' + text[nl_pos+1:]
+    abi_pattern_groovy = re.compile(r'^[ \t]*abiFilters(?:\s*\(|\s+|=|\.add|\+=)[^\n]*$', re.MULTILINE)
+    abi_pattern_kotlin = re.compile(r'^[ \t]*abiFilters(?:\s*\+=|\.addAll|\.add|\s*=)[^\n]*$', re.MULTILINE)
+    active_pattern = abi_pattern_kotlin if is_kts else abi_pattern_groovy
+
+    matches = list(active_pattern.finditer(ndk_inner))
+    if matches:
+        matched_texts = [m.group(0).strip() for m in matches]
+        exact_target = 'abiFilters += listOf("arm64-v8a")' if is_kts else "abiFilters 'arm64-v8a'"
+        is_exact = (len(matches) == 1 and (matched_texts[0] == exact_target or (not is_kts and matched_texts[0] == "abiFilters('arm64-v8a')")))
+        if is_exact:
+            print(f"arm64-v8a ABI filter already canonically present in {gradle_file}")
+        else:
+            # Replace all existing abiFilters lines in ndk block with the single canonical line
+            new_ndk_inner = active_pattern.sub('', ndk_inner)
+            open_pos = new_ndk_inner.find('{')
+            nl_pos = new_ndk_inner.find('\n', open_pos)
+            if nl_pos != -1:
+                new_ndk_inner = new_ndk_inner[:nl_pos+1] + abi_line + '\n' + new_ndk_inner[nl_pos+1:]
+            else:
+                new_ndk_inner = new_ndk_inner[:open_pos+1] + '\n' + abi_line + '\n' + new_ndk_inner[open_pos+1:]
+            text = text[:s_idx] + new_ndk_inner + text[e_idx+1:]
+            print(f"Canonicalized abiFilters strictly to arm64-v8a in {gradle_file}")
     else:
-        text = text[:open_brace_pos+1] + '\n' + abi_line + '\n' + text[open_brace_pos+1:]
-    print(f"Added abiFilters to existing ndk block in {gradle_file}")
+        open_brace_pos = target_ndk_block[0]
+        nl_pos = text.find('\n', open_brace_pos)
+        if nl_pos != -1:
+            text = text[:nl_pos+1] + abi_line + '\n' + text[nl_pos+1:]
+        else:
+            text = text[:open_brace_pos+1] + '\n' + abi_line + '\n' + text[open_brace_pos+1:]
+        print(f"Added abiFilters to existing ndk block in {gradle_file}")
 else:
     if default_config_block is not None:
         open_brace_pos = default_config_block[0]
@@ -485,7 +515,7 @@ else:
             text = text[:nl_pos+1] + block_to_inject + text[nl_pos+1:]
         else:
             text = text[:open_brace_pos+1] + '\n' + block_to_inject + text[open_brace_pos+1:]
-        print(f"Added ndk block with abiFilters to {gradle_file}")
+        print(f"Added defaultConfig and ndk block with canonical arm64-v8a abiFilters to {gradle_file}")
 
 with open(gradle_file, 'w', encoding='utf-8', newline='\n') as f:
     f.write(text)
@@ -499,18 +529,33 @@ fi
 
 # Write state file
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-MOD_FILES_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${MODIFIED_FILES[@]}")
-CREATED_FILES_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1:]))" "${CREATED_FILES[@]}")
-AAPT2_PATH_JSON=$(python3 -c "import json, sys; print(json.dumps(sys.argv[1]))" "$TERMUX_AAPT2")
-cat > "$STATE_FILE" << EOF
-{
+python3 - "$STATE_FILE" "$TIMESTAMP" "$TERMUX_AAPT2" "${#MODIFIED_FILES[@]}" "${MODIFIED_FILES[@]}" "${CREATED_FILES[@]}" << 'PYSTATE'
+import sys, json
+
+state_file = sys.argv[1]
+timestamp = sys.argv[2]
+aapt2_path = sys.argv[3]
+num_mod = int(sys.argv[4])
+rest = sys.argv[5:]
+mod_files = rest[:num_mod]
+created_files = rest[num_mod:]
+
+data = {
   "status": "configured",
-  "timestamp": "$TIMESTAMP",
-  "modified_files": $MOD_FILES_JSON,
-  "created_files": $CREATED_FILES_JSON,
-  "aapt2_path": $AAPT2_PATH_JSON
+  "timestamp": timestamp,
+  "modified_files": mod_files,
+  "created_files": created_files,
+  "aapt2_path": aapt2_path
 }
-EOF
+
+with open(state_file, 'w', encoding='utf-8', newline='\n') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+PYSTATE
+
+if [ -f "${STATE_FILE}.bak" ]; then
+    rm -f "${STATE_FILE}.bak" 2>/dev/null || true
+fi
 
 TRANSACTION_SUCCESS=true
 echo "Done. $PROJ is configured for Termux."

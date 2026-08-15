@@ -1,6 +1,7 @@
 [flutter]
 tag = '3.44.2'
 release_tag = 'v3.44.2-termux'
+revision = '0'
 dart_version = '3.12.1'
 engine_commit = 'b28d002a246838a11306bd68fb50b0f7e4fde09e'
 sha256 = 'f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e'
