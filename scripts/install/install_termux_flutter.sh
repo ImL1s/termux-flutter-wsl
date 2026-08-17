@@ -5,7 +5,7 @@
 #
 # Usage: curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
 #
-# 目標狀態 (v3.44.0):
+# 目標狀態 (v3.44.2):
 #   - flutter doctor / create / build / run: 發布前需在乾淨 Termux 環境重新驗證
 #
 
@@ -42,7 +42,7 @@ fi
 
 echo -e "${GREEN}[2/${TOTAL_STEPS}]${NC} Installing dependencies..."
 pkg install -y x11-repo
-pkg install -y openjdk-21 git wget curl unzip android-tools
+pkg install -y openjdk-21 openjdk-17 git wget curl unzip android-tools
 
 echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} Downloading Flutter SDK..."
 
@@ -64,13 +64,13 @@ apt-get install -f -y "$FLUTTER_DEB" || { record_stage package failed; exit 40; 
 record_stage package success
 
 echo -e "${GREEN}[5/${TOTAL_STEPS}]${NC} Running post-install configuration..."
-bash $PREFIX/share/flutter/post_install.sh || { record_stage post-install failed; exit 50; }
+bash "$PREFIX/share/flutter/post_install.sh" || { record_stage post-install failed; exit 50; }
 record_stage post-install success
 
 echo -e "${GREEN}[6/${TOTAL_STEPS}]${NC} Configuring environment..."
 
 # 載入環境變數
-source $PREFIX/etc/profile.d/flutter.sh 2>/dev/null || true
+source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
 
 # 加入 .bashrc（如果還沒加入）
 if ! grep -q "flutter.sh" ~/.bashrc 2>/dev/null; then

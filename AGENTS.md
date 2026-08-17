@@ -67,7 +67,7 @@ Self-hosted workflows are manual-only. Do not run expensive full build or tablet
 1. **`ninja flutter` does NOT build `dart` binary**. Must run `build_dart()` separately.
 2. **Only ARM64 APK gen_snapshot works**. 32-bit ARM fails (BoringSSL), x64 fails (sysroot mismatch).
 3. **Linux target builds all three modes** (debug, release, profile). `build_all()` runs configure+build for each mode.
-4. **`package.yaml` uses `eval()`** for variable resolution — be careful with template strings.
+4. **`package.yaml` uses `safe_eval()`** for variable resolution — constrained evaluation with recursion limits, be careful with template strings.
 5. **`debuild()` auto-syncs** from Windows to WSL via `[sync]` config before packaging.
 6. **GN flag `is_termux=true`** activates custom BUILD.gn rules that add `-llog -lm` for Android logging symbols.
 7. **`utils.py __MODE__` must be `('debug', 'release', 'profile')`** — debug first! `Output.any` picks the first existing directory. If release comes first, `output.any` points to release (product mode) dart-sdk snapshots, breaking the entire Flutter CLI.

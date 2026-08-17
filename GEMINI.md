@@ -90,7 +90,7 @@ Supporting scripts:
 
 4. **Sysroot = Termux apt packages**: `sysroot.py` downloads real `.deb` packages from Termux repos and extracts them into a sysroot directory with a symlink `usr/` → `data/data/com.termux/files/usr`.
 
-5. **`package.yaml` is declarative**: Describes source→output mappings with variable substitution (`$root`, `$any`, `$eng`). The `Package` class evaluates these with `eval()` and generates tar entries.
+5. **`package.yaml` is declarative**: Describes source→output mappings with variable substitution (`$root`, `$any`, `$eng`). The `Package` class evaluates these with `safe_eval()` (constrained, recursion-limited) and generates tar entries.
 
 6. **Windows↔WSL sync**: `build.toml [sync]` section defines paths to copy from Windows mount to WSL native fs before `debuild`, preventing stale-file issues.
 
