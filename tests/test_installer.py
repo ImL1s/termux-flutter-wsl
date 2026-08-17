@@ -397,6 +397,7 @@ def test_profile_script_safe_under_set_u_and_exports_java_home(tmp_path):
 
     test_script = f"""set -euo pipefail
 export PREFIX="{fake_prefix_bash_path}"
+unset JAVA_HOME
 source "{profile_bash_path}"
 echo "JAVA_HOME=$JAVA_HOME"
 """
