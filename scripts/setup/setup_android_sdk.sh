@@ -57,7 +57,7 @@ TOTAL_STEPS=7
 # ========================================
 echo -e "${GREEN}[1/${TOTAL_STEPS}]${NC} Installing dependencies..."
 pkg update -y
-pkg install -y openjdk-21 cmake ninja wget unzip p7zip
+pkg install -y openjdk-21 openjdk-17 cmake ninja wget unzip p7zip tar xz-utils
 
 # ========================================
 # Step 2: 下載並安裝 Android SDK
@@ -91,6 +91,7 @@ echo -e "${GREEN}[3/${TOTAL_STEPS}]${NC} Checking NDK..."
 NDK_VERSION="29.0.14206865"
 NDK_PATH="$PREFIX/opt/android-sdk/ndk/$NDK_VERSION"
 NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.tar.xz"
+NDK_EXPECTED_SHA256="02e10e4ddfe8deaeb0bd0cf29d04c981ed5bc8a5d6b560ebb9e7661f472d684b"
 NDK_ARCHIVE="$HOME/android-ndk-r29-aarch64.tar.xz"
 
 if [ -d "$NDK_PATH" ]; then
@@ -100,14 +101,36 @@ else
     if [ ! -f "$NDK_ARCHIVE" ]; then
         wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE"
     fi
-    mkdir -p "$PREFIX/opt/android-sdk/ndk"
-    if [[ "$NDK_ARCHIVE" == *.tar.xz ]]; then
-        tar -xf "$NDK_ARCHIVE" -C "$PREFIX/opt/android-sdk/ndk" >/dev/null 2>&1 || 7z x -y "$NDK_ARCHIVE" "-o$PREFIX/opt/android-sdk/ndk" >/dev/null
-    else
-        7z x -y "$NDK_ARCHIVE" "-o$PREFIX/opt/android-sdk/ndk" >/dev/null || tar -xf "$NDK_ARCHIVE" -C "$PREFIX/opt/android-sdk/ndk" >/dev/null 2>&1
+
+    # SHA256 Verification
+    actual_sha=$(sha256sum "$NDK_ARCHIVE" 2>/dev/null | awk '{print $1}' || sha256 "$NDK_ARCHIVE" 2>/dev/null | awk '{print $1}')
+    if [ "$actual_sha" != "$NDK_EXPECTED_SHA256" ]; then
+        echo -e "${RED}Error: NDK SHA256 mismatch (got $actual_sha, expected $NDK_EXPECTED_SHA256)${NC}"
+        rm -f "$NDK_ARCHIVE"
+        exit 1
     fi
+
+    mkdir -p "$PREFIX/opt/android-sdk/ndk"
+    stage_dir="$HOME/ndk_stage_$$"
+    rm -rf "$stage_dir"
+    mkdir -p "$stage_dir"
+
+    if [[ "$NDK_ARCHIVE" == *.tar.xz ]]; then
+        tar -xf "$NDK_ARCHIVE" -C "$stage_dir" 2>/dev/null || 7z x -y "$NDK_ARCHIVE" "-o$stage_dir" >/dev/null
+    else
+        7z x -y "$NDK_ARCHIVE" "-o$stage_dir" >/dev/null || tar -xf "$NDK_ARCHIVE" -C "$stage_dir" 2>/dev/null
+    fi
+
+    extracted_dir=$(find "$stage_dir" -mindepth 1 -maxdepth 1 -type d | head -1)
+    if [ -z "$extracted_dir" ] || [ ! -d "$extracted_dir" ]; then
+        echo -e "${RED}Error: Failed to extract NDK archive.${NC}"
+        rm -rf "$stage_dir"
+        exit 1
+    fi
+
     rm -rf "$NDK_PATH"
-    mv "$PREFIX/opt/android-sdk/ndk/android-ndk-r29" "$NDK_PATH"
+    mv "$extracted_dir" "$NDK_PATH"
+    rm -rf "$stage_dir"
     echo "NDK $NDK_VERSION installed."
 fi
 
