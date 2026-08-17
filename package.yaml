@@ -217,14 +217,19 @@ resource:
 
   profile:
     source: |-
+      PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
       export PATH=${PREFIX}/opt/flutter/bin:${PATH}
       export TMPDIR="${PREFIX}/tmp"
       export FLUTTER_PREBUILT_ENGINE_VERSION="$version"
       # Force Gradle to use our pre-configured NDK (prevents auto-download of new versions)
-      if [ -z "$ANDROID_NDK_HOME" ]; then
+      if [ -z "${ANDROID_NDK_HOME:-}" ]; then
         for ndk in ${PREFIX}/opt/android-sdk/ndk/*/; do
           [ -d "$ndk" ] && export ANDROID_NDK_HOME="${ndk%/}" && break
         done
+      fi
+      if [ -z "${JAVA_HOME:-}" ] && [ -d "${PREFIX}/lib/jvm" ]; then
+        _jvm=$(find "${PREFIX}/lib/jvm" -maxdepth 1 -type d -name 'java-*-openjdk' 2>/dev/null | sort -V | tail -1)
+        [ -n "$_jvm" ] && export JAVA_HOME="$_jvm"
       fi
     output: $prefix/etc/profile.d/flutter.sh
     binary: true
