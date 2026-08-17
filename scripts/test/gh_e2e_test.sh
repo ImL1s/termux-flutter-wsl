@@ -69,7 +69,7 @@ echo "URL: $DEB_URL"
 mkdir -p "$TMPDIR"
 cd "$HOME" || exit 1
 
-run_step "Install prerequisites" pkg install -y wget openjdk-21 git >/dev/null 2>&1 || true
+run_step "Install prerequisites" pkg install -y wget openjdk-21 openjdk-17 git >/dev/null 2>&1 || true
 
 echo ""
 echo "=== Download release deb ==="

@@ -153,7 +153,7 @@ In `build.py` `build()` method:
 - **`@utils.record` / `@utils.recordm`**: Decorators that auto-log all method calls with args. Set `NO_RECORD=1` to disable.
 - **`Build.sync()`**: Detects Windows vs WSL via `platform.system()`. On Windows, wraps `cp` in `wsl -e bash -c`; on WSL, runs directly.
 - **`Package.__format__()`**: Uses `string.Template.safe_substitute()` for `$variable` expansion in `package.yaml`.
-- **`package.yaml` `define` blocks**: Use `eval()` with globals (`root`, `arch`, `output`, `version`) — never put untrusted strings here.
+- **`package.yaml` `define` blocks**: Use `safe_eval()` with globals (`root`, `arch`, `output`, `version`) — constrained evaluation with recursion limits, never put untrusted strings here.
 
 ## Known Limitations
 
