@@ -371,3 +371,45 @@ def test_git_tracking_preserves_tracked_files():
     for p in essential:
         res = subprocess.run(["git", "check-ignore", "-q", p], cwd=str(REPO_ROOT))
         assert res.returncode != 0, f"Essential file '{p}' was mistakenly ignored by .gitignore!"
+
+
+def test_profile_script_safe_under_set_u_and_exports_java_home(tmp_path):
+    """Verify generated profile.d/flutter.sh runs under set -euo pipefail without unbound variable crash."""
+    import yaml
+    with open(REPO_ROOT / "package.yaml", "r", encoding="utf-8") as f:
+        pkg_data = yaml.safe_load(f)
+    profile_src = pkg_data["resource"]["profile"]["source"]
+
+    import string
+    profile_rendered = string.Template(profile_src).safe_substitute(version="b28d002a246838a11306bd68fb50b0f7e4fde09e")
+
+    profile_file = tmp_path / "flutter.sh"
+    with open(profile_file, "w", encoding="utf-8", newline="\n") as f:
+        f.write(profile_rendered)
+
+    # Simulate fake jvm directory
+    fake_prefix = tmp_path / "usr"
+    fake_jvm = fake_prefix / "lib" / "jvm" / "java-21-openjdk"
+    fake_jvm.mkdir(parents=True)
+
+    profile_bash_path = to_bash_path(profile_file)
+    fake_prefix_bash_path = to_bash_path(fake_prefix)
+
+    test_script = f"""set -euo pipefail
+export PREFIX="{fake_prefix_bash_path}"
+source "{profile_bash_path}"
+echo "JAVA_HOME=$JAVA_HOME"
+"""
+    res = subprocess.run(["bash"], input=test_script.encode("utf-8"), capture_output=True)
+    assert res.returncode == 0, f"Failed under set -euo pipefail: stderr={res.stderr.decode('utf-8', errors='ignore')}"
+    stdout = res.stdout.decode("utf-8", errors="ignore")
+    assert "JAVA_HOME=" in stdout
+    assert "java-21-openjdk" in stdout
+
+
+def test_installer_has_openjdk17_and_java_home_configured():
+    """Verify install_flutter_complete.sh installs openjdk-17 and configures JAVA_HOME dynamically."""
+    content = INSTALLER.read_text(encoding="utf-8")
+    assert "openjdk-17" in content, "install_flutter_complete.sh must include openjdk-17 to satisfy android-sdk dependency"
+    assert "export JAVA_HOME=" in content, "install_flutter_complete.sh must export JAVA_HOME"
+    assert "java-*-openjdk" in content, "install_flutter_complete.sh must resolve java-*-openjdk dynamically"

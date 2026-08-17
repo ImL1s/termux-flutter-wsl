@@ -434,7 +434,7 @@ echo -e "${GREEN}[2/${TOTAL_STEPS}]${NC} 安裝 Flutter SDK..."
 # 安裝依賴
 pkg install -y x11-repo
 # 安裝基本工具
-pkg install -y openjdk-21 git wget curl unzip p7zip cmake ninja binutils
+pkg install -y openjdk-21 openjdk-17 git wget curl unzip p7zip cmake ninja binutils tar xz-utils
 
 # 安裝 Android build tools（需要繞過 android-sdk 依賴問題）
 mkdir -p "$WORK_DIR/apt_staging"
@@ -719,6 +719,10 @@ echo -e "${GREEN}[5/${TOTAL_STEPS}]${NC} 配置環境..."
 # 設置環境變數
 export ANDROID_HOME=$PREFIX/opt/android-sdk
 export PATH=$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin
+if [ -z "${JAVA_HOME:-}" ] && [ -d "$PREFIX/lib/jvm" ]; then
+    DETECTED_JAVA_HOME=$(find "$PREFIX/lib/jvm" -maxdepth 1 -type d -name 'java-*-openjdk' 2>/dev/null | sort -V | tail -1)
+    [ -n "$DETECTED_JAVA_HOME" ] && export JAVA_HOME="$DETECTED_JAVA_HOME"
+fi
 
 # 加入 .bashrc
 if ! grep -q "ANDROID_HOME" ~/.bashrc 2>/dev/null; then
@@ -727,9 +731,12 @@ if ! grep -q "ANDROID_HOME" ~/.bashrc 2>/dev/null; then
 # Flutter
 source $PREFIX/etc/profile.d/flutter.sh
 
-# Android SDK
+# Android SDK & Java
 export ANDROID_HOME=$PREFIX/opt/android-sdk
 export PATH=$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin
+if [ -z "${JAVA_HOME:-}" ] && [ -d "$PREFIX/lib/jvm" ]; then
+    export JAVA_HOME=$(find $PREFIX/lib/jvm -maxdepth 1 -type d -name 'java-*-openjdk' 2>/dev/null | sort -V | tail -1)
+fi
 EOF
 fi
 
