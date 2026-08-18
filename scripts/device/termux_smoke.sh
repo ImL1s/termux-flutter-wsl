@@ -114,7 +114,7 @@ EOF
 
 trap write_evidence_json EXIT
 
-export PREFIX=/data/data/com.termux/files/usr
+export PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 export HOME="${HOME:-/data/data/com.termux/files/home}"
 export PATH="$PREFIX/opt/flutter/bin:$PREFIX/bin:$PATH"
 export TMPDIR="$PREFIX/tmp"
@@ -202,7 +202,7 @@ flutter --version
 record_status FLUTTER_VERSION_STATUS $?
 dart --version
 record_status DART_VERSION_STATUS $?
-$PREFIX/opt/flutter/bin/cache/dart-sdk/bin/dartvm --version
+"$PREFIX/opt/flutter/bin/cache/dart-sdk/bin/dartvm" --version
 record_status DARTVM_VERSION_STATUS $?
 
 echo SECTION=DOCTOR
