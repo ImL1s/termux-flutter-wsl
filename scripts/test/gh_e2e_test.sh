@@ -6,7 +6,7 @@
 # ============================================================
 set -u
 
-export PREFIX=/data/data/com.termux/files/usr
+export PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 export PATH=$PREFIX/bin:$PREFIX/opt/flutter/bin:$PATH
 export HOME=/data/data/com.termux/files/home
 export TMPDIR=$PREFIX/tmp

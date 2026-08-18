@@ -18,6 +18,7 @@
 
 set -euo pipefail
 
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo ".")"
 if [ -f "$SCRIPT_DIR/scripts/install/lib_common.sh" ]; then
     source "$SCRIPT_DIR/scripts/install/lib_common.sh"
@@ -579,10 +580,10 @@ apt-get install -f -y "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage pack
 record_stage package success
 
 # 載入環境
-source $PREFIX/etc/profile.d/flutter.sh 2>/dev/null || true
+source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
 
 # 重新編譯 flutter_tools.snapshot（修復 "Unsupported operating system: android" 問題）
-FLUTTER_ROOT=$PREFIX/opt/flutter
+FLUTTER_ROOT="$PREFIX/opt/flutter"
 DART_SDK=$FLUTTER_ROOT/bin/cache/dart-sdk
 if [ ! -x "$DART_SDK/bin/dartvm" ]; then
     echo -e "${RED}錯誤: Dart VM binary missing: $DART_SDK/bin/dartvm${NC}"
@@ -706,7 +707,7 @@ done
 # 也運行 post_install.sh（如果存在）
 if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
     echo "執行 post_install.sh..."
-    bash $PREFIX/share/flutter/post_install.sh || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
+    bash "$PREFIX/share/flutter/post_install.sh" || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
     record_stage post-install success
 fi
 
