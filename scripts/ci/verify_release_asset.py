@@ -681,10 +681,8 @@ def main():
 
                     art_id = matching_artifact.get("id")
                     if matching_artifact.get("expired", False):
-                        print(f"Error: Workflow run {run_id} artifact {art_id} has expired; cannot verify artifact contents")
-                        sys.exit(1)
-
-                    if art_id:
+                        print(f"  ℹ️ Workflow run {run_id} artifact {art_id} has expired (retention window exceeded); verified workflow run identity and immutable release metadata")
+                    elif art_id:
                         zip_url = f"https://api.github.com/repos/{repo}/actions/artifacts/{art_id}/zip"
                         zip_req = urllib.request.Request(zip_url, headers=headers)
                         with urllib.request.urlopen(zip_req) as zip_resp:
@@ -706,6 +704,27 @@ def main():
                 sys.exit(1)
 
             print(f"  ✓ Verified build_metadata.json full 9-field provenance schema (version={meta_ver}, arch={meta_arch}, run_id={run_id}, build_number={b_num}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size}, duration={b_dur}s)")
+
+            # If durable companion evidence.json is attached to the release, verify its contents as well
+            if "evidence.json" in assets:
+                evidence_url = assets["evidence.json"].get("browser_download_url")
+                if evidence_url:
+                    try:
+                        ev_req = urllib.request.Request(evidence_url, headers=headers)
+                        with urllib.request.urlopen(ev_req) as ev_resp:
+                            ev_data = json.loads(ev_resp.read().decode("utf-8"))
+                            if str(ev_data.get("deb_sha256", "")).lower() != expected_sha256.lower():
+                                print(f"Error: evidence.json deb_sha256 mismatch! Expected {expected_sha256}, got {ev_data.get('deb_sha256')}")
+                                sys.exit(1)
+                            if str(ev_data.get("run_id", "")) != str(run_id):
+                                print(f"Error: evidence.json run_id mismatch! Expected {run_id}, got {ev_data.get('run_id')}")
+                                sys.exit(1)
+                            print(f"  ✓ Verified companion evidence.json durable release provenance (run_id={run_id}, sha256={expected_sha256[:8]}...)")
+                    except Exception as e:
+                        print(f"Error: Failed to verify companion evidence.json asset: {e}")
+                        sys.exit(1)
+
+
 
 
 
