@@ -80,10 +80,12 @@ def check_markdown_no_control_characters() -> None:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        for line_no, line in enumerate(text.splitlines(), start=1):
-            for ch in line:
-                if ord(ch) < 32 and ch not in "\t":
-                    fail(f"{path.relative_to(ROOT)}:L{line_no}: forbidden control character U+{ord(ch):04X}")
+        line_no = 1
+        for ch in text:
+            if ch == "\n":
+                line_no += 1
+            elif ord(ch) < 32 and ch not in "\r\t":
+                fail(f"{path.relative_to(ROOT)}:L{line_no}: forbidden control character U+{ord(ch):04X}")
 
 
 def check_markdown_links() -> None:
