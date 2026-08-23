@@ -15,6 +15,18 @@ INVENTORY_LINE_REGEX = re.compile(
 )
 
 
+def normalize_member_path(p: str) -> str:
+    """Normalize tar member / inventory path by stripping leading './' and trailing '/' without clobbering leading dots."""
+    s = p.strip()
+    if s == ".":
+        return ""
+    if s.startswith("./"):
+        s = s[2:]
+    if s.endswith("/") and s != "/":
+        s = s[:-1]
+    return s
+
+
 def parse_inventory_entries(inventory_text: str) -> set:
     """Parse normalized file paths from dpkg-deb -c style inventory text."""
     paths = set()
@@ -30,7 +42,7 @@ def parse_inventory_entries(inventory_text: str) -> set:
             path_str, _ = path_part.split(" -> ", 1)
         else:
             path_str = path_part
-        norm_path = path_str.lstrip("./").rstrip("/")
+        norm_path = normalize_member_path(path_str)
         if norm_path:
             paths.add(norm_path)
     return paths
@@ -61,7 +73,7 @@ def extract_deb_member_paths(deb_path) -> set:
                 paths = set()
                 with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:*") as tar:
                     for member in tar.getmembers():
-                        p = member.name.lstrip("./").rstrip("/")
+                        p = normalize_member_path(member.name)
                         if p:
                             paths.add(p)
                 return paths
