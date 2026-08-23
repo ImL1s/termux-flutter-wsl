@@ -333,9 +333,17 @@ def main():
                     print(f"Error: build_metadata.json missing required provenance field '{rf}'")
                     sys.exit(1)
 
-            # Validate version
-            expected_ver = expected_tag.lstrip("v").replace("-termux", "")
-            meta_ver = str(meta_data["version"]).lstrip("v").replace("-termux", "")
+            # Validate version (strip at most one leading 'v' and one trailing '-termux')
+            def _normalize_ver(v_str: str) -> str:
+                s = str(v_str).strip()
+                if s.startswith("v"):
+                    s = s[1:]
+                if s.endswith("-termux"):
+                    s = s[:-len("-termux")]
+                return s
+
+            expected_ver = _normalize_ver(expected_tag)
+            meta_ver = _normalize_ver(meta_data["version"])
             if meta_ver != expected_ver:
                 print(f"Error: build_metadata.json version mismatch! Expected {expected_ver}, got {meta_ver}")
                 sys.exit(1)
