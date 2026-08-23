@@ -44,38 +44,65 @@ def tar_member_type(member: tarfile.TarInfo) -> str:
     return "-"
 
 
-def parse_inventory_entries(inventory_text: str) -> set:
-    """Parse normalized (type:path/target) entries from dpkg-deb -c style inventory text."""
-    paths = set()
+def format_tar_permissions(mode: int) -> str:
+    """Format the 9-char rwxrwxrwx permission string (including setuid/setgid/sticky bits S/s/T/t) from tar mode int."""
+    perm = mode & 0o7777
+    r1 = "r" if perm & 0o400 else "-"
+    w1 = "w" if perm & 0o200 else "-"
+    if perm & 0o4000:
+        x1 = "s" if perm & 0o100 else "S"
+    else:
+        x1 = "x" if perm & 0o100 else "-"
+
+    r2 = "r" if perm & 0o040 else "-"
+    w2 = "w" if perm & 0o020 else "-"
+    if perm & 0o2000:
+        x2 = "s" if perm & 0o010 else "S"
+    else:
+        x2 = "x" if perm & 0o010 else "-"
+
+    r3 = "r" if perm & 0o004 else "-"
+    w3 = "w" if perm & 0o002 else "-"
+    if perm & 0o1000:
+        x3 = "t" if perm & 0o001 else "T"
+    else:
+        x3 = "x" if perm & 0o001 else "-"
+
+    return f"{r1}{w1}{x1}{r2}{w2}{x2}{r3}{w3}{x3}"
+
+
+def parse_inventory_entries(inventory_text: str) -> list[str]:
+    """Parse normalized ordered entries (mode size path/target) from dpkg-deb -c style inventory text."""
+    entries = []
     for line in inventory_text.splitlines():
         if not line.strip() or line.startswith("#"):
             continue
         m = INVENTORY_LINE_REGEX.match(line)
         if not m:
             raise ValueError(f"Malformed inventory line: '{line}'")
-        mode_str, _, _, _, _, path_part = m.groups()
-        entry_type = mode_str[0]
+        mode_str, _, size_str, _, _, path_part = m.groups()
+        parsed_size = int(size_str)
         if " -> " in path_part:
             path_str, link_target = path_part.split(" -> ", 1)
             norm_path = normalize_member_path(path_str)
             norm_target = normalize_member_path(link_target)
             if norm_path:
-                paths.add(f"{entry_type}:{norm_path} -> {norm_target}")
+                entries.append(f"{mode_str} {parsed_size} {norm_path} -> {norm_target}")
         elif " link to " in path_part:
             path_str, link_target = path_part.split(" link to ", 1)
             norm_path = normalize_member_path(path_str)
             norm_target = normalize_member_path(link_target)
             if norm_path:
-                paths.add(f"{entry_type}:{norm_path} link to {norm_target}")
+                entries.append(f"{mode_str} {parsed_size} {norm_path} link to {norm_target}")
         else:
             norm_path = normalize_member_path(path_part)
             if norm_path:
-                paths.add(f"{entry_type}:{norm_path}")
-    return paths
+                entries.append(f"{mode_str} {parsed_size} {norm_path}")
+    return entries
 
 
-def extract_deb_member_paths(deb_path) -> set:
-    """Extract set of normalized (type:path/target) entries contained in a .deb package's data.tar.* archive."""
+def extract_deb_member_paths(deb_path) -> list[str]:
+    """Extract list of normalized ordered entries (mode size path/target) contained in a .deb package's data.tar.* archive."""
     with open(deb_path, "rb") as f:
         magic = f.read(8)
         if magic != b"!<arch>\n":
@@ -96,22 +123,25 @@ def extract_deb_member_paths(deb_path) -> set:
                 if size % 2 == 1:
                     f.read(1)
 
-                paths = set()
+                entries = []
                 with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:*") as tar:
                     for member in tar.getmembers():
                         p = normalize_member_path(member.name)
                         if not p:
                             continue
                         mtype = tar_member_type(member)
+                        perm_str = format_tar_permissions(member.mode)
+                        mode_str = f"{mtype}{perm_str}"
+                        member_size = member.size
                         if member.issym() and member.linkname:
                             norm_target = normalize_member_path(member.linkname)
-                            paths.add(f"{mtype}:{p} -> {norm_target}")
+                            entries.append(f"{mode_str} {member_size} {p} -> {norm_target}")
                         elif member.islnk() and member.linkname:
                             norm_target = normalize_member_path(member.linkname)
-                            paths.add(f"{mtype}:{p} link to {norm_target}")
+                            entries.append(f"{mode_str} {member_size} {p} link to {norm_target}")
                         else:
-                            paths.add(f"{mtype}:{p}")
-                return paths
+                            entries.append(f"{mode_str} {member_size} {p}")
+                return entries
             else:
                 skip = size + (1 if size % 2 == 1 else 0)
                 f.seek(skip, io.SEEK_CUR)
@@ -525,17 +555,21 @@ def main():
     # 10. Cross-check inventory.txt against downloaded .deb package entries
     print("Cross-checking inventory.txt against downloaded package entries...")
     try:
-        deb_paths = extract_deb_member_paths(download_path)
-        missing_in_deb = inventory_paths - deb_paths
-        extra_in_deb = deb_paths - inventory_paths
-        if missing_in_deb or extra_in_deb:
+        deb_entries = extract_deb_member_paths(download_path)
+        if inventory_paths != deb_entries:
             print(f"Error: Semantic mismatch between inventory.txt and {expected_asset} contents!")
+            inv_set = set(inventory_paths)
+            deb_set = set(deb_entries)
+            missing_in_deb = inv_set - deb_set
+            extra_in_deb = deb_set - inv_set
             if missing_in_deb:
                 print(f"  In inventory.txt but missing from deb ({len(missing_in_deb)} entries): {list(missing_in_deb)[:5]}")
             if extra_in_deb:
                 print(f"  In deb but missing from inventory.txt ({len(extra_in_deb)} entries): {list(extra_in_deb)[:5]}")
+            if not missing_in_deb and not extra_in_deb:
+                print(f"  Multiplicity or ordering mismatch: inventory has {len(inventory_paths)} entries, deb has {len(deb_entries)} entries")
             sys.exit(1)
-        print(f"  ✓ Inventory perfectly matches package contents ({len(deb_paths)} entries verified)")
+        print(f"  ✓ Inventory perfectly matches package contents ({len(deb_entries)} entries verified)")
     except Exception as e:
         print(f"Error: Failed to verify package inventory integrity: {e}")
         sys.exit(1)
