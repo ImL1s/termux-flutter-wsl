@@ -197,39 +197,92 @@ def main():
         print(f"Error: GitHub asset digest mismatch. Expected {expected_digest}, got {digest}")
         sys.exit(1)
 
-    # 6. Verify contents of auxiliary assets
+    # 6. Verify contents of auxiliary assets (Strict Fail-Closed)
+    # Check .sha256 file
+    sha_url = assets[f"{expected_asset}.sha256"].get("browser_download_url")
+    if not sha_url:
+        print(f"Error: Missing download URL for companion {expected_asset}.sha256")
+        sys.exit(1)
     try:
-        # Check .sha256 file
-        sha_url = assets[f"{expected_asset}.sha256"]["browser_download_url"]
         with urllib.request.urlopen(urllib.request.Request(sha_url, headers=headers)) as resp:
             sha_content = resp.read().decode("utf-8").strip().split()[0]
             if sha_content.lower() != expected_sha256.lower():
                 print(f"Error: .sha256 asset content mismatch! Expected {expected_sha256}, got {sha_content}")
                 sys.exit(1)
             print(f"  ✓ Verified companion .sha256 asset matches expected hash: {sha_content[:8]}...")
+    except Exception as e:
+        print(f"Error: Failed to fetch/verify companion .sha256 asset: {e}")
+        sys.exit(1)
 
-        # Check .size.txt file
-        size_url = assets[f"{expected_asset}.size.txt"]["browser_download_url"]
+    # Check .size.txt file
+    size_url = assets[f"{expected_asset}.size.txt"].get("browser_download_url")
+    if not size_url:
+        print(f"Error: Missing download URL for companion {expected_asset}.size.txt")
+        sys.exit(1)
+    try:
         with urllib.request.urlopen(urllib.request.Request(size_url, headers=headers)) as resp:
             size_content = resp.read().decode("utf-8").strip()
             if expected_size is not None and size_content != str(expected_size):
                 print(f"Error: .size.txt asset content mismatch! Expected {expected_size}, got {size_content}")
                 sys.exit(1)
             print(f"  ✓ Verified companion .size.txt asset matches exact bytes: {size_content}")
+    except Exception as e:
+        print(f"Error: Failed to fetch/verify companion .size.txt asset: {e}")
+        sys.exit(1)
 
-        # Check build_metadata.json
-        meta_url = assets["build_metadata.json"]["browser_download_url"]
+    # Check inventory.txt file
+    inv_url = assets["inventory.txt"].get("browser_download_url")
+    if not inv_url:
+        print("Error: Missing download URL for companion inventory.txt")
+        sys.exit(1)
+    try:
+        with urllib.request.urlopen(urllib.request.Request(inv_url, headers=headers)) as resp:
+            inv_content = resp.read().decode("utf-8")
+            if not inv_content.strip():
+                print("Error: Companion inventory.txt is empty!")
+                sys.exit(1)
+            inv_lines = [l for l in inv_content.splitlines() if l.strip()]
+            if len(inv_lines) < 10:
+                print(f"Error: Companion inventory.txt contains suspicious entry count: {len(inv_lines)}")
+                sys.exit(1)
+            print(f"  ✓ Verified companion inventory.txt content ({len(inv_lines)} file entries)")
+    except Exception as e:
+        print(f"Error: Failed to fetch/verify companion inventory.txt asset: {e}")
+        sys.exit(1)
+
+    # Check build_metadata.json with required schema
+    meta_url = assets["build_metadata.json"].get("browser_download_url")
+    if not meta_url:
+        print("Error: Missing download URL for companion build_metadata.json")
+        sys.exit(1)
+    try:
         with urllib.request.urlopen(urllib.request.Request(meta_url, headers=headers)) as resp:
             meta_data = json.loads(resp.read().decode("utf-8"))
-            if meta_data.get("sha256") and meta_data["sha256"].lower() != expected_sha256.lower():
-                print(f"Error: build_metadata.json sha256 mismatch: {meta_data.get('sha256')}")
+            if not isinstance(meta_data, dict):
+                print("Error: build_metadata.json is not a valid JSON dictionary")
                 sys.exit(1)
-            if expected_size is not None and meta_data.get("size_bytes") and meta_data["size_bytes"] != expected_size:
-                print(f"Error: build_metadata.json size_bytes mismatch: {meta_data.get('size_bytes')}")
+
+            # Enforce required schema fields
+            required_fields = ["sha256", "size_bytes"]
+            for rf in required_fields:
+                if rf not in meta_data:
+                    print(f"Error: build_metadata.json missing required provenance field '{rf}'")
+                    sys.exit(1)
+
+            meta_sha = str(meta_data["sha256"]).strip().lower()
+            if meta_sha != expected_sha256.lower():
+                print(f"Error: build_metadata.json sha256 mismatch! Expected {expected_sha256}, got {meta_sha}")
                 sys.exit(1)
-            print(f"  ✓ Verified build_metadata.json schema and metadata integrity")
+
+            meta_size = meta_data["size_bytes"]
+            if expected_size is not None and meta_size != expected_size:
+                print(f"Error: build_metadata.json size_bytes mismatch! Expected {expected_size}, got {meta_size}")
+                sys.exit(1)
+
+            print(f"  ✓ Verified build_metadata.json required schema and provenance integrity")
     except Exception as e:
-        print(f"Warning: Could not fetch/verify auxiliary asset contents via API: {e}")
+        print(f"Error: Failed to fetch/verify companion build_metadata.json asset: {e}")
+        sys.exit(1)
 
     # 7. Check LIGHTWEIGHT_CHECK
     if os.environ.get("LIGHTWEIGHT_CHECK") == "1":

@@ -364,3 +364,24 @@ def test_post_install_read_only_tree_byte_identical(tmp_path):
     assert compute_dir_tree_hash(prefix) == hash_pref_before, "prefix tree mutated during --check"
     assert stamp_file.read_text(encoding="utf-8") == "sentinel_stamp_v1"
     assert snapshot_file.read_text(encoding="utf-8") == "sentinel_snapshot_v1"
+
+
+def test_post_install_fresh_shell_unset_dart_sdk(tmp_path):
+    """Regression test: verify post_install.sh succeeds when DART_SDK is unset in environment."""
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+    post_install_path = to_bash_path(POST_INSTALL)
+    flut_path = to_bash_path(flutter_root)
+    sdk_path = to_bash_path(android_sdk)
+    pref_path = to_bash_path(prefix)
+
+    cmd = (
+        f"unset DART_SDK && "
+        f"export FLUTTER_ROOT='{flut_path}' && "
+        f"export ANDROID_SDK='{sdk_path}' && "
+        f"export PREFIX='{pref_path}' && "
+        f"bash '{post_install_path}' --apply"
+    )
+    res = subprocess.run(["bash", "-c", cmd], cwd=str(REPO_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0, f"post_install failed in fresh shell with unset DART_SDK:\nstdout: {res.stdout}\nstderr: {res.stderr}"
+    assert "Dart compiler missing at /bin/dart" not in res.stderr
+    assert (flutter_root / "bin" / "cache" / "flutter_tools.stamp").exists()

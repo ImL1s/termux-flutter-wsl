@@ -312,6 +312,8 @@ size = {computed_size}
                 resp.read.return_value = f"{computed_sha}  {asset_name}\n".encode("utf-8")
             elif url.endswith(".size.txt"):
                 resp.read.return_value = f"{computed_size}\n".encode("utf-8")
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 123 2026-08-23 12:00 opt/flutter/file_{i}" for i in range(15)).encode("utf-8")
             elif url.endswith("build_metadata.json"):
                 resp.read.return_value = json.dumps({"sha256": computed_sha, "size_bytes": computed_size}).encode("utf-8")
             else:
@@ -330,6 +332,107 @@ size = {computed_size}
         # Should complete without error
         verify_release_asset.main()
         assert (tmp_path / asset_name).is_file()
+
+    @patch("urllib.request.urlopen")
+    def test_full_mode_missing_metadata_fields_fails(self, mock_urlopen, tmp_path, monkeypatch):
+        """Verify build_metadata.json with missing required fields (e.g. {}) fails closed."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
+
+        asset_name = "flutter_3.44.9_aarch64.deb"
+        (tmp_path / "build.toml").write_text(f"""
+[flutter]
+release_tag = "v3.44.9-termux"
+asset_name = "{asset_name}"
+sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
+size = 100
+""", encoding="utf-8")
+
+        api_data = {
+            "assets": [
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": 100},
+                {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
+                {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
+                {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
+                {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+            ]
+        }
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = b"00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca\n"
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = b"100\n"
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = "\n".join(f"file_{i}" for i in range(15)).encode("utf-8")
+            elif url.endswith("build_metadata.json"):
+                # Missing required sha256 and size_bytes!
+                resp.read.return_value = json.dumps({}).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
+
+        with pytest.raises(SystemExit) as exc:
+            verify_release_asset.main()
+        assert exc.value.code == 1
+
+    @patch("urllib.request.urlopen")
+    def test_full_mode_empty_inventory_fails(self, mock_urlopen, tmp_path, monkeypatch):
+        """Verify empty inventory.txt fails closed."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
+
+        asset_name = "flutter_3.44.9_aarch64.deb"
+        (tmp_path / "build.toml").write_text(f"""
+[flutter]
+release_tag = "v3.44.9-termux"
+asset_name = "{asset_name}"
+sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
+size = 100
+""", encoding="utf-8")
+
+        api_data = {
+            "assets": [
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": 100},
+                {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
+                {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
+                {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
+                {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+            ]
+        }
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = b"00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca\n"
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = b"100\n"
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = b"   \n"  # Empty inventory!
+            elif url.endswith("build_metadata.json"):
+                resp.read.return_value = json.dumps({"sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca", "size_bytes": 100}).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
+
+        with pytest.raises(SystemExit) as exc:
+            verify_release_asset.main()
+        assert exc.value.code == 1
 
     @patch("urllib.request.urlopen")
     def test_full_mode_missing_asset_in_api_fails(self, mock_urlopen, tmp_path, monkeypatch):
