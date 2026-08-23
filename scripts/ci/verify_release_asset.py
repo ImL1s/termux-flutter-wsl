@@ -16,8 +16,8 @@ INVENTORY_LINE_REGEX = re.compile(
 
 
 def normalize_member_path(p: str) -> str:
-    """Normalize tar member / inventory path by stripping leading './' and trailing '/' without clobbering leading dots."""
-    s = p.strip()
+    """Normalize tar member / inventory path by stripping leading './' and trailing '/' without clobbering whitespace or leading dots."""
+    s = p
     if s == ".":
         return ""
     if s.startswith("./"):
@@ -31,8 +31,7 @@ def parse_inventory_entries(inventory_text: str) -> set:
     """Parse normalized file paths from dpkg-deb -c style inventory text."""
     paths = set()
     for line in inventory_text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+        if not line.strip() or line.startswith("#"):
             continue
         m = INVENTORY_LINE_REGEX.match(line)
         if not m:
