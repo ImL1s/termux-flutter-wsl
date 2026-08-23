@@ -288,7 +288,7 @@ release/flutter_3.44.9_aarch64.deb
 
 ### 3. 上傳到 GitHub Releases
 
-1. 創建新 Release：`v3.44.2`
+1. 創建新 Release：`v3.44.9-termux`
 2. 上傳 deb 檔案：`flutter_3.44.9_aarch64.deb`
 3. 填寫 Release Notes
 
@@ -362,7 +362,7 @@ termux-flutter-wsl/
 ## 更新日誌
 
 ### 2026-06-01
-- 更新本文檔至 Flutter 3.44.0 / Dart 3.12 狀態
+- 更新本文檔至 Flutter 3.44.9 / Dart 3.12 狀態
 - 補上 `scripts/ci`、`scripts/device`、GitHub Actions 與 release metadata check
 - 測試流程改為 ARM64 APK + Linux release smoke
 

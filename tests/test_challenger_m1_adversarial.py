@@ -22,11 +22,6 @@ INSTALLER = (REPO_ROOT / "install_flutter_complete.sh").resolve()
 
 
 def get_bash_cmd():
-    if sys.platform != "win32":
-        return ["bash"]
-    git_bash = r"C:\Program Files\Git\bin\bash.exe"
-    if os.path.exists(git_bash):
-        return [git_bash]
     return ["bash"]
 
 

@@ -10,8 +10,8 @@ export PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 export PATH=$PREFIX/bin:$PREFIX/opt/flutter/bin:$PATH
 export HOME=/data/data/com.termux/files/home
 export TMPDIR=$PREFIX/tmp
-export RELEASE_TAG=${RELEASE_TAG:-v3.44.2-termux}
-export FLUTTER_VERSION=${FLUTTER_VERSION:-3.44.2}
+export RELEASE_TAG=${RELEASE_TAG:-v3.44.9-termux}
+export FLUTTER_VERSION=${FLUTTER_VERSION:-3.44.9}
 export EXPECTED_SHA256=${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20}}
 export DEB_NAME="flutter_${FLUTTER_VERSION}_aarch64.deb"
 export DEB_URL=${DEB_URL:-"https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/${DEB_NAME}"}
@@ -38,9 +38,9 @@ run_step() {
 }
 
 patch_project() {
-    sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
+    sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" android/gradlew
     if ! grep -q '^android.aapt2FromMavenOverride=' android/gradle.properties; then
-        printf '\nandroid.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2\n' >> android/gradle.properties
+        printf '\nandroid.aapt2FromMavenOverride=%s/bin/aapt2\n' "${PREFIX:-/data/data/com.termux/files/usr}" >> android/gradle.properties
     fi
     python - <<'PY'
 from pathlib import Path

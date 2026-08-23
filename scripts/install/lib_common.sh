@@ -10,8 +10,8 @@ export CYAN='\033[0;36m'
 export NC='\033[0m'
 
 # Version info
-export FLUTTER_VERSION="3.44.2"
-export RELEASE_TAG="v3.44.2-termux"
+export FLUTTER_VERSION="3.44.9"
+export RELEASE_TAG="v3.44.9-termux"
 export EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20}}"
 
 declare -A STAGE_STATUS

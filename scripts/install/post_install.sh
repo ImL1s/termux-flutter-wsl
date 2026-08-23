@@ -9,22 +9,22 @@ echo "Flutter Termux Post-Install Configuration"
 echo "=========================================="
 
 # 路徑定義
-FLUTTER_ROOT="${FLUTTER_ROOT:-/data/data/com.termux/files/usr/opt/flutter}"
-ANDROID_SDK="${ANDROID_SDK:-/data/data/com.termux/files/usr/opt/android-sdk}"
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+FLUTTER_ROOT="${FLUTTER_ROOT:-$PREFIX/opt/flutter}"
+ANDROID_SDK="${ANDROID_SDK:-$PREFIX/opt/android-sdk}"
 DART_SDK="${DART_SDK:-$FLUTTER_ROOT/bin/cache/dart-sdk}"
 export FLUTTER_PREBUILT_ENGINE_VERSION="${FLUTTER_PREBUILT_ENGINE_VERSION:-77e2e94772b6eb43759e34ed1ad7da4674e19cab}"
 
-PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 export PATH="$PREFIX/bin:$PATH"
 PATCH_STATE_FILE="${PATCH_STATE_FILE:-$PREFIX/share/flutter/patch_state.json}"
 BACKUP_DIR="${BACKUP_DIR:-$PREFIX/share/flutter/backups}"
 
 MODE="${MODE:-apply}"
-if [ "$1" == "--check" ]; then MODE="check"; fi
-if [ "$1" == "--apply" ]; then MODE="apply"; fi
-if [ "$1" == "--status" ]; then MODE="status"; fi
-if [ "$1" == "--rollback" ]; then MODE="rollback"; fi
-if [ "$1" == "--lib" ]; then MODE="lib"; fi
+if [ "${1:-}" = "--check" ]; then MODE="check"; fi
+if [ "${1:-}" = "--apply" ]; then MODE="apply"; fi
+if [ "${1:-}" = "--status" ]; then MODE="status"; fi
+if [ "${1:-}" = "--rollback" ]; then MODE="rollback"; fi
+if [ "${1:-}" = "--lib" ]; then MODE="lib"; fi
 
 if [ "$MODE" != "status" ] && [ "$MODE" != "check" ] && [ "$MODE" != "lib" ]; then
     mkdir -p "$BACKUP_DIR" "$(dirname "$PATCH_STATE_FILE")"
@@ -348,14 +348,14 @@ CMAKEOF
 }
 register_patch "cmake_lists" "$FLUTTER_ROOT/packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt" patch_cmake_lists
 
-patch_shebang_flutter() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_dart() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_shared() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_update_dart() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_content_hash() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_last_engine() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_update_engine() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
-patch_shebang_tool_backend() { if grep -F -q "#!/data/data/com.termux/files/usr/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|" "$1"; }
+patch_shebang_flutter() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
+patch_shebang_dart() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
+patch_shebang_shared() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
+patch_shebang_update_dart() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
+patch_shebang_content_hash() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
+patch_shebang_last_engine() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
+patch_shebang_update_engine() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
+patch_shebang_tool_backend() { if grep -F -q "#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash" "$1"; then return 0; fi; sed -i "1s|#!/usr/bin/env bash|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$1"; }
 
 register_patch "shebang_flutter" "$FLUTTER_ROOT/bin/flutter" patch_shebang_flutter
 register_patch "shebang_dart" "$FLUTTER_ROOT/bin/dart" patch_shebang_dart
@@ -397,11 +397,12 @@ setup_ndk_clang_wrappers() {
     echo "    Setting up clang wrappers for NDK $NDK_NAME..."
 
     # Create wrapper script content (using NDK_PATH variable in script)
-CLANG_WRAPPER="#!/data/data/com.termux/files/usr/bin/sh
-NDK=$NDK_PATH
-SYSROOT=\$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-CLANG_VERSION=\$(ls -1 \$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/ | tail -n 1)
-CLANG_LIB=\$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/\$CLANG_VERSION/lib/linux
+CLANG_WRAPPER="#!${PREFIX:-/data/data/com.termux/files/usr}/bin/sh
+PREFIX=\"\${PREFIX:-${PREFIX:-/data/data/com.termux/files/usr}}\"
+NDK=\"$NDK_PATH\"
+SYSROOT=\"\$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot\"
+CLANG_VERSION=\$(ls -1 \"\$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/\" 2>/dev/null | sort -V | tail -n 1)
+CLANG_LIB=\"\$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/\$CLANG_VERSION/lib/linux\"
 
 ARCH=\"\"
 for arg in \"\$@\"; do
@@ -412,22 +413,23 @@ for arg in \"\$@\"; do
 done
 
 if [ \"\$ARCH\" = \"aarch64\" ]; then
-    LIB_PATH=\$SYSROOT/usr/lib/aarch64-linux-android
-    CLANG_LIB_ARCH=\$CLANG_LIB/aarch64
+    LIB_PATH=\"\$SYSROOT/usr/lib/aarch64-linux-android\"
+    CLANG_LIB_ARCH=\"\$CLANG_LIB/aarch64\"
 elif [ \"\$ARCH\" = \"arm\" ]; then
-    LIB_PATH=\$SYSROOT/usr/lib/arm-linux-androideabi
-    CLANG_LIB_ARCH=\$CLANG_LIB/arm
+    LIB_PATH=\"\$SYSROOT/usr/lib/arm-linux-androideabi\"
+    CLANG_LIB_ARCH=\"\$CLANG_LIB/arm\"
 else
-    exec /data/data/com.termux/files/usr/bin/clang \"\$@\"
+    exec \"\$PREFIX/bin/clang\" \"\$@\"
 fi
 
-exec /data/data/com.termux/files/usr/bin/clang -L\$LIB_PATH -L\$CLANG_LIB_ARCH \"\$@\""
+exec \"\$PREFIX/bin/clang\" -L\"\$LIB_PATH\" -L\"\$CLANG_LIB_ARCH\" \"\$@\""
 
-CLANGPP_WRAPPER="#!/data/data/com.termux/files/usr/bin/sh
-NDK=$NDK_PATH
-SYSROOT=\$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-CLANG_VERSION=\$(ls -1 \$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/ | tail -n 1)
-CLANG_LIB=\$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/\$CLANG_VERSION/lib/linux
+CLANGPP_WRAPPER="#!${PREFIX:-/data/data/com.termux/files/usr}/bin/sh
+PREFIX=\"\${PREFIX:-${PREFIX:-/data/data/com.termux/files/usr}}\"
+NDK=\"$NDK_PATH\"
+SYSROOT=\"\$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot\"
+CLANG_VERSION=\$(ls -1 \"\$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/\" 2>/dev/null | sort -V | tail -n 1)
+CLANG_LIB=\"\$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/\$CLANG_VERSION/lib/linux\"
 
 ARCH=\"\"
 for arg in \"\$@\"; do
@@ -438,16 +440,16 @@ for arg in \"\$@\"; do
 done
 
 if [ \"\$ARCH\" = \"aarch64\" ]; then
-    LIB_PATH=\$SYSROOT/usr/lib/aarch64-linux-android
-    CLANG_LIB_ARCH=\$CLANG_LIB/aarch64
+    LIB_PATH=\"\$SYSROOT/usr/lib/aarch64-linux-android\"
+    CLANG_LIB_ARCH=\"\$CLANG_LIB/aarch64\"
 elif [ \"\$ARCH\" = \"arm\" ]; then
-    LIB_PATH=\$SYSROOT/usr/lib/arm-linux-androideabi
-    CLANG_LIB_ARCH=\$CLANG_LIB/arm
+    LIB_PATH=\"\$SYSROOT/usr/lib/arm-linux-androideabi\"
+    CLANG_LIB_ARCH=\"\$CLANG_LIB/arm\"
 else
-    exec /data/data/com.termux/files/usr/bin/clang++ \"\$@\"
+    exec \"\$PREFIX/bin/clang++\" \"\$@\"
 fi
 
-exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH \"\$@\""
+exec \"\$PREFIX/bin/clang++\" -L\"\$LIB_PATH\" -L\"\$CLANG_LIB_ARCH\" \"\$@\""
 
     # Create wrappers in prebuilt/bin/ (for some toolchain configs)
     mkdir -p "$PREBUILT/bin"
@@ -521,11 +523,11 @@ exec /data/data/com.termux/files/usr/bin/clang++ -L\$LIB_PATH -L\$CLANG_LIB_ARCH
     # Replace x86_64 llvm-objcopy/llvm-strip with Termux ARM64 native binaries
     # (Gradle StripDebugSymbolsRunnable fails with x86_64 binaries on ARM64)
     local LLVM_BIN="$PREBUILT/linux-x86_64/bin"
-    if [ -f /data/data/com.termux/files/usr/bin/llvm-objcopy ]; then
+    if [ -f "$PREFIX/bin/llvm-objcopy" ]; then
         backup_ndk_file "$LLVM_BIN/llvm-objcopy"
         backup_ndk_file "$LLVM_BIN/llvm-strip"
-        cp /data/data/com.termux/files/usr/bin/llvm-objcopy "$LLVM_BIN/llvm-objcopy" 2>/dev/null || true
-        cp /data/data/com.termux/files/usr/bin/llvm-strip "$LLVM_BIN/llvm-strip" 2>/dev/null || true
+        cp "$PREFIX/bin/llvm-objcopy" "$LLVM_BIN/llvm-objcopy" 2>/dev/null || true
+        cp "$PREFIX/bin/llvm-strip" "$LLVM_BIN/llvm-strip" 2>/dev/null || true
         echo "    ✓ llvm-objcopy/llvm-strip replaced with ARM64 native"
     fi
 
@@ -587,11 +589,11 @@ if [ ! -s "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradl
     fi
 fi
 if [ -f "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" ]; then
-    sed -i '1s|.*|#!/data/data/com.termux/files/usr/bin/bash|' "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+    sed -i "1s|.*|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
     chmod 755 "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
 else
     touch "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew.bat" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradle-wrapper.jar" 2>/dev/null || true
-    sed -i '1s|.*|#!/data/data/com.termux/files/usr/bin/bash|' "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
+    sed -i "1s|.*|#!${PREFIX:-/data/data/com.termux/files/usr}/bin/bash|" "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
     chmod 755 "$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper/gradlew" 2>/dev/null || true
 fi
 
@@ -629,18 +631,18 @@ if ! [ -d "$FLUTTER_ROOT/.git" ]; then
     cd "$FLUTTER_ROOT" || true
 
     # Extract actual version before removing the file
-    FLUTTER_VER="3.44.2"
+    FLUTTER_VER="3.44.9"
     if [ -f "version" ]; then
         FLUTTER_VER=$(cat version | tr -d '\n\r')
     fi
 
     rm -f version
-    /data/data/com.termux/files/usr/bin/git init -q >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git config user.email "termux@example.com" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git config user.name "termux" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git commit -q -m "Init framework" >/dev/null 2>&1 || true
-    /data/data/com.termux/files/usr/bin/git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
+    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" init -q >/dev/null 2>&1 || git init -q >/dev/null 2>&1 || true
+    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" config user.email "termux@example.com" >/dev/null 2>&1 || git config user.email "termux@example.com" >/dev/null 2>&1 || true
+    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" config user.name "termux" >/dev/null 2>&1 || git config user.name "termux" >/dev/null 2>&1 || true
+    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || git add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
+    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" commit -q -m "Init framework" >/dev/null 2>&1 || git commit -q -m "Init framework" >/dev/null 2>&1 || true
+    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" tag "$FLUTTER_VER" >/dev/null 2>&1 || git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
     rm -f bin/cache/flutter.version.json 2>/dev/null || true
     echo "  ✓ Dummy tag $FLUTTER_VER created"
 fi
@@ -815,7 +817,7 @@ setup_build_tools_symlinks() {
         if [ "$tool" = "aapt2" ] && [ -L "$BUILD_TOOLS/aapt2" ] && readlink "$BUILD_TOOLS/aapt2" | grep -q "Android/Sdk"; then
             echo "    ✓ Retaining Mode B custom static aapt2 symlink"
         else
-            ln -sf /data/data/com.termux/files/usr/bin/$tool "$BUILD_TOOLS/$tool" 2>/dev/null || true
+            ln -sf "$PREFIX/bin/$tool" "$BUILD_TOOLS/$tool" 2>/dev/null || true
         fi
     done
 
@@ -845,8 +847,8 @@ SPLITEOF
     fi
 
     # d8.jar and dx.jar
-    ln -sf /data/data/com.termux/files/usr/share/java/d8.jar "$BUILD_TOOLS/lib/d8.jar" 2>/dev/null || true
-    ln -sf /data/data/com.termux/files/usr/share/java/d8.jar "$BUILD_TOOLS/lib/dx.jar" 2>/dev/null || true
+    ln -sf "$PREFIX/share/java/d8.jar" "$BUILD_TOOLS/lib/d8.jar" 2>/dev/null || true
+    ln -sf "$PREFIX/share/java/d8.jar" "$BUILD_TOOLS/lib/dx.jar" 2>/dev/null || true
 
     echo "    ✓ build-tools $BT_NAME configured"
 }
@@ -960,11 +962,11 @@ fi
 # 9. 創建 platform-tools 符號連結 (adb)
 # Note: Gradle may download x86_64 platform-tools, so we force overwrite
 echo "[10/13] Creating platform-tools symlinks..."
-mkdir -p $ANDROID_SDK/platform-tools
+mkdir -p "$ANDROID_SDK/platform-tools"
 # Remove any x86_64 binaries Gradle may have downloaded
-rm -f $ANDROID_SDK/platform-tools/adb $ANDROID_SDK/platform-tools/fastboot 2>/dev/null || true
-ln -sf /data/data/com.termux/files/usr/bin/adb $ANDROID_SDK/platform-tools/adb
-ln -sf /data/data/com.termux/files/usr/bin/fastboot $ANDROID_SDK/platform-tools/fastboot
+rm -f "$ANDROID_SDK/platform-tools/adb" "$ANDROID_SDK/platform-tools/fastboot" 2>/dev/null || true
+ln -sf "$PREFIX/bin/adb" "$ANDROID_SDK/platform-tools/adb" 2>/dev/null || true
+ln -sf "$PREFIX/bin/fastboot" "$ANDROID_SDK/platform-tools/fastboot" 2>/dev/null || true
 echo "  ✓ platform-tools symlinks created"
 
 # 10. 接受 Android licenses
@@ -1063,14 +1065,16 @@ finalize_flutter_tools_cache() {
         return 1
     fi
 
-    local REVISION=""
-    if [ -x "/data/data/com.termux/files/usr/bin/git" ] && [ -d "$FLUTTER_ROOT/.git" ]; then
-        REVISION=$(/data/data/com.termux/files/usr/bin/git -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || true)
-    elif command -v git >/dev/null 2>&1 && [ -d "$FLUTTER_ROOT/.git" ]; then
-        REVISION=$(git -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || true)
-    fi
+    local REVISION="${FLUTTER_PREBUILT_ENGINE_VERSION:-}"
     if [ -z "$REVISION" ] && [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
         REVISION=$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | tr -d '\n\r')
+    fi
+    if [ -z "$REVISION" ]; then
+        if [ -x "$PREFIX/bin/git" ] && [ -d "$FLUTTER_ROOT/.git" ]; then
+            REVISION=$("$PREFIX/bin/git" -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || true)
+        elif command -v git >/dev/null 2>&1 && [ -d "$FLUTTER_ROOT/.git" ]; then
+            REVISION=$(git -C "$FLUTTER_ROOT" rev-parse HEAD 2>/dev/null || true)
+        fi
     fi
     if [ -z "$REVISION" ]; then
         echo "  ❌ Error: Failed to determine Flutter SDK revision" >&2
@@ -1088,8 +1092,8 @@ finalize_flutter_tools_cache() {
     mkdir -p "$FLUTTER_ROOT/bin/cache"
 
     # Ensure environment variables are active during snapshot generation
-    export PATH="/data/data/com.termux/files/usr/bin:$PATH"
-    export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+    export PATH="$PREFIX/bin:$PATH"
+    export TMPDIR="${TMPDIR:-$PREFIX/tmp}"
     if [ -n "$REVISION" ]; then
         export FLUTTER_PREBUILT_ENGINE_VERSION="$REVISION"
     fi
@@ -1135,12 +1139,12 @@ echo "Post-install configuration complete!"
 echo "=========================================="
 echo ""
 echo "=== Quick Start ==="
-echo "  source /data/data/com.termux/files/usr/etc/profile.d/flutter.sh"
+echo "  source $PREFIX/etc/profile.d/flutter.sh"
 echo "  flutter create myapp && cd myapp"
 echo ""
 echo "=== IMPORTANT: Project Setup (REQUIRED for each Flutter project) ==="
 echo "  1. Fix gradlew shebang:"
-echo "     sed -i '1s|#!/usr/bin/env bash|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew"
+echo "     sed -i '1s|#!/usr/bin/env bash|#!'"$PREFIX"'/bin/bash|' android/gradlew"
 echo ""
 echo "  2. Edit android/app/build.gradle.kts:"
 echo "     compileSdk = 34"
@@ -1148,7 +1152,7 @@ echo "     targetSdk = 34"
 echo "     ndk { abiFilters += listOf(\"arm64-v8a\") }"
 echo ""
 echo "  3. Add to android/gradle.properties:"
-echo "     android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2"
+echo "     android.aapt2FromMavenOverride=$PREFIX/bin/aapt2"
 echo ""
 echo "  4. Set JAVA_HOME before building:"
 echo "     export JAVA_HOME=\$(find \$PREFIX/lib/jvm -maxdepth 1 -type d -name 'java-*-openjdk' | sort -V | tail -1)"

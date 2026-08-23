@@ -1,4 +1,4 @@
-# Termux Flutter 3.44.2 安裝指南
+# Termux Flutter 3.44.9 安裝指南
 
 本指南適用於 `flutter_3.44.9_aarch64.deb`，目標是在 ARM64 Termux 上執行：
 
@@ -12,7 +12,7 @@
 
 | 項目 | 值 |
 |------|----|
-| Flutter | 3.44.2 |
+| Flutter | 3.44.9 |
 | Flutter Tools Dart | 3.12.1 |
 | Dart VM (`dartvm`) | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | 測試設備 | Samsung SM-X716B / Android 16 / ARM64 |
@@ -45,9 +45,9 @@ pkg update -y
 pkg install -y x11-repo git wget curl unzip openjdk-21 aapt2 android-tools cmake ninja clang
 
 cd ~
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.9_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
 sha256sum flutter_3.44.9_aarch64.deb
-# 確認輸出為：66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
+# 確認輸出為：8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20
 
 dpkg -i flutter_3.44.9_aarch64.deb
 apt --fix-broken install -y
@@ -93,7 +93,7 @@ flutter doctor -v
 
 預期重點：
 
-- `flutter --version` 顯示 Flutter 3.44.2。
+- `flutter --version` 顯示 Flutter 3.44.9。
 - `dart --version` 顯示 `android_arm64`（Termux JIT Dart）。
 - `dartvm --version` 顯示 `linux_arm64`（engine VM）。
 
@@ -181,7 +181,7 @@ flutter run -d <device_id>
 
 ### `PLATFORM_ABI_LIST` unresolved
 
-代表 post-install 的 Flutter Gradle plugin 模板或 Gradle cache 是舊的。更新到 v3.44.2 deb 後執行：
+代表 post-install 的 Flutter Gradle plugin 模板或 Gradle cache 是舊的。更新到 v3.44.9 deb 後執行：
 
 ```bash
 bash $PREFIX/share/flutter/post_install.sh

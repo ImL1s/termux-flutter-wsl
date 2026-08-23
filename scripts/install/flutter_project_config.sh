@@ -4,7 +4,11 @@
 
 set -e
 
-if ! command -v python3 >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1; then
+    PY_BIN="python3"
+elif command -v python >/dev/null 2>&1 && python --version >/dev/null 2>&1; then
+    PY_BIN="python"
+else
     echo "Error: python3 is required for flutter_project_config.sh (AST scope parsing and state serialization)." >&2
     exit 1
 fi
@@ -63,10 +67,13 @@ if [ "$ROLLBACK" = "true" ]; then
     # Read created files from state file if available
     CREATED_FILES=()
     if [ -f "$STATE_FILE" ]; then
-        CREATED_FILES=($(python3 -c '
-import json, sys
+        CREATED_FILES=($("$PY_BIN" -c '
+import json, sys, os
+p = sys.argv[1]
+if len(p) > 2 and p[0] == "/" and p[2] == "/" and p[1].isalpha() and (os.name == "nt" or not os.path.exists(p)):
+    p = f"{p[1]}:{p[2:]}"
 try:
-    with open(sys.argv[1]) as f:
+    with open(p) as f:
         data = json.load(f)
     print(" ".join(data.get("created_files", [])))
 except Exception:
@@ -189,10 +196,13 @@ fi
 # 1. Update or Create gradle.properties
 EXISTING_CREATED=()
 if [ -f "$STATE_FILE" ]; then
-    EXISTING_CREATED=($(python3 -c '
-import json, sys
+    EXISTING_CREATED=($("$PY_BIN" -c '
+import json, sys, os
+p = sys.argv[1]
+if len(p) > 2 and p[0] == "/" and p[2] == "/" and p[1].isalpha() and (os.name == "nt" or not os.path.exists(p)):
+    p = f"{p[1]}:{p[2:]}"
 try:
-    with open(sys.argv[1]) as f:
+    with open(p) as f:
         data = json.load(f)
     print(" ".join(data.get("created_files", [])))
 except Exception:
@@ -237,11 +247,15 @@ if [ ! -f "${TARGET_GRADLE}.bak" ]; then
 fi
 
 # Call Python helper for scope-aware Gradle transformation
-python3 - "$TARGET_GRADLE" << 'EOF'
+"$PY_BIN" - "$TARGET_GRADLE" << 'EOF'
 import sys
 import re
+import os
 
 gradle_file = sys.argv[1]
+if len(gradle_file) > 2 and gradle_file[0] == '/' and gradle_file[2] == '/' and gradle_file[1].isalpha():
+    if os.name == 'nt' or not os.path.exists(gradle_file):
+        gradle_file = f"{gradle_file[1]}:{gradle_file[2:]}"
 with open(gradle_file, 'r', encoding='utf-8') as f:
     text = f.read()
 
@@ -529,10 +543,13 @@ fi
 
 # Write state file
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-python3 - "$STATE_FILE" "$TIMESTAMP" "$TERMUX_AAPT2" "${#MODIFIED_FILES[@]}" "${MODIFIED_FILES[@]}" "${CREATED_FILES[@]}" << 'PYSTATE'
-import sys, json
+"$PY_BIN" - "$STATE_FILE" "$TIMESTAMP" "$TERMUX_AAPT2" "${#MODIFIED_FILES[@]}" "${MODIFIED_FILES[@]}" "${CREATED_FILES[@]}" << 'PYSTATE'
+import sys, json, os
 
 state_file = sys.argv[1]
+if len(state_file) > 2 and state_file[0] == '/' and state_file[2] == '/' and state_file[1].isalpha():
+    if os.name == 'nt' or not os.path.exists(state_file):
+        state_file = f"{state_file[1]}:{state_file[2:]}"
 timestamp = sys.argv[2]
 aapt2_path = sys.argv[3]
 num_mod = int(sys.argv[4])
