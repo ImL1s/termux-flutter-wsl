@@ -38,12 +38,14 @@ def parse_inventory_entries(inventory_text: str) -> set:
             raise ValueError(f"Malformed inventory line: '{line}'")
         _, _, _, _, _, path_part = m.groups()
         if " -> " in path_part:
-            path_str, _ = path_part.split(" -> ", 1)
+            path_str, link_target = path_part.split(" -> ", 1)
+            norm_path = normalize_member_path(path_str)
+            if norm_path:
+                paths.add(f"{norm_path} -> {link_target}")
         else:
-            path_str = path_part
-        norm_path = normalize_member_path(path_str)
-        if norm_path:
-            paths.add(norm_path)
+            norm_path = normalize_member_path(path_part)
+            if norm_path:
+                paths.add(norm_path)
     return paths
 
 
@@ -74,7 +76,10 @@ def extract_deb_member_paths(deb_path) -> set:
                     for member in tar.getmembers():
                         p = normalize_member_path(member.name)
                         if p:
-                            paths.add(p)
+                            if (member.issym() or member.islnk()) and member.linkname:
+                                paths.add(f"{p} -> {member.linkname}")
+                            else:
+                                paths.add(p)
                 return paths
             else:
                 skip = size + (1 if size % 2 == 1 else 0)
