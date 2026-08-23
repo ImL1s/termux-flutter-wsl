@@ -49,6 +49,22 @@ if [ "${#POSITIONAL_ARGS[@]}" -ne 1 ]; then
 fi
 
 PROJ="${POSITIONAL_ARGS[0]}"
+PROJ="${PROJ//\\//}"
+if [[ "$PROJ" =~ ^([a-zA-Z]):/(.*) ]]; then
+    _drive="${BASH_REMATCH[1]}"
+    _drive="$(echo "$_drive" | tr '[:upper:]' '[:lower:]')"
+    if [ -d "/mnt/${_drive}/${BASH_REMATCH[2]}" ]; then
+        PROJ="/mnt/${_drive}/${BASH_REMATCH[2]}"
+    else
+        PROJ="/${_drive}/${BASH_REMATCH[2]}"
+    fi
+elif [ ! -d "$PROJ" ]; then
+    if [ -d "/mnt$PROJ" ]; then
+        PROJ="/mnt$PROJ"
+    elif [[ "$PROJ" =~ ^/mnt/(.*) ]] && [ -d "/${BASH_REMATCH[1]}" ]; then
+        PROJ="/${BASH_REMATCH[1]}"
+    fi
+fi
 
 if [ ! -d "$PROJ/android" ]; then
     echo "Error: $PROJ is not a valid Flutter Android project (missing android/ directory)." >&2

@@ -355,7 +355,7 @@ def test_executable_post_mutation_failure_triggers_rollback(tmp_path, failure_st
 def to_wsl_posix(p):
     s = p.as_posix() if isinstance(p, Path) else str(p)
     if len(s) > 1 and s[1:3] == ":/":
-        return f"/{s[0].lower()}{s[2:]}"
+        return f"/mnt/{s[0].lower()}{s[2:]}"
     return s
 
 

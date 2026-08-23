@@ -19,7 +19,7 @@ def to_wsl_posix(path):
     p = Path(path).resolve().as_posix()
     if len(p) > 1 and p[1] == ':':
         drive = p[0].lower()
-        return f"/{drive}{p[2:]}"
+        return f"/mnt/{drive}{p[2:]}"
     return p
 
 

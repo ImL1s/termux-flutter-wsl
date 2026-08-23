@@ -161,7 +161,8 @@ def test_run_termux_smoke_ps1_syntax():
     assert script_path.is_file()
 
     pwsh_bin = shutil.which("pwsh") or shutil.which("powershell")
-    assert pwsh_bin is not None, "Neither pwsh nor powershell found on PATH"
+    if not pwsh_bin:
+        pytest.skip("Neither pwsh nor powershell found on PATH")
 
     rel_path = script_path.relative_to(ROOT).as_posix()
     cmd = [
