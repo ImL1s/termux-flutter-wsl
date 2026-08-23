@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+
 
 jobs:
   release-metadata:

@@ -2816,7 +2816,7 @@ size = {actual_size}
             url = req.full_url if hasattr(req, "full_url") else str(req)
             resp = MagicMock()
             if "/actions/runs/12345678" in url:
-                resp.read.return_value = json.dumps({"head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f", "conclusion": "success"}).encode("utf-8")
+                resp.read.return_value = json.dumps({"head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f", "conclusion": "success", "path": ".github/workflows/build-deb.yml"}).encode("utf-8")
             elif "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
             elif "/compare/" in url:
@@ -2859,6 +2859,72 @@ size = {actual_size}
         verify_release_asset.main()
 
     @patch("urllib.request.urlopen")
+    def test_full_mode_workflow_run_id_mismatched_path_fails(self, mock_urlopen, tmp_path, monkeypatch):
+        """Verify build_metadata.json with run_id not pointing to .github/workflows/build-deb.yml fails closed."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
+
+        asset_name = "flutter_3.44.9_aarch64.deb"
+        (tmp_path / "build.toml").write_text(f"""
+[flutter]
+release_tag = "v3.44.9-termux"
+asset_name = "{asset_name}"
+sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
+size = 100
+""", encoding="utf-8")
+
+        api_data = {
+            "assets": [
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": 100},
+                {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
+                {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
+                {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
+                {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+            ]
+        }
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "/actions/runs/12345678" in url:
+                # Ordinary CI run instead of build-deb.yml
+                resp.read.return_value = json.dumps({"head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f", "conclusion": "success", "path": ".github/workflows/ci.yml"}).encode("utf-8")
+            elif "/git/commits/" in url:
+                resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
+            elif "/compare/" in url:
+                resp.read.return_value = json.dumps({"status": "identical", "ahead_by": 0, "behind_by": 0, "files": []}).encode("utf-8")
+            elif "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = b"00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca\n"
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = b"100\n"
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 file_{i}" for i in range(15)).encode("utf-8")
+            elif url.endswith("build_metadata.json"):
+                meta_dict = {
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                    "size_bytes": 100,
+                }
+                resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
+
+        with pytest.raises(SystemExit) as exc:
+            verify_release_asset.main()
+        assert exc.value.code == 1
+
+    @patch("urllib.request.urlopen")
     def test_full_mode_workflow_run_id_mismatched_sha_fails(self, mock_urlopen, tmp_path, monkeypatch):
         """Verify build_metadata.json with run_id having mismatched head_sha fails closed."""
         monkeypatch.chdir(tmp_path)
@@ -2887,7 +2953,7 @@ size = 100
             url = req.full_url if hasattr(req, "full_url") else str(req)
             resp = MagicMock()
             if "/actions/runs/12345678" in url:
-                resp.read.return_value = json.dumps({"head_sha": "wrongcommit0000000000000000000000000000000", "conclusion": "success"}).encode("utf-8")
+                resp.read.return_value = json.dumps({"head_sha": "wrongcommit0000000000000000000000000000000", "conclusion": "success", "path": ".github/workflows/build-deb.yml"}).encode("utf-8")
             elif "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
             elif "/compare/" in url:
@@ -2952,7 +3018,7 @@ size = 100
             url = req.full_url if hasattr(req, "full_url") else str(req)
             resp = MagicMock()
             if "/actions/runs/12345678" in url:
-                resp.read.return_value = json.dumps({"head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f", "conclusion": "failure"}).encode("utf-8")
+                resp.read.return_value = json.dumps({"head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f", "conclusion": "failure", "path": ".github/workflows/build-deb.yml"}).encode("utf-8")
             elif "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
             elif "/compare/" in url:
@@ -2981,6 +3047,7 @@ size = 100
             m = MagicMock()
             m.__enter__.return_value = resp
             return m
+
 
         mock_urlopen.side_effect = fake_urlopen
 

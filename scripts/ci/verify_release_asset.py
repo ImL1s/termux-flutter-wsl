@@ -598,13 +598,18 @@ def main():
                         run_obj = json.loads(resp.read().decode("utf-8"))
                         run_head_sha = str(run_obj.get("head_sha", "")).lower()
                         run_conclusion = str(run_obj.get("conclusion", "")).lower()
+                        run_path = str(run_obj.get("path", "")).strip()
+                        if run_path != ".github/workflows/build-deb.yml":
+                            print(f"Error: Workflow run {run_id} workflow path mismatch! Expected '.github/workflows/build-deb.yml', got '{run_path}'")
+                            sys.exit(1)
                         if run_head_sha != meta_commit.lower():
                             print(f"Error: Workflow run {run_id} head_sha mismatch! Claimed {meta_commit}, but run head_sha is '{run_head_sha}'")
                             sys.exit(1)
                         if run_conclusion != "success":
                             print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
                             sys.exit(1)
-                        print(f"  ✓ Verified workflow run_id {run_id} succeeded for source_commit {meta_commit[:8]}...")
+                        print(f"  ✓ Verified workflow run_id {run_id} (.github/workflows/build-deb.yml) succeeded for source_commit {meta_commit[:8]}...")
+
                 except Exception as e:
                     print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
                     sys.exit(1)
