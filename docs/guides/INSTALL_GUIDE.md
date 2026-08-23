@@ -17,7 +17,7 @@
 | Dart VM (`dartvm`) | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
 | 測試設備 | Samsung SM-X716B / Android 16 / ARM64 |
 | deb size | 177,161,976 bytes（約 169 MiB） |
-| SHA256 | `0000000000000000000000000000000000000000000000000000000000000000` |
+| SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
 
 ## 系統需求
 
