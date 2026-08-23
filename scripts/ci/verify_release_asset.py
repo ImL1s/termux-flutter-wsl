@@ -27,8 +27,25 @@ def normalize_member_path(p: str) -> str:
     return s
 
 
+def tar_member_type(member: tarfile.TarInfo) -> str:
+    """Derive dpkg-deb style single-character type indicator from tar member."""
+    if member.isdir():
+        return "d"
+    if member.issym():
+        return "l"
+    if member.islnk():
+        return "h"
+    if member.ischr():
+        return "c"
+    if member.isblk():
+        return "b"
+    if member.isfifo():
+        return "p"
+    return "-"
+
+
 def parse_inventory_entries(inventory_text: str) -> set:
-    """Parse normalized file paths from dpkg-deb -c style inventory text."""
+    """Parse normalized (type:path/target) entries from dpkg-deb -c style inventory text."""
     paths = set()
     for line in inventory_text.splitlines():
         if not line.strip() or line.startswith("#"):
@@ -36,21 +53,22 @@ def parse_inventory_entries(inventory_text: str) -> set:
         m = INVENTORY_LINE_REGEX.match(line)
         if not m:
             raise ValueError(f"Malformed inventory line: '{line}'")
-        _, _, _, _, _, path_part = m.groups()
+        mode_str, _, _, _, _, path_part = m.groups()
+        entry_type = mode_str[0]
         if " -> " in path_part:
             path_str, link_target = path_part.split(" -> ", 1)
             norm_path = normalize_member_path(path_str)
             if norm_path:
-                paths.add(f"{norm_path} -> {link_target}")
+                paths.add(f"{entry_type}:{norm_path} -> {link_target}")
         else:
             norm_path = normalize_member_path(path_part)
             if norm_path:
-                paths.add(norm_path)
+                paths.add(f"{entry_type}:{norm_path}")
     return paths
 
 
 def extract_deb_member_paths(deb_path) -> set:
-    """Extract set of normalized paths contained in a .deb package's data.tar.* archive."""
+    """Extract set of normalized (type:path/target) entries contained in a .deb package's data.tar.* archive."""
     with open(deb_path, "rb") as f:
         magic = f.read(8)
         if magic != b"!<arch>\n":
@@ -75,11 +93,13 @@ def extract_deb_member_paths(deb_path) -> set:
                 with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:*") as tar:
                     for member in tar.getmembers():
                         p = normalize_member_path(member.name)
-                        if p:
-                            if (member.issym() or member.islnk()) and member.linkname:
-                                paths.add(f"{p} -> {member.linkname}")
-                            else:
-                                paths.add(p)
+                        if not p:
+                            continue
+                        mtype = tar_member_type(member)
+                        if (member.issym() or member.islnk()) and member.linkname:
+                            paths.add(f"{mtype}:{p} -> {member.linkname}")
+                        else:
+                            paths.add(f"{mtype}:{p}")
                 return paths
             else:
                 skip = size + (1 if size % 2 == 1 else 0)
