@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -249,20 +250,43 @@ def check_bash_syntax() -> None:
         "scripts/test/gh_e2e_test.sh",
     ]
     # Use relative POSIX paths with cwd=ROOT so Windows backslashes don't break bash argument parsing
-    cmd = ["bash", "-n"] + scripts
+    bash_bin = None
+    if os.name == "nt":
+        for candidate in [
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ]:
+            if os.path.exists(candidate):
+                bash_bin = candidate
+                break
+    if not bash_bin:
+        found = shutil.which("bash")
+        if found and "system32" not in found.lower():
+            bash_bin = found
+    if not bash_bin:
+        bash_bin = "bash"
+
+    cmd = [bash_bin, "-n"] + scripts
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+        res = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=15)
         if res.returncode == 0:
             record_pass(check_name)
         else:
             record_fail(check_name, f"bash -n syntax check failed:\n{res.stderr}")
-    except FileNotFoundError:
-        record_fail(check_name, "bash command not found in PATH")
+    except (FileNotFoundError, PermissionError, OSError, subprocess.TimeoutExpired) as e:
+        record_fail(check_name, f"bash execution error: {e}")
 
 
 def check_git_diff() -> None:
     check_name = "12. Run git diff --check"
-    res = subprocess.run(["git", "diff", "--check"], capture_output=True, text=True, cwd=ROOT)
+    res = subprocess.run(
+        ["git", "--no-pager", "diff", "--check"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        env=dict(os.environ, PAGER="cat", GIT_PAGER="cat"),
+    )
     if res.returncode == 0:
         record_pass(check_name)
     else:

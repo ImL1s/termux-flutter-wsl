@@ -37,7 +37,7 @@ def to_bash_path(path):
         p = path.as_posix()
         if len(p) > 1 and p[1] == ":":
             drive = p[0].lower()
-            return f"/{drive}{p[2:]}"
+            return f"/mnt/{drive}{p[2:]}"
         return p
 
 

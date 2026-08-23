@@ -10,7 +10,7 @@ SCRIPT_PATH = (REPO_ROOT / "scripts" / "device" / "termux_smoke.sh").relative_to
 def to_wsl_posix(p):
     s = p.as_posix() if isinstance(p, Path) else str(p)
     if len(s) > 1 and s[1:3] == ":/":
-        return f"/{s[0].lower()}{s[2:]}"
+        return f"/mnt/{s[0].lower()}{s[2:]}"
     return s
 
 def test_termux_smoke_script_syntax():

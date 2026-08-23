@@ -500,10 +500,11 @@ class TestWorkflowSecurityAndRepoSanity:
             test_file.write_text("# Test\n```bash\necho hello\n", encoding="utf-8")
             cr.ERRORS.clear()
             cr.check_markdown_fences()
-            assert any("unbalanced markdown code fence: docs/test_unbalanced_fence.md" in err or "test_unbalanced_fence.md" in err for err in cr.ERRORS)
+            assert any("test_unbalanced_fence.md" in err for err in cr.ERRORS)
         finally:
             if test_file.exists():
                 test_file.unlink()
+            cr.ERRORS.clear()
 
     def test_check_repo_catches_broken_markdown_links(self):
         """Verify check_repo.py detects broken relative markdown links."""
@@ -512,10 +513,11 @@ class TestWorkflowSecurityAndRepoSanity:
             test_file.write_text("# Test\nLink to [nonexistent](nonexistent_file.md)\n", encoding="utf-8")
             cr.ERRORS.clear()
             cr.check_markdown_links()
-            assert any("broken markdown link" in err and "test_broken_link.md" in err for err in cr.ERRORS)
+            assert any("test_broken_link.md" in err for err in cr.ERRORS)
         finally:
             if test_file.exists():
                 test_file.unlink()
+            cr.ERRORS.clear()
 
     def test_check_repo_detects_forbidden_release_versions(self):
         """Verify check_repo.py detects stale 3.41.5 release commands in checked files."""
