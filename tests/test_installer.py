@@ -16,15 +16,11 @@ INSTALLER = REPO_ROOT / "install_flutter_complete.sh"
 
 def to_bash_path(path):
     path = Path(path).resolve()
-    try:
-        rel = path.relative_to(REPO_ROOT)
-        return rel.as_posix()
-    except ValueError:
-        p = path.as_posix()
-        if len(p) > 1 and p[1] == ":":
-            drive = p[0].lower()
-            return f"/mnt/{drive}{p[2:]}"
-        return p
+    p = path.as_posix()
+    if len(p) > 1 and p[1] == ":":
+        drive = p[0].lower()
+        return f"/{drive}{p[2:]}"
+    return p
 
 
 def test_verify_sha256_success(tmp_path):
@@ -169,15 +165,15 @@ if [ "$1" = "-i" ]; then
     DEB="$2"
     PKG=$(basename "$DEB" | cut -d'_' -f1)
     VER=$(basename "$DEB" | cut -d'_' -f2)
-    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p; pkg=sys.argv[2]; ver=sys.argv[3]; d=json.load(open(p)); d[pkg]=ver; json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG" "$VER"
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); pkg=sys.argv[2]; ver=sys.argv[3]; d=json.load(open(p)); d[pkg]=ver; json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG" "$VER"
     exit 0
 elif [ "$1" = "-r" ]; then
     PKG="$2"
-    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p; pkg=sys.argv[2]; d=json.load(open(p)); d.pop(pkg, None); json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG"
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); pkg=sys.argv[2]; d=json.load(open(p)); d.pop(pkg, None); json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG"
     exit 0
 elif [ "$1" = "-l" ]; then
     PKG="$2"
-    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p; pkg=sys.argv[2]; d=json.load(open(p)); print('ii ' + pkg if pkg in d else '')" "$STATE_FILE" "$PKG"
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); pkg=sys.argv[2]; d=json.load(open(p)); print('ii ' + pkg if pkg in d else '')" "$STATE_FILE" "$PKG"
     exit 0
 fi
 exit 0
@@ -185,7 +181,7 @@ exit 0
     )
 
     mock_dpkg_query = bin_dir / "dpkg-query"
-    dpkg_query_code = "import os, json, sys; p = sys.argv[1]; p = ('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p; pkg = sys.argv[-1]; fmt = sys.argv[-2] if len(sys.argv) > 3 else ''; d = json.load(open(p)); (sys.stdout.write('install ok installed ' + d[pkg] + '\\n') if ('Status' in fmt and 'Version' in fmt) else (sys.stdout.write('install ok installed\\n') if 'Status' in fmt else (sys.stdout.write(d[pkg] + '\\n') if 'Version' in fmt else sys.stdout.write(pkg + '\\t' + d[pkg] + '\\n')))) if pkg in d else sys.exit(1)"
+    dpkg_query_code = "import os, json, sys; p = sys.argv[1]; p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); pkg = sys.argv[-1]; fmt = sys.argv[-2] if len(sys.argv) > 3 else ''; d = json.load(open(p)); (sys.stdout.write('install ok installed ' + d[pkg] + '\\n') if ('Status' in fmt and 'Version' in fmt) else (sys.stdout.write('install ok installed\\n') if 'Status' in fmt else (sys.stdout.write(d[pkg] + '\\n') if 'Version' in fmt else sys.stdout.write(pkg + '\\t' + d[pkg] + '\\n')))) if pkg in d else sys.exit(1)"
     write_sh(
         mock_dpkg_query,
         f"""#!/bin/sh

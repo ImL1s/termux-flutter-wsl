@@ -51,8 +51,8 @@ def record_fail(check_name: str, message: str) -> None:
 
 
 def check_stale_url_tags() -> None:
-    check_name = "1. Release URL tag repair (grep download/v3.44.2/)"
-    stale_pattern = "download/v3.44.2/"
+    check_name = "1. Release URL tag repair (grep download/v3.44.9/)"
+    stale_pattern = "download/v3.44.9/"
     found_matches: list[str] = []
 
     search_paths: list[Path] = []
@@ -81,14 +81,14 @@ def check_stale_url_tags() -> None:
             record_fail(check_name, f"Error reading {path}: {e}")
 
     if found_matches:
-        record_fail(check_name, f"Found stale download/v3.44.2/ URL in: {', '.join(found_matches)}")
+        record_fail(check_name, f"Found stale download/v3.44.9/ URL in: {', '.join(found_matches)}")
     else:
         record_pass(check_name)
 
 
 def check_http_head_release_deb() -> None:
     check_name = "2. HTTP HEAD response for FLUTTER_DEB_URL"
-    url = "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb"
+    url = "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb"
     try:
         req = urllib.request.Request(
             url,
@@ -106,7 +106,7 @@ def check_http_head_release_deb() -> None:
 
 
 def check_build_toml_release_tag() -> None:
-    check_name = "3. build.toml defines release_tag = 'v3.44.2-termux'"
+    check_name = "3. build.toml defines release_tag = 'v3.44.9-termux'"
     toml_path = ROOT / "build.toml"
     if not toml_path.is_file():
         record_fail(check_name, "build.toml does not exist")
@@ -120,7 +120,7 @@ def check_build_toml_release_tag() -> None:
         m = re.search(r'release_tag\s*=\s*["\']([^"\']+)["\']', content)
         release_tag = m.group(1) if m else ""
 
-    expected = "v3.44.2-termux"
+    expected = "v3.44.9-termux"
     if release_tag == expected:
         record_pass(check_name)
     else:

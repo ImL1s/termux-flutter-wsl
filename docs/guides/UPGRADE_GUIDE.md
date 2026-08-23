@@ -1,6 +1,6 @@
 # Flutter 版本升級指南
 
-本文件說明如何將 Termux Flutter 從目前的 3.44.2 升級到新版本，並列出 3.44.2 之後必須重新檢查的 Dart / Flutter Tools / Gradle plugin 風險點。
+本文件說明如何將 Termux Flutter 從目前的 3.44.9 升級到新版本，並列出 3.44.9 之後必須重新檢查的 Dart / Flutter Tools / Gradle plugin 風險點。
 
 ---
 
@@ -22,7 +22,7 @@
 □ Step 13: 發佈 GitHub Release
 ```
 
-## 3.44.2 之後的必查項目
+## 3.44.9 之後的必查項目
 
 | 項目 | 為什麼重要 | 檢查方式 |
 |------|------------|----------|

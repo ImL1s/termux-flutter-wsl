@@ -7,10 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.44.2-termux] - 2026-07-04
+## [3.44.9-termux] - 2026-07-04
 
 ### Added
-- Upgraded Flutter SDK cross-compilation target to `3.44.2`.
+- Upgraded Flutter SDK cross-compilation target to `3.44.9`.
 - Added support for disabling resource optimizations and shrinking during APK builds in smoke tests due to compatibility issues with Termux's native `aapt2`.
 
 ### Fixed

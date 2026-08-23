@@ -29,11 +29,16 @@ RULESET_FILE = REPO_ROOT / ".github" / "rulesets" / "master_protection_ruleset.j
 
 
 def to_bash_path(path):
-    p = Path(path).resolve().as_posix()
-    if len(p) > 1 and p[1] == ":":
-        drive = p[0].lower()
-        return f"/mnt/{drive}{p[2:]}"
-    return p
+    path = Path(path).resolve()
+    try:
+        rel = path.relative_to(REPO_ROOT)
+        return rel.as_posix()
+    except ValueError:
+        p = path.as_posix()
+        if len(p) > 1 and p[1] == ":":
+            drive = p[0].lower()
+            return f"/{drive}{p[2:]}"
+        return p
 
 
 # ==============================================================================

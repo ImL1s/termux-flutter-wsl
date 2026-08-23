@@ -23,7 +23,7 @@ POST_INSTALL_PATH = (REPO_ROOT / "scripts" / "install" / "post_install.sh").reso
 def to_wsl_posix(p):
     s = p.as_posix() if isinstance(p, Path) else str(p)
     if len(s) > 1 and s[1:3] == ":/":
-        return f"/mnt/{s[0].lower()}{s[2:]}"
+        return f"/{s[0].lower()}{s[2:]}"
     return s
 
 
@@ -95,11 +95,11 @@ if [ "$1" = "-i" ] || [ "$1" = "--force-architecture" ]; then
     DEB="$1"
     PKG=$(basename "$DEB" | cut -d'_' -f1)
     VER=$(basename "$DEB" | cut -d'_' -f2)
-    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; pkg=sys.argv[2]; ver=sys.argv[3]; d=json.load(open(p)); d[pkg]=ver; json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG" "$VER"
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); pkg=sys.argv[2]; ver=sys.argv[3]; d=json.load(open(p)); d[pkg]=ver; json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG" "$VER"
     exit 0
 elif [ "$1" = "-r" ]; then
     PKG="$2"
-    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; pkg=sys.argv[2]; d=json.load(open(p)); d.pop(pkg, None); json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG"
+    "$PY_CMD" -c "import os, json, sys; p = sys.argv[1]; p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); pkg=sys.argv[2]; d=json.load(open(p)); d.pop(pkg, None); json.dump(d, open(p,'w'))" "$STATE_FILE" "$PKG"
     exit 0
 fi
 exit 0
@@ -109,7 +109,7 @@ exit 0
     mock_dpkg_query = bin_dir / "dpkg-query"
     dpkg_query_code = (
         "import os, json, sys; p = sys.argv[1]; "
-        "p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; "
+        "p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); "
         "pkg = sys.argv[-1]; fmt = sys.argv[-2] if len(sys.argv) > 3 else ''; "
         "d = json.load(open(p)); "
         "(sys.stdout.write('install ok installed ' + d[pkg] + '\\n') if ('Status' in fmt and 'Version' in fmt) else "
@@ -130,7 +130,7 @@ exit $?
     mock_dpkg_repack = bin_dir / "dpkg-repack"
     dpkg_repack_code = (
         "import os, json, sys; p = sys.argv[1]; "
-        "p = ('/mnt/c/' + p[3:]) if (os.name != 'nt' and (p.startswith('C:/') or p.startswith('c:/'))) else p; "
+        "p = (p[1] + ':' + p[2:]) if (os.name == 'nt' and len(p) > 2 and p[0] == '/' and p[2] == '/') else (('/mnt/' + p[0].lower() + p[2:]) if (os.name != 'nt' and len(p) > 1 and p[1] == ':') else p); "
         "pkg = sys.argv[2]; d = json.load(open(p)); "
         "open(f'{pkg}_{d[pkg]}_aarch64.deb', 'w').write('dummy deb') if pkg in d else sys.exit(1)"
     )

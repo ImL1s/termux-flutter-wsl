@@ -11,7 +11,7 @@ path = './flutter'
 
 [ndk]
 api = 35 # Android 16 = API 35
-path = '/opt/android-ndk-r27d'
+path = ''
 
 [build]
 arch = ['arm64'] # arm, arm64, x86, x64
@@ -23,8 +23,8 @@ jobs = 24  # Ryzen 9950X3D: 32 threads, leave 8 for system
 
 # Windows to WSL sync paths (for debuild)
 [sync]
-windows_root = 'D:/OtherProject/mine/flutter_termux'
-wsl_root = '/home/iml1s/projects/termux-flutter-3.44-src'
+windows_root = ''
+wsl_root = ''
 paths = ['scripts', 'patches', 'package.yaml', 'build.toml', 'build.py', 'sysroot.py', 'package.py', 'utils.py', '.gclient', 'install_flutter_complete.sh', 'sysroot.lock.json']
 
 # Patches are now version-based: patches/{version}/*.patch
