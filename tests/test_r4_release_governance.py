@@ -3533,53 +3533,23 @@ size = 100
         assert exc.value.code == 1
 
     @patch("urllib.request.urlopen")
-    @patch("urllib.request.urlretrieve")
-    def test_full_mode_workflow_artifact_expired_succeeds(self, mock_retrieve, mock_urlopen, tmp_path, monkeypatch):
-        """Verify workflow artifact expired past retention window is accepted with valid run identity and metadata."""
+    def test_full_mode_workflow_artifact_expired_fails(self, mock_urlopen, tmp_path, monkeypatch):
+        """Verify workflow artifact expired past retention window fails closed."""
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
-        monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
 
-        file_paths = [f"data/data/com.termux/files/usr/opt/flutter/file_{i}" for i in range(15)]
-        tar_buf = io.BytesIO()
-        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
-            for p in file_paths:
-                ti = tarfile.TarInfo(name=p)
-                ti.mode = 0o755
-                ti.uname = "root"
-                ti.gname = "root"
-                ti.size = 5
-                ti.mtime = 1787486400
-                tar.addfile(ti, io.BytesIO(b"hello"))
-        data_bytes = tar_buf.getvalue()
-
-        deb_buf = io.BytesIO()
-        deb_buf.write(b"!<arch>\n")
-        deb_bin = b"2.0\n"
-        deb_buf.write(f"{'debian-binary':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(deb_bin):<10}`\n".encode("ascii"))
-        deb_buf.write(deb_bin)
-        data_hdr = f"{'data.tar.gz':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(data_bytes):<10}`\n".encode("ascii")
-        deb_buf.write(data_hdr)
-        deb_buf.write(data_bytes)
-        if len(data_bytes) % 2 == 1:
-            deb_buf.write(b"\n")
-
-        deb_bytes = deb_buf.getvalue()
-        expected_sha256 = hashlib.sha256(deb_bytes).hexdigest()
-        actual_size = len(deb_bytes)
         asset_name = "flutter_3.44.9_aarch64.deb"
-
         (tmp_path / "build.toml").write_text(f"""
 [flutter]
 release_tag = "v3.44.9-termux"
 asset_name = "{asset_name}"
-sha256 = "{expected_sha256}"
-size = {actual_size}
+sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
+size = 100
 """, encoding="utf-8")
 
         api_data = {
             "assets": [
-                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": actual_size},
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": 100},
                 {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
@@ -3587,8 +3557,6 @@ size = {actual_size}
                 {"name": "evidence.json", "browser_download_url": "https://example.com/evidence.json"},
             ]
         }
-
-        inventory_content = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 data/data/com.termux/files/usr/opt/flutter/file_{i}" for i in range(15)) + "\n"
 
         def fake_urlopen(req, *args, **kwargs):
             url = req.full_url if hasattr(req, "full_url") else str(req)
@@ -3605,11 +3573,11 @@ size = {actual_size}
             elif "api.github.com" in url:
                 resp.read.return_value = json.dumps(api_data).encode("utf-8")
             elif url.endswith(".sha256"):
-                resp.read.return_value = f"{expected_sha256}\n".encode("utf-8")
+                resp.read.return_value = b"00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca\n"
             elif url.endswith(".size.txt"):
-                resp.read.return_value = f"{actual_size}\n".encode("utf-8")
+                resp.read.return_value = b"100\n"
             elif url.endswith("inventory.txt"):
-                resp.read.return_value = inventory_content.encode("utf-8")
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 file_{i}" for i in range(15)).encode("utf-8")
             elif url.endswith("build_metadata.json"):
                 meta_dict = {
                     "version": "3.44.9",
@@ -3619,19 +3587,10 @@ size = {actual_size}
                     "build_duration_seconds": 3600.5,
                     "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
                     "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
-                    "sha256": expected_sha256,
-                    "size_bytes": actual_size,
+                    "sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                    "size_bytes": 100,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
-            elif url.endswith("evidence.json"):
-                ev_dict = {
-                    "type": "build_evidence",
-                    "version": "3.44.9",
-                    "arch": "aarch64",
-                    "run_id": 12345678,
-                    "deb_sha256": expected_sha256,
-                }
-                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -3640,13 +3599,10 @@ size = {actual_size}
 
         mock_urlopen.side_effect = fake_urlopen
 
-        def fake_retrieve(url, filename, *args, **kwargs):
-            Path(filename).write_bytes(deb_bytes)
+        with pytest.raises(SystemExit) as exc:
+            verify_release_asset.main()
+        assert exc.value.code == 1
 
-        mock_retrieve.side_effect = fake_retrieve
-
-        # Should pass without SystemExit
-        verify_release_asset.main()
 
     @patch("urllib.request.urlopen")
     def test_full_mode_companion_evidence_json_mismatched_sha_fails(self, mock_urlopen, tmp_path, monkeypatch):

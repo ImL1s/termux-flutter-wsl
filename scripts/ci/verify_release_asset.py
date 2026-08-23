@@ -681,8 +681,11 @@ def main():
 
                     art_id = matching_artifact.get("id")
                     if matching_artifact.get("expired", False):
-                        print(f"  ℹ️ Workflow run {run_id} artifact {art_id} has expired (retention window exceeded); verified workflow run identity and immutable release metadata")
-                    elif art_id:
+                        print(f"Error: Workflow run {run_id} artifact {art_id} has expired; cannot verify artifact contents")
+                        sys.exit(1)
+
+                    if art_id:
+
                         zip_url = f"https://api.github.com/repos/{repo}/actions/artifacts/{art_id}/zip"
                         zip_req = urllib.request.Request(zip_url, headers=headers)
                         with urllib.request.urlopen(zip_req) as zip_resp:
