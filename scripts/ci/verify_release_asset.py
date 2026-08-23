@@ -12,7 +12,7 @@ from pathlib import Path
 
 SHA256_HEX_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
 INVENTORY_LINE_REGEX = re.compile(
-    r"^([dlcbsph-][rwxstST-]{9})\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
+    r"^([dlcbsph-][rwxstST-]{9})\s+(\S+)\s+(\d+(?:,\d+)?)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
 )
 
 
@@ -90,24 +90,22 @@ def parse_inventory_entries(inventory_text: str) -> list[str]:
             raise ValueError(f"Malformed inventory line: '{line}'")
         mode_str, owner_group, size_str, date_str, time_str, path_part = m.groups()
         owner_str = owner_group.strip()
-        parsed_size = int(size_str)
         time_part = f"{date_str} {time_str}"
         if " -> " in path_part:
             path_str, link_target = path_part.split(" -> ", 1)
             norm_path = normalize_member_path(path_str)
-            norm_target = normalize_member_path(link_target)
             if norm_path:
-                entries.append(f"{mode_str} {owner_str} {parsed_size} {time_part} {norm_path} -> {norm_target}")
+                entries.append(f"{mode_str} {owner_str} {size_str} {time_part} {norm_path} -> {link_target}")
         elif " link to " in path_part:
             path_str, link_target = path_part.split(" link to ", 1)
             norm_path = normalize_member_path(path_str)
-            norm_target = normalize_member_path(link_target)
+            hardlink_target = link_target[2:] if link_target.startswith("./") else link_target
             if norm_path:
-                entries.append(f"{mode_str} {owner_str} {parsed_size} {time_part} {norm_path} link to {norm_target}")
+                entries.append(f"{mode_str} {owner_str} {size_str} {time_part} {norm_path} link to {hardlink_target}")
         else:
             norm_path = normalize_member_path(path_part)
             if norm_path:
-                entries.append(f"{mode_str} {owner_str} {parsed_size} {time_part} {norm_path}")
+                entries.append(f"{mode_str} {owner_str} {size_str} {time_part} {norm_path}")
     return entries
 
 
@@ -165,7 +163,11 @@ def extract_deb_member_paths(deb_path, first_inventory_time: str | None = None) 
                         perm_str = format_tar_permissions(member.mode)
                         mode_str = f"{mtype}{perm_str}"
                         owner_str = format_tar_ownership(member)
-                        member_size = member.size
+                        if member.ischr() or member.isblk():
+                            member_size_str = f"{member.devmajor},{member.devminor}"
+                        else:
+                            member_size_str = str(member.size)
+
                         try:
                             member_dt = datetime.datetime.fromtimestamp(member.mtime + tz_offset, datetime.timezone.utc)
                             time_part = member_dt.strftime(time_fmt)
@@ -173,13 +175,12 @@ def extract_deb_member_paths(deb_path, first_inventory_time: str | None = None) 
                             time_part = "1970-01-01 00:00"
 
                         if member.issym() and member.linkname:
-                            norm_target = normalize_member_path(member.linkname)
-                            entries.append(f"{mode_str} {owner_str} {member_size} {time_part} {p} -> {norm_target}")
+                            entries.append(f"{mode_str} {owner_str} {member_size_str} {time_part} {p} -> {member.linkname}")
                         elif member.islnk() and member.linkname:
-                            norm_target = normalize_member_path(member.linkname)
-                            entries.append(f"{mode_str} {owner_str} {member_size} {time_part} {p} link to {norm_target}")
+                            hardlink_target = member.linkname[2:] if member.linkname.startswith("./") else member.linkname
+                            entries.append(f"{mode_str} {owner_str} {member_size_str} {time_part} {p} link to {hardlink_target}")
                         else:
-                            entries.append(f"{mode_str} {owner_str} {member_size} {time_part} {p}")
+                            entries.append(f"{mode_str} {owner_str} {member_size_str} {time_part} {p}")
                 return entries
             else:
                 skip = size + (1 if size % 2 == 1 else 0)
