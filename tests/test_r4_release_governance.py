@@ -336,6 +336,12 @@ size = {computed_size}
             resp = MagicMock()
             if "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
+            elif "/actions/runs/" in url:
+                resp.read.return_value = json.dumps({
+                    "path": ".github/workflows/build-deb.yml",
+                    "head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "conclusion": "success",
+                }).encode("utf-8")
             elif "/compare/" in url:
                 resp.read.return_value = json.dumps({"status": "ahead", "behind_by": 0}).encode("utf-8")
             elif "api.github.com" in url:
@@ -350,12 +356,16 @@ size = {computed_size}
                 meta_dict = {
                     "version": "3.44.9",
                     "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
                     "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
                     "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
                     "sha256": computed_sha,
                     "size_bytes": computed_size,
+                    "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -1328,6 +1338,12 @@ size = {computed_size}
             resp = MagicMock()
             if "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
+            elif "/actions/runs/" in url:
+                resp.read.return_value = json.dumps({
+                    "path": ".github/workflows/build-deb.yml",
+                    "head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "conclusion": "success",
+                }).encode("utf-8")
             elif "/compare/" in url:
                 resp.read.return_value = json.dumps({"status": "ahead", "ahead_by": 1, "behind_by": 0, "files": [{"filename": "README.md"}]}).encode("utf-8")
             elif "api.github.com" in url:
@@ -1342,12 +1358,16 @@ size = {computed_size}
                 meta_dict = {
                     "version": "3.44.9",
                     "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
                     "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
                     "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
                     "sha256": computed_sha,
                     "size_bytes": computed_size,
+                    "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -1533,6 +1553,12 @@ size = {computed_size}
             resp = MagicMock()
             if "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
+            elif "/actions/runs/" in url:
+                resp.read.return_value = json.dumps({
+                    "path": ".github/workflows/build-deb.yml",
+                    "head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "conclusion": "success",
+                }).encode("utf-8")
             elif "/compare/" in url:
                 resp.read.return_value = json.dumps({"status": "ahead", "ahead_by": 1, "behind_by": 0, "files": [{"filename": "README.md"}]}).encode("utf-8")
             elif "api.github.com" in url:
@@ -1547,12 +1573,16 @@ size = {computed_size}
                 meta_dict = {
                     "version": "3.44.9",
                     "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
                     "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
                     "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
                     "sha256": computed_sha,
                     "size_bytes": computed_size,
+                    "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -1849,6 +1879,12 @@ size = {computed_size}
             resp = MagicMock()
             if "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
+            elif "/actions/runs/" in url:
+                resp.read.return_value = json.dumps({
+                    "path": ".github/workflows/build-deb.yml",
+                    "head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "conclusion": "success",
+                }).encode("utf-8")
             elif "/compare/" in url:
                 resp.read.return_value = json.dumps({"status": "ahead", "ahead_by": 1, "behind_by": 0, "files": [{"filename": "README.md"}]}).encode("utf-8")
             elif "api.github.com" in url:
@@ -1863,12 +1899,16 @@ size = {computed_size}
                 meta_dict = {
                     "version": "3.44.9",
                     "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
                     "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
                     "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
                     "sha256": computed_sha,
                     "size_bytes": computed_size,
+                    "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -2375,6 +2415,12 @@ size = {computed_size}
             resp = MagicMock()
             if "/git/commits/" in url:
                 resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
+            elif "/actions/runs/" in url:
+                resp.read.return_value = json.dumps({
+                    "path": ".github/workflows/build-deb.yml",
+                    "head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "conclusion": "success",
+                }).encode("utf-8")
             elif "/compare/" in url:
                 resp.read.return_value = json.dumps({"status": "ahead", "ahead_by": 1, "behind_by": 0, "files": [{"filename": "README.md"}]}).encode("utf-8")
             elif "api.github.com" in url:
@@ -2389,12 +2435,16 @@ size = {computed_size}
                 meta_dict = {
                     "version": "3.44.9",
                     "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
                     "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
                     "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
                     "sha256": computed_sha,
                     "size_bytes": computed_size,
+                    "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()

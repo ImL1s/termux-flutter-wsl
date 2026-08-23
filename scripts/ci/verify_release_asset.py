@@ -484,12 +484,23 @@ def main():
                 print("Error: build_metadata.json is not a valid JSON dictionary")
                 sys.exit(1)
 
-            # Enforce full required provenance schema
-            required_provenance_fields = ["version", "arch", "source_commit", "tree_sha", "sha256", "size_bytes"]
+            # Enforce full 9-field required provenance schema
+            required_provenance_fields = [
+                "version",
+                "arch",
+                "run_id",
+                "build_number",
+                "source_commit",
+                "tree_sha",
+                "sha256",
+                "size_bytes",
+                "build_duration_seconds",
+            ]
             for rf in required_provenance_fields:
-                if rf not in meta_data:
+                if rf not in meta_data or meta_data[rf] is None:
                     print(f"Error: build_metadata.json missing required provenance field '{rf}'")
                     sys.exit(1)
+
 
             # Validate version (strip at most one leading 'v' and one trailing '-termux')
             def _normalize_ver(v_str: str) -> str:
@@ -598,48 +609,45 @@ def main():
                 print(f"Error: build_metadata.json size_bytes mismatch! Expected manifest size {expected_size}, got {meta_size}")
                 sys.exit(1)
 
-            # Verify optional execution tracking fields if present
-            if "run_id" in meta_data and meta_data["run_id"] is not None:
-                run_id = meta_data["run_id"]
-                if not (isinstance(run_id, int) or (isinstance(run_id, str) and str(run_id).isdigit())):
-                    print(f"Error: build_metadata.json run_id '{run_id}' is not a valid integer")
-                    sys.exit(1)
-                run_api_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
-                try:
-                    run_req = urllib.request.Request(run_api_url, headers=headers)
-                    with urllib.request.urlopen(run_req) as resp:
-                        run_obj = json.loads(resp.read().decode("utf-8"))
-                        run_head_sha = str(run_obj.get("head_sha", "")).lower()
-                        run_conclusion = str(run_obj.get("conclusion", "")).lower()
-                        run_path = str(run_obj.get("path", "")).strip()
-                        if run_path != ".github/workflows/build-deb.yml":
-                            print(f"Error: Workflow run {run_id} workflow path mismatch! Expected '.github/workflows/build-deb.yml', got '{run_path}'")
-                            sys.exit(1)
-                        if run_head_sha != meta_commit.lower():
-                            print(f"Error: Workflow run {run_id} head_sha mismatch! Claimed {meta_commit}, but run head_sha is '{run_head_sha}'")
-                            sys.exit(1)
-                        if run_conclusion != "success":
-                            print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
-                            sys.exit(1)
-                        print(f"  ✓ Verified workflow run_id {run_id} (.github/workflows/build-deb.yml) succeeded for source_commit {meta_commit[:8]}...")
+            # Verify workflow run provenance
+            run_id = meta_data["run_id"]
+            if not (isinstance(run_id, int) or (isinstance(run_id, str) and str(run_id).isdigit())):
+                print(f"Error: build_metadata.json run_id '{run_id}' is not a valid integer")
+                sys.exit(1)
+            run_api_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+            try:
+                run_req = urllib.request.Request(run_api_url, headers=headers)
+                with urllib.request.urlopen(run_req) as resp:
+                    run_obj = json.loads(resp.read().decode("utf-8"))
+                    run_head_sha = str(run_obj.get("head_sha", "")).lower()
+                    run_conclusion = str(run_obj.get("conclusion", "")).lower()
+                    run_path = str(run_obj.get("path", "")).strip()
+                    if run_path != ".github/workflows/build-deb.yml":
+                        print(f"Error: Workflow run {run_id} workflow path mismatch! Expected '.github/workflows/build-deb.yml', got '{run_path}'")
+                        sys.exit(1)
+                    if run_head_sha != meta_commit.lower():
+                        print(f"Error: Workflow run {run_id} head_sha mismatch! Claimed {meta_commit}, but run head_sha is '{run_head_sha}'")
+                        sys.exit(1)
+                    if run_conclusion != "success":
+                        print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
+                        sys.exit(1)
+                    print(f"  ✓ Verified workflow run_id {run_id} (.github/workflows/build-deb.yml) succeeded for source_commit {meta_commit[:8]}...")
+            except Exception as e:
+                print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
+                sys.exit(1)
 
-                except Exception as e:
-                    print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
-                    sys.exit(1)
+            b_num = meta_data["build_number"]
+            if not (isinstance(b_num, int) or (isinstance(b_num, str) and str(b_num).isdigit())):
+                print(f"Error: build_metadata.json build_number '{b_num}' is not a valid integer")
+                sys.exit(1)
 
-            if "build_number" in meta_data and meta_data["build_number"] is not None:
-                b_num = meta_data["build_number"]
-                if not (isinstance(b_num, int) or (isinstance(b_num, str) and str(b_num).isdigit())):
-                    print(f"Error: build_metadata.json build_number '{b_num}' is not a valid integer")
-                    sys.exit(1)
+            b_dur = meta_data["build_duration_seconds"]
+            if not (isinstance(b_dur, (int, float)) and b_dur >= 0):
+                print(f"Error: build_metadata.json build_duration_seconds '{b_dur}' is not a valid non-negative number")
+                sys.exit(1)
 
-            if "build_duration_seconds" in meta_data and meta_data["build_duration_seconds"] is not None:
-                b_dur = meta_data["build_duration_seconds"]
-                if not (isinstance(b_dur, (int, float)) and b_dur >= 0):
-                    print(f"Error: build_metadata.json build_duration_seconds '{b_dur}' is not a valid non-negative number")
-                    sys.exit(1)
+            print(f"  ✓ Verified build_metadata.json full 9-field provenance schema (version={meta_ver}, arch={meta_arch}, run_id={run_id}, build_number={b_num}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size}, duration={b_dur}s)")
 
-            print(f"  ✓ Verified build_metadata.json core provenance fields (version={meta_ver}, arch={meta_arch}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size})")
 
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion build_metadata.json asset: {e}")
