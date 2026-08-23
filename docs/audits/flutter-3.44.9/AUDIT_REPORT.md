@@ -28,7 +28,7 @@ All assets hosted under GitHub Release `v3.44.9-termux` have been cryptographica
 | `flutter_3.44.9_aarch64.deb.sha256` | Companion text | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` | **MATCH** |
 | `flutter_3.44.9_aarch64.deb.size.txt` | Companion text | `174157728` | **MATCH** |
 | `inventory.txt` | Complete binary BOM | N/A | **MATCH** |
-| `build_metadata.json` | JSON provenance | Matches engine commit, version, and SHA256 | **MATCH** |
+| `build_metadata.json` | JSON provenance | Matches version, arch, commit, tree, SHA256, size | **MATCH** |
 
 ---
 
@@ -46,7 +46,8 @@ All assets hosted under GitHub Release `v3.44.9-termux` have been cryptographica
 
 ### R3. CI/CD Governance & Zero Version Drift
 - **Drift Checks:** `check_version_drift.py` asserts complete consistency across `build.toml`, `package.yaml`, `README.md`, `README_EN.md`, `BUILD_GUIDE.md`, `INSTALL_GUIDE.md`, and installer scripts.
-- **5-Asset Verifier (Strict Fail-Closed):** `verify_release_asset.py` validates all 5 companion assets on release tags and cross-checks hashes, byte counts, inventory entries, and required metadata schemas.
+- **5-Asset Verifier (Strict Fail-Closed):** `verify_release_asset.py` validates all 5 companion assets on release tags and cross-checks hashes, exact byte counts, ordered inventory entries (full permissions, ownership, timestamp, device major/minor, verbatim links), bounded lineage drift with comprehensive build-critical file denylist, and required metadata schemas (with optional workflow run verification).
+
 
 ### R4. Cross-Platform Test Harness Resilience
 - **Runtime-Aware Pathing (P2 Fixed):** `tests/conftest.py` provides `is_wsl_bash()` and `to_bash_path()` to dynamically format POSIX paths for WSL (`/mnt/<drive>/...`), Git Bash (`/<drive>/...`), or native Linux environments.

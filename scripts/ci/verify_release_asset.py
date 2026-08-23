@@ -6,14 +6,43 @@ import json
 import re
 import datetime
 import tarfile
+import zipfile
 import urllib.request
 import hashlib
 from pathlib import Path
+
 
 SHA256_HEX_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
 INVENTORY_LINE_REGEX = re.compile(
     r"^([dlcbsph-][rwxstST-]{9})\s+(\S+)\s+(\d+(?:,\d+)?)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
 )
+
+BUILD_CRITICAL_PREFIXES = (
+    "patches/",
+    "scripts/install/",
+    "scripts/fix/",
+    "scripts/setup/",
+)
+
+BUILD_CRITICAL_FILES = (
+    "build.py",
+    "package.py",
+    "sysroot.py",
+    "utils.py",
+    "package.yaml",
+    "build.toml",
+    "requirements.txt",
+    ".gclient",
+    "sysroot.lock.json",
+    ".github/workflows/build-deb.yml",
+    "install_flutter_complete.sh",
+    "install.sh",
+    "install_termux_flutter.sh",
+    "scripts/ci/check_toolchain.sh",
+)
+
+
+
 
 
 def normalize_member_path(p: str) -> str:
@@ -457,12 +486,23 @@ def main():
                 print("Error: build_metadata.json is not a valid JSON dictionary")
                 sys.exit(1)
 
-            # Enforce full required provenance schema
-            required_provenance_fields = ["version", "arch", "source_commit", "tree_sha", "sha256", "size_bytes"]
+            # Enforce full 9-field required provenance schema
+            required_provenance_fields = [
+                "version",
+                "arch",
+                "run_id",
+                "build_number",
+                "source_commit",
+                "tree_sha",
+                "sha256",
+                "size_bytes",
+                "build_duration_seconds",
+            ]
             for rf in required_provenance_fields:
-                if rf not in meta_data:
+                if rf not in meta_data or meta_data[rf] is None:
                     print(f"Error: build_metadata.json missing required provenance field '{rf}'")
                     sys.exit(1)
+
 
             # Validate version (strip at most one leading 'v' and one trailing '-termux')
             def _normalize_ver(v_str: str) -> str:
@@ -530,12 +570,26 @@ def main():
                         if ahead_by > 5:
                             print(f"Error: build_metadata.json source_commit {meta_commit} is too far behind {target_tag} (ahead_by={ahead_by} > 5)")
                             sys.exit(1)
+                        raw_files = compare_obj.get("files", [])
+                        if len(raw_files) >= 300 or compare_obj.get("truncated", False):
+                            print(f"Error: GitHub compare API returned truncated file list (count={len(raw_files)} >= 300). Cannot safely verify lineage diff without complete diff.")
+                            sys.exit(1)
+
                         # Verify that differences only affect documentation/metadata, not build sources or patches
-                        changed_files = [f.get("filename", "") for f in compare_obj.get("files", [])]
+                        changed_files = []
+                        for f_entry in raw_files:
+                            fname = f_entry.get("filename")
+                            if fname:
+                                changed_files.append(fname)
+                            prev_fname = f_entry.get("previous_filename")
+                            if prev_fname:
+                                changed_files.append(prev_fname)
+
                         disallowed_changed = [
                             f for f in changed_files
-                            if f.startswith("patches/") or f in ("build.py", "package.py", "sysroot.py", "utils.py", "package.yaml")
+                            if f.startswith(BUILD_CRITICAL_PREFIXES) or f in BUILD_CRITICAL_FILES
                         ]
+
                         if disallowed_changed:
                             print(f"Error: Disallowed build/engine source files changed between build commit {meta_commit} and release {target_tag}: {disallowed_changed}")
                             sys.exit(1)
@@ -562,7 +616,121 @@ def main():
                 print(f"Error: build_metadata.json size_bytes mismatch! Expected manifest size {expected_size}, got {meta_size}")
                 sys.exit(1)
 
-            print(f"  ✓ Verified build_metadata.json full provenance schema (version={meta_ver}, arch={meta_arch}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size})")
+            # Validate build_number and duration fields
+            b_num = meta_data["build_number"]
+            if not (isinstance(b_num, int) or (isinstance(b_num, str) and str(b_num).isdigit())):
+                print(f"Error: build_metadata.json build_number '{b_num}' is not a valid integer")
+                sys.exit(1)
+
+            b_dur = meta_data["build_duration_seconds"]
+            if not (isinstance(b_dur, (int, float)) and b_dur >= 0):
+                print(f"Error: build_metadata.json build_duration_seconds '{b_dur}' is not a valid non-negative number")
+                sys.exit(1)
+
+            # Verify workflow run provenance
+            run_id = meta_data["run_id"]
+            if not (isinstance(run_id, int) or (isinstance(run_id, str) and str(run_id).isdigit())):
+                print(f"Error: build_metadata.json run_id '{run_id}' is not a valid integer")
+                sys.exit(1)
+            run_api_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+            try:
+                run_req = urllib.request.Request(run_api_url, headers=headers)
+                with urllib.request.urlopen(run_req) as resp:
+                    run_obj = json.loads(resp.read().decode("utf-8"))
+                    run_head_sha = str(run_obj.get("head_sha", "")).lower()
+                    run_conclusion = str(run_obj.get("conclusion", "")).lower()
+                    run_path = str(run_obj.get("path", "")).strip()
+                    run_num = run_obj.get("run_number")
+
+                    if run_path != ".github/workflows/build-deb.yml":
+                        print(f"Error: Workflow run {run_id} workflow path mismatch! Expected '.github/workflows/build-deb.yml', got '{run_path}'")
+                        sys.exit(1)
+                    if run_head_sha != meta_commit.lower():
+                        print(f"Error: Workflow run {run_id} head_sha mismatch! Claimed {meta_commit}, but run head_sha is '{run_head_sha}'")
+                        sys.exit(1)
+                    if run_conclusion != "success":
+                        print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
+                        sys.exit(1)
+                    if run_num is not None and int(run_num) != int(b_num):
+                        print(f"Error: Workflow run {run_id} run_number mismatch! Claimed build_number {b_num}, but run run_number is '{run_num}'")
+                        sys.exit(1)
+                    print(f"  ✓ Verified workflow run_id {run_id} (# {b_num} on .github/workflows/build-deb.yml) succeeded for source_commit {meta_commit[:8]}...")
+
+                # Verify workflow run produced and published the matching release artifact
+                run_artifacts_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
+                with urllib.request.urlopen(urllib.request.Request(run_artifacts_url, headers=headers)) as art_resp:
+                    art_data = json.loads(art_resp.read().decode("utf-8"))
+                    artifacts = art_data.get("artifacts", [])
+                    artifact_names = [a.get("name", "") for a in artifacts]
+                    expected_artifact_patterns = (
+                        f"flutter-termux-{meta_ver}-{meta_arch}",
+                        f"flutter-termux-{meta_ver}-arm64",
+                        f"flutter-termux-{meta_ver}-aarch64",
+                        expected_asset,
+                    )
+                    matching_artifact = None
+                    for a in artifacts:
+                        aname = a.get("name", "")
+                        if any(pat in aname or aname in pat for pat in expected_artifact_patterns):
+                            matching_artifact = a
+                            break
+
+                    if not matching_artifact:
+                        print(f"Error: Workflow run {run_id} artifacts do not match expected release package patterns {expected_artifact_patterns} (found: {artifact_names})")
+                        sys.exit(1)
+
+                    art_id = matching_artifact.get("id")
+                    if matching_artifact.get("expired", False):
+                        print(f"Error: Workflow run {run_id} artifact {art_id} has expired; cannot verify artifact contents")
+                        sys.exit(1)
+
+                    if art_id:
+
+                        zip_url = f"https://api.github.com/repos/{repo}/actions/artifacts/{art_id}/zip"
+                        zip_req = urllib.request.Request(zip_url, headers=headers)
+                        with urllib.request.urlopen(zip_req) as zip_resp:
+                            zip_data = io.BytesIO(zip_resp.read())
+                            with zipfile.ZipFile(zip_data) as zf:
+                                deb_names = [name for name in zf.namelist() if name.endswith(".deb")]
+                                if not deb_names:
+                                    print(f"Error: Workflow run {run_id} artifact zip contains no .deb file: {zf.namelist()}")
+                                    sys.exit(1)
+                                artifact_deb_bytes = zf.read(deb_names[0])
+                                artifact_deb_sha = hashlib.sha256(artifact_deb_bytes).hexdigest().lower()
+                                if artifact_deb_sha != meta_sha.lower():
+                                    print(f"Error: Workflow run {run_id} artifact {deb_names[0]} sha256 mismatch! Workflow artifact sha256 is {artifact_deb_sha}, but release claimed {meta_sha}")
+                                    sys.exit(1)
+                                print(f"  ✓ Verified workflow artifact {deb_names[0]} sha256 ({artifact_deb_sha[:8]}...) cryptographically matches release deb")
+
+            except Exception as e:
+                print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
+                sys.exit(1)
+
+            print(f"  ✓ Verified build_metadata.json full 9-field provenance schema (version={meta_ver}, arch={meta_arch}, run_id={run_id}, build_number={b_num}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size}, duration={b_dur}s)")
+
+            # If durable companion evidence.json is attached to the release, verify its contents as well
+            if "evidence.json" in assets:
+                evidence_url = assets["evidence.json"].get("browser_download_url")
+                if evidence_url:
+                    try:
+                        ev_req = urllib.request.Request(evidence_url, headers=headers)
+                        with urllib.request.urlopen(ev_req) as ev_resp:
+                            ev_data = json.loads(ev_resp.read().decode("utf-8"))
+                            if str(ev_data.get("deb_sha256", "")).lower() != expected_sha256.lower():
+                                print(f"Error: evidence.json deb_sha256 mismatch! Expected {expected_sha256}, got {ev_data.get('deb_sha256')}")
+                                sys.exit(1)
+                            if str(ev_data.get("run_id", "")) != str(run_id):
+                                print(f"Error: evidence.json run_id mismatch! Expected {run_id}, got {ev_data.get('run_id')}")
+                                sys.exit(1)
+                            print(f"  ✓ Verified companion evidence.json durable release provenance (run_id={run_id}, sha256={expected_sha256[:8]}...)")
+                    except Exception as e:
+                        print(f"Error: Failed to verify companion evidence.json asset: {e}")
+                        sys.exit(1)
+
+
+
+
+
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion build_metadata.json asset: {e}")
         sys.exit(1)

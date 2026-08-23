@@ -467,11 +467,17 @@ class TestWorkflowSecurityAndRepoSanity:
             assert "permissions" in data, f"{yml_file.name} missing top-level permissions declaration"
             perms = data["permissions"]
 
-            if yml_file.name in ("ci.yml", "release-check.yml"):
-                # Read-only workflows
+            if yml_file.name == "ci.yml":
+                # Read-only workflow
                 assert perms == {"contents": "read"} or perms == "read-all", (
                     f"{yml_file.name} should have read-only permissions, got {perms}"
                 )
+            elif yml_file.name == "release-check.yml":
+                # Read-only workflow with actions read for workflow run provenance verification
+                assert perms in ({"contents": "read"}, {"contents": "read", "actions": "read"}, "read-all"), (
+                    f"{yml_file.name} should have read permissions, got {perms}"
+                )
+
             elif yml_file.name in ("build-deb.yml", "device-smoke.yml"):
                 # Manual dispatch workflows that upload or promote releases
                 assert perms.get("contents") == "write", f"{yml_file.name} should have contents: write"

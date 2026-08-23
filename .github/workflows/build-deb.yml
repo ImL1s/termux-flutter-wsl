@@ -193,5 +193,6 @@ jobs:
             ${{ steps.metadata.outputs.metadata }}
             ${{ steps.metadata.outputs.inventory }}
             evidence.json
-          retention-days: 30
+          retention-days: 90
           if-no-files-found: error
+

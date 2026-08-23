@@ -222,4 +222,6 @@ jobs:
           $sourceCommit = if ($env:ARTIFACT_SOURCE_COMMIT) { $env:ARTIFACT_SOURCE_COMMIT } else { $ev.artifact_source_commit }
           if (-not $sourceCommit) { throw "Error: source_commit is required" }
 
-          gh release create $tag $env:RESOLVED_DEB $env:RESOLVED_SHA_FILE $env:RESOLVED_SIZE_FILE $env:RESOLVED_METADATA $env:RESOLVED_INVENTORY --target $sourceCommit --title "Flutter Termux $tag" @notesArg
+          gh release create $tag $env:RESOLVED_DEB $env:RESOLVED_SHA_FILE $env:RESOLVED_SIZE_FILE $env:RESOLVED_METADATA $env:RESOLVED_INVENTORY evidence.json --target $sourceCommit --title "Flutter Termux $tag" @notesArg
+
+
