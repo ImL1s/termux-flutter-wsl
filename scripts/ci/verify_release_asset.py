@@ -568,9 +568,14 @@ def main():
                         if ahead_by > 5:
                             print(f"Error: build_metadata.json source_commit {meta_commit} is too far behind {target_tag} (ahead_by={ahead_by} > 5)")
                             sys.exit(1)
+                        raw_files = compare_obj.get("files", [])
+                        if len(raw_files) >= 300 or compare_obj.get("truncated", False):
+                            print(f"Error: GitHub compare API returned truncated file list (count={len(raw_files)} >= 300). Cannot safely verify lineage diff without complete diff.")
+                            sys.exit(1)
+
                         # Verify that differences only affect documentation/metadata, not build sources or patches
                         changed_files = []
-                        for f_entry in compare_obj.get("files", []):
+                        for f_entry in raw_files:
                             fname = f_entry.get("filename")
                             if fname:
                                 changed_files.append(fname)
@@ -632,9 +637,27 @@ def main():
                         print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
                         sys.exit(1)
                     print(f"  ✓ Verified workflow run_id {run_id} (.github/workflows/build-deb.yml) succeeded for source_commit {meta_commit[:8]}...")
+
+                # Verify workflow run produced the expected deb release artifact
+                run_artifacts_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
+                with urllib.request.urlopen(urllib.request.Request(run_artifacts_url, headers=headers)) as art_resp:
+                    art_data = json.loads(art_resp.read().decode("utf-8"))
+                    artifact_names = [a.get("name", "") for a in art_data.get("artifacts", [])]
+                    expected_artifact_patterns = (
+                        f"flutter-termux-{meta_ver}-{meta_arch}",
+                        f"flutter-termux-{meta_ver}-arm64",
+                        f"flutter-termux-{meta_ver}-aarch64",
+                        expected_asset,
+                    )
+                    if not any(any(pat in aname or aname in pat for pat in expected_artifact_patterns) for aname in artifact_names):
+                        print(f"Error: Workflow run {run_id} artifacts do not match expected release package patterns {expected_artifact_patterns} (found: {artifact_names})")
+                        sys.exit(1)
+                    print(f"  ✓ Verified workflow run_id {run_id} produced matching release artifact ({artifact_names})")
+
             except Exception as e:
                 print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
                 sys.exit(1)
+
 
             b_num = meta_data["build_number"]
             if not (isinstance(b_num, int) or (isinstance(b_num, str) and str(b_num).isdigit())):
