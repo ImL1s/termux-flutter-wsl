@@ -29,6 +29,7 @@ BUILD_CRITICAL_FILES = (
     "utils.py",
     "package.yaml",
     "build.toml",
+    "requirements.txt",
     ".gclient",
     "sysroot.lock.json",
     "install_flutter_complete.sh",
@@ -36,6 +37,7 @@ BUILD_CRITICAL_FILES = (
     "install_termux_flutter.sh",
     "scripts/ci/check_toolchain.sh",
 )
+
 
 
 
@@ -554,11 +556,20 @@ def main():
                             print(f"Error: build_metadata.json source_commit {meta_commit} is too far behind {target_tag} (ahead_by={ahead_by} > 5)")
                             sys.exit(1)
                         # Verify that differences only affect documentation/metadata, not build sources or patches
-                        changed_files = [f.get("filename", "") for f in compare_obj.get("files", [])]
+                        changed_files = []
+                        for f_entry in compare_obj.get("files", []):
+                            fname = f_entry.get("filename")
+                            if fname:
+                                changed_files.append(fname)
+                            prev_fname = f_entry.get("previous_filename")
+                            if prev_fname:
+                                changed_files.append(prev_fname)
+
                         disallowed_changed = [
                             f for f in changed_files
                             if f.startswith(BUILD_CRITICAL_PREFIXES) or f in BUILD_CRITICAL_FILES
                         ]
+
                         if disallowed_changed:
                             print(f"Error: Disallowed build/engine source files changed between build commit {meta_commit} and release {target_tag}: {disallowed_changed}")
                             sys.exit(1)
