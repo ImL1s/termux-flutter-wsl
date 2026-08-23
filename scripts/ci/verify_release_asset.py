@@ -332,10 +332,17 @@ def main():
     try:
         with urllib.request.urlopen(urllib.request.Request(size_url, headers=headers)) as resp:
             size_content = resp.read().decode("utf-8").strip()
-            if expected_size is not None and size_content != str(expected_size):
-                print(f"Error: .size.txt asset content mismatch! Expected {expected_size}, got {size_content}")
+            if not size_content.isdigit():
+                print(f"Error: Companion .size.txt asset content is not a valid integer: '{size_content}'")
                 sys.exit(1)
-            print(f"  ✓ Verified companion .size.txt asset matches exact bytes: {size_content}")
+            parsed_size = int(size_content)
+            if parsed_size != actual_size:
+                print(f"Error: .size.txt asset content mismatch! Expected actual deb size {actual_size}, got {parsed_size}")
+                sys.exit(1)
+            if expected_size is not None and parsed_size != expected_size:
+                print(f"Error: .size.txt asset content mismatch! Expected manifest size {expected_size}, got {parsed_size}")
+                sys.exit(1)
+            print(f"  ✓ Verified companion .size.txt asset matches exact bytes: {parsed_size}")
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion .size.txt asset: {e}")
         sys.exit(1)
@@ -471,8 +478,11 @@ def main():
             if not isinstance(meta_size, int) or meta_size <= 0:
                 print(f"Error: build_metadata.json size_bytes '{meta_size}' is not a positive integer")
                 sys.exit(1)
+            if meta_size != actual_size:
+                print(f"Error: build_metadata.json size_bytes mismatch! Expected actual deb size {actual_size}, got {meta_size}")
+                sys.exit(1)
             if expected_size is not None and meta_size != expected_size:
-                print(f"Error: build_metadata.json size_bytes mismatch! Expected {expected_size}, got {meta_size}")
+                print(f"Error: build_metadata.json size_bytes mismatch! Expected manifest size {expected_size}, got {meta_size}")
                 sys.exit(1)
 
             print(f"  ✓ Verified build_metadata.json full provenance schema (version={meta_ver}, arch={meta_arch}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size})")
