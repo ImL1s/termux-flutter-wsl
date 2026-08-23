@@ -11,7 +11,7 @@ from pathlib import Path
 
 SHA256_HEX_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
 INVENTORY_LINE_REGEX = re.compile(
-    r"^([dlcbsp-][rwxst-]{9})\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
+    r"^([dlcbsph-][rwxst-]{9})\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
 )
 
 
@@ -58,8 +58,15 @@ def parse_inventory_entries(inventory_text: str) -> set:
         if " -> " in path_part:
             path_str, link_target = path_part.split(" -> ", 1)
             norm_path = normalize_member_path(path_str)
+            norm_target = normalize_member_path(link_target)
             if norm_path:
-                paths.add(f"{entry_type}:{norm_path} -> {link_target}")
+                paths.add(f"{entry_type}:{norm_path} -> {norm_target}")
+        elif " link to " in path_part:
+            path_str, link_target = path_part.split(" link to ", 1)
+            norm_path = normalize_member_path(path_str)
+            norm_target = normalize_member_path(link_target)
+            if norm_path:
+                paths.add(f"{entry_type}:{norm_path} link to {norm_target}")
         else:
             norm_path = normalize_member_path(path_part)
             if norm_path:
@@ -96,8 +103,12 @@ def extract_deb_member_paths(deb_path) -> set:
                         if not p:
                             continue
                         mtype = tar_member_type(member)
-                        if (member.issym() or member.islnk()) and member.linkname:
-                            paths.add(f"{mtype}:{p} -> {member.linkname}")
+                        if member.issym() and member.linkname:
+                            norm_target = normalize_member_path(member.linkname)
+                            paths.add(f"{mtype}:{p} -> {norm_target}")
+                        elif member.islnk() and member.linkname:
+                            norm_target = normalize_member_path(member.linkname)
+                            paths.add(f"{mtype}:{p} link to {norm_target}")
                         else:
                             paths.add(f"{mtype}:{p}")
                 return paths
