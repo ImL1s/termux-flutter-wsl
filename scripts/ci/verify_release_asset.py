@@ -379,11 +379,28 @@ def main():
                 with urllib.request.urlopen(compare_req) as resp:
                     compare_obj = json.loads(resp.read().decode("utf-8"))
                     behind_by = compare_obj.get("behind_by", 0)
+                    ahead_by = compare_obj.get("ahead_by", 0)
                     status = compare_obj.get("status", "")
                     if behind_by > 0 or status not in ("ahead", "identical"):
                         print(f"Error: build_metadata.json source_commit {meta_commit} is not on the release lineage of {target_tag} (status={status}, behind_by={behind_by})")
                         sys.exit(1)
-                    print(f"  ✓ Verified source_commit belongs to release {target_tag} lineage (status={status})")
+
+                    if status == "identical":
+                        print(f"  ✓ Verified source_commit is identical to release tag {target_tag}")
+                    else:
+                        if ahead_by > 5:
+                            print(f"Error: build_metadata.json source_commit {meta_commit} is too far behind {target_tag} (ahead_by={ahead_by} > 5)")
+                            sys.exit(1)
+                        # Verify that differences only affect documentation/metadata, not build sources or patches
+                        changed_files = [f.get("filename", "") for f in compare_obj.get("files", [])]
+                        disallowed_changed = [
+                            f for f in changed_files
+                            if f.startswith("patches/") or f in ("build.py", "package.py", "sysroot.py", "utils.py", "package.yaml")
+                        ]
+                        if disallowed_changed:
+                            print(f"Error: Disallowed build/engine source files changed between build commit {meta_commit} and release {target_tag}: {disallowed_changed}")
+                            sys.exit(1)
+                        print(f"  ✓ Verified source_commit belongs to release {target_tag} lineage (status={status}, ahead_by={ahead_by}, zero build source drift)")
             except Exception as e:
                 print(f"Error: Failed to verify commit lineage for {meta_commit} against {target_tag}: {e}")
                 sys.exit(1)
