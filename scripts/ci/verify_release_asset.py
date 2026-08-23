@@ -357,6 +357,37 @@ def main():
                 print(f"Error: build_metadata.json tree_sha '{meta_tree}' is not a valid 40-char git tree hash")
                 sys.exit(1)
 
+            # Cryptographically bind source_commit and tree_sha against GitHub commit API
+            commit_api_url = f"https://api.github.com/repos/{repo}/git/commits/{meta_commit}"
+            try:
+                commit_req = urllib.request.Request(commit_api_url, headers=headers)
+                with urllib.request.urlopen(commit_req) as resp:
+                    commit_obj = json.loads(resp.read().decode("utf-8"))
+                    actual_tree_sha = commit_obj.get("tree", {}).get("sha", "").lower()
+                    if actual_tree_sha != meta_tree.lower():
+                        print(f"Error: build_metadata.json tree_sha mismatch! Claimed '{meta_tree}', but commit {meta_commit} tree is '{actual_tree_sha}'")
+                        sys.exit(1)
+                    print(f"  ✓ Verified tree_sha is cryptographically bound to source_commit: {meta_tree[:8]}...")
+            except Exception as e:
+                print(f"Error: Failed to verify commit provenance via GitHub API for {meta_commit}: {e}")
+                sys.exit(1)
+
+            # Verify source_commit is bound to the release tag's lineage
+            compare_url = f"https://api.github.com/repos/{repo}/compare/{meta_commit}...{target_tag}"
+            try:
+                compare_req = urllib.request.Request(compare_url, headers=headers)
+                with urllib.request.urlopen(compare_req) as resp:
+                    compare_obj = json.loads(resp.read().decode("utf-8"))
+                    behind_by = compare_obj.get("behind_by", 0)
+                    status = compare_obj.get("status", "")
+                    if behind_by > 0 or status not in ("ahead", "identical"):
+                        print(f"Error: build_metadata.json source_commit {meta_commit} is not on the release lineage of {target_tag} (status={status}, behind_by={behind_by})")
+                        sys.exit(1)
+                    print(f"  ✓ Verified source_commit belongs to release {target_tag} lineage (status={status})")
+            except Exception as e:
+                print(f"Error: Failed to verify commit lineage for {meta_commit} against {target_tag}: {e}")
+                sys.exit(1)
+
             # Validate sha256
             meta_sha = str(meta_data["sha256"]).strip().lower()
             if meta_sha != expected_sha256.lower():
