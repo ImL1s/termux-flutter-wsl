@@ -137,11 +137,11 @@ def test_is_sync_complete_missing_checkout_roots(tmp_path, monkeypatch):
     receipt = root / ".gclient_sync.receipt.json"
     receipt.write_text(json.dumps({
         "completed": True,
-        "flutter_head": "3.44.2",
+        "flutter_head": "3.44.9",
         "gclient_sha256": "dummy"
     }), encoding="utf-8")
 
-    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.2")
+    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.9")
     b = Build()
     b.root = str(root)
     # engine/src and subdirectories do not exist
@@ -161,7 +161,7 @@ def test_is_sync_complete_mismatched_flutter_head(tmp_path, monkeypatch):
         "gclient_sha256": "dummy"
     }), encoding="utf-8")
 
-    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.2")
+    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.9")
     b = Build()
     b.root = str(root)
     assert b.is_sync_complete(root=str(root)) is False
@@ -179,11 +179,11 @@ def test_is_sync_complete_mismatched_gclient_hash(tmp_path, monkeypatch):
     receipt = root / ".gclient_sync.receipt.json"
     receipt.write_text(json.dumps({
         "completed": True,
-        "flutter_head": "3.44.2",
+        "flutter_head": "3.44.9",
         "gclient_sha256": "0" * 64
     }), encoding="utf-8")
 
-    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.2")
+    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.9")
     b = Build()
     b.root = str(root)
     assert b.is_sync_complete(root=str(root), cfg=str(gclient_file)) is False
@@ -203,11 +203,11 @@ def test_is_sync_complete_valid_match(tmp_path, monkeypatch):
     receipt = root / ".gclient_sync.receipt.json"
     receipt.write_text(json.dumps({
         "completed": True,
-        "flutter_head": "3.44.2",
+        "flutter_head": "3.44.9",
         "gclient_sha256": gclient_hash
     }), encoding="utf-8")
 
-    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.2")
+    monkeypatch.setattr(utils, "flutter_tag", lambda src: "3.44.9")
     b = Build()
     b.root = str(root)
     assert b.is_sync_complete(root=str(root), cfg=str(gclient_file)) is True
@@ -312,9 +312,9 @@ def test_build_all_deb_exists_no_typeerror_and_skips_when_fresh(tmp_path, monkey
         p.write_text("dummy")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
-    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.9", "completed": True, "timestamp": time.time()}))
 
-    deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
+    deb_file = tmp_path / "flutter_3.44.9_aarch64.deb"
     deb_file.write_text("deb package")
     future_time = time.time() + 500
     os.utime(deb_file, (future_time, future_time))
@@ -323,7 +323,7 @@ def test_build_all_deb_exists_no_typeerror_and_skips_when_fresh(tmp_path, monkey
 
     b = Build()
     b.root = Path(root)
-    b.tag = "3.44.2"
+    b.tag = "3.44.9"
     b.output = lambda arch: str(deb_file)
     b.preflight = lambda: True
     b.clone = lambda **kw: None
@@ -384,9 +384,9 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
         p.write_text("dummy")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
-    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.9", "completed": True, "timestamp": time.time()}))
 
-    deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
+    deb_file = tmp_path / "flutter_3.44.9_aarch64.deb"
     deb_file.write_text("deb package")
 
     time.sleep(0.05)
@@ -397,7 +397,7 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
 
     b = Build()
     b.root = Path(root)
-    b.tag = "3.44.2"
+    b.tag = "3.44.9"
     b.output = lambda arch: str(deb_file)
     b.preflight = lambda: True
     b.clone = lambda **kw: None

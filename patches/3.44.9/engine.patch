@@ -1,0 +1,416 @@
+diff --git a/engine/src/build/config/BUILDCONFIG.gn b/engine/src/build/config/BUILDCONFIG.gn
+index 2b0d94e1a03..95c08f25c5d 100644
+--- a/engine/src/build/config/BUILDCONFIG.gn
++++ b/engine/src/build/config/BUILDCONFIG.gn
+@@ -377,13 +377,13 @@ if (is_msan && !is_linux) {
+ # duplication in each target below.
+ _native_compiler_configs = [
+   "//build/config:feature_flags",
+-  "//build/config/compiler:compiler",
++  "//build/config/termux:compiler",
+   "//build/config/compiler:cxx_version_default",
+   "//build/config/compiler:compiler_arm_fpu",
+   "//build/config/compiler:chromium_code",
+   "//build/config/compiler:default_include_dirs",
+   "//build/config/compiler:no_rtti",
+-  "//build/config/compiler:runtime_library",
++  "//build/config/termux:runtime_library",
+ ]
+ 
+ if (use_flutter_cxx) {
+@@ -411,7 +411,11 @@ if (is_posix) {
+   ]
+ }
+ 
+-if (is_linux) {
++import("//build/config/termux/termux.gni")
++
++if (is_termux) {
++  _native_compiler_configs += [ "//build/config/termux:sdk" ]
++} else if (is_linux) {
+   _native_compiler_configs += [ "//build/config/linux:sdk" ]
+ } else if (is_mac) {
+   _native_compiler_configs += [ "//build/config/mac:sdk" ]
+@@ -491,7 +495,7 @@ if (is_win) {
+     "//build/config/mac:mac_executable_flags",
+   ]
+ } else if (is_linux || is_android) {
+-  _executable_configs += [ "//build/config/gcc:executable_ldconfig" ]
++  _executable_configs += [ "//build/config/termux:executable_ldconfig" ]
+   if (is_android) {
+     _executable_configs += [ "//build/config/android:executable_config" ]
+   }
+@@ -555,7 +559,10 @@ import("//build/toolchain/custom/custom.gni")
+ # shlib_toolchain is a Fuchsia-specific symbol and not used by Flutter.
+ shlib_toolchain = false
+ 
+-if (custom_toolchain != "") {
++if (is_termux) {
++  host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
++  set_default_toolchain("//build/toolchain/termux:$current_cpu")
++} else if (custom_toolchain != "") {
+   assert(custom_sysroot != "")
+   assert(custom_target_triple != "")
+   host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
+@@ -648,6 +655,9 @@ if (custom_toolchain != "") {
+ } else {
+   assert(false, "Toolchain not set because of unknown platform.")
+ }
++if (is_termux_host) {
++  host_toolchain = "//build/toolchain/termux:$host_cpu"
++}
+ 
+ # Sets default dependencies for executable and shared_library targets.
+ #
+diff --git a/engine/src/build/config/compiler/BUILD.gn b/engine/src/build/config/compiler/BUILD.gn
+index e06cf625abe..33ec157159a 100644
+--- a/engine/src/build/config/compiler/BUILD.gn
++++ b/engine/src/build/config/compiler/BUILD.gn
+@@ -651,7 +651,7 @@ config("runtime_library") {
+       "m",
+     ]
+ 
+-    lib_dirs += [ "${android_toolchain_root}/lib/clang/19/lib/linux/" ]
++    lib_dirs += [ "${android_toolchain_root}/lib/clang/$android_clang_rt_version/lib/linux/" ]
+     current_android_cpu = current_cpu
+     if (current_cpu == "arm64") {
+       current_android_cpu = "aarch64"
+@@ -726,7 +726,7 @@ if (is_win) {
+       "-Wno-deprecated-literal-operator",
+ 
+       # Needed by skia, imgui, swiftshader, and angle
+-      "-Wno-nontrivial-memcall",
++      "-Wno-nontrivial-memaccess",
+     ]
+   }
+ } else {
+@@ -787,7 +787,7 @@ if (is_win) {
+       "-Wno-unqualified-std-cast-call",
+ 
+       # Needed by skia, imgui, swiftshader, and angle
+-      "-Wno-nontrivial-memcall",
++      "-Wno-nontrivial-memaccess",
+     ]
+   }
+   if (!is_fuchsia && is_clang) {
+diff --git a/engine/src/build/config/sysroot.gni b/engine/src/build/config/sysroot.gni
+index 12c8df99f44..5e87f79075c 100644
+--- a/engine/src/build/config/sysroot.gni
++++ b/engine/src/build/config/sysroot.gni
+@@ -17,6 +17,8 @@ declare_args() {
+ 
+-if (current_toolchain == default_toolchain && target_sysroot != "") {
++if (!is_android && current_toolchain == default_toolchain && target_sysroot != "") {
+   sysroot = target_sysroot
++} else if (is_termux && custom_sysroot != "") {
++  sysroot = custom_sysroot
+ } else if (is_android) {
+   import("//build/config/android/config.gni")
+   sysroot = rebase_path("$android_toolchain_root/sysroot", root_build_dir)
+diff --git a/engine/src/build/config/termux/BUILD.gn b/engine/src/build/config/termux/BUILD.gn
+new file mode 100644
+index 00000000000..2503dc32083
+--- /dev/null
++++ b/engine/src/build/config/termux/BUILD.gn
+@@ -0,0 +1,179 @@
++import("//build/config/termux/termux.gni")
++import("//build/config/sysroot.gni")
++import("//build/config/profiler.gni")
++
++config("compiler") {
++  if (current_toolchain == "//build/toolchain/termux:${current_cpu}") {
++    cflags = [
++      "-fno-strict-aliasing",
++      "-fstack-protector",
++      "--param=ssp-buffer-size=8",
++      "-fPIC",
++      "-pipe",
++      "-fcolor-diagnostics",
++      "-ffunction-sections",
++      "-funwind-tables",
++      "-fno-short-enums",
++      "-nostdinc++",
++    ]
++    cflags_cc = ["-fvisibility-inlines-hidden"]
++    cflags_objcc = ["-fvisibility-inlines-hidden"]
++    ldflags = [
++      "-Wl,--fatal-warnings",
++      "-fPIC",
++      "-Wl,-z,noexecstack",
++      "-Wl,-z,now",
++      "-Wl,-z,relro",
++      "-Wl,--undefined-version",
++      "-Wl,--no-undefined",
++      "-Wl,--exclude-libs,ALL",
++      "-Wl,--icf=all",
++      "-Wl,-z,max-page-size=65536",
++    ]
++    defines = [
++      "__TERMUX__",
++      "HAVE_SYS_UIO_H"
++    ]
++    if (!using_sanitizer) {
++      ldflags += [ "-Wl,-z,defs" ]
++    }
++    if (enable_profiling && !is_debug) {
++      defines += [ "ENABLE_PROFILING" ]
++      cflags += [
++        "-fno-omit-frame-pointer",
++        "-mno-omit-leaf-frame-pointer",
++        "-g",
++      ]
++
++      if (enable_full_stack_frames_for_profiling) {
++        cflags += [
++          "-fno-inline",
++          "-fno-optimize-sibling-calls",
++        ]
++      }
++      ldflags += [ "-rdynamic" ]
++    }
++    if (using_sanitizer) {
++      cflags += [
++        "-fno-omit-frame-pointer",
++        "-gline-tables-only",
++      ]
++    }
++    if (is_asan) {
++      cflags += [ "-fsanitize=address" ]
++      ldflags += [ "-fsanitize=address" ]
++    }
++    if (is_lsan) {
++      cflags += [ "-fsanitize=leak" ]
++      ldflags += [ "-fsanitize=leak" ]
++    }
++    if (is_tsan) {
++      cflags += [ "-fsanitize=thread" ]
++      ldflags += [ "-fsanitize=thread" ]
++    }
++    if (is_msan) {
++      cflags += [ "-fsanitize=memory" ]
++      ldflags += [ "-fsanitize=memory" ]
++    }
++    if (is_ubsan) {
++      cflags += [ "-fsanitize=undefined" ]
++      ldflags += [ "-fsanitize=undefined" ]
++    }
++    if (current_cpu == "x64") {
++      cflags += [
++        "-m64",
++        "-march=x86-64",
++      ]
++      ldflags += [ "-m64" ]
++    } else if (current_cpu == "x86") {
++      cflags += [ "-m32" ]
++      ldflags += [ "-m32" ]
++      if (is_clang) {
++        cflags += [
++          "-mstack-alignment=16",
++          "-mstackrealign",
++        ]
++      }
++    } else if (current_cpu == "arm") {
++      cflags += [
++        "-march=$arm_arch",
++        "-mfloat-abi=$arm_float_abi",
++      ]
++      if (arm_tune != "") {
++        cflags += [ "-mtune=$arm_tune" ]
++      }
++      if (arm_use_thumb) {
++        cflags += [ "-mthumb" ]
++      }
++    }
++    if (current_cpu == "arm") {
++      cflags += [ "--target=arm-linux-androideabi${termux_api_level}" ]
++      ldflags += [ "--target=arm-linux-androideabi${termux_api_level}" ]
++    } else if (current_cpu == "arm64") {
++      cflags += [ "--target=aarch64-linux-android${termux_api_level}" ]
++      ldflags += [ "--target=aarch64-linux-android${termux_api_level}" ]
++    } else if (current_cpu == "x86") {
++      cflags += [ "--target=i686-linux-androideabi${termux_api_level}" ]
++      ldflags += [ "--target=i686-linux-androideabi${termux_api_level}" ]
++    } else if (current_cpu == "x64") {
++      cflags += [ "--target=x86_64-linux-androideabi${termux_api_level}" ]
++      ldflags += [ "--target=x86_64-linux-androideabi${termux_api_level}" ]
++    }
++    asmflags = cflags
++  } else {
++    configs = ["//build/config/compiler:compiler"]
++  }
++}
++
++config("runtime_library") {
++  if (current_toolchain == "//build/toolchain/termux:${current_cpu}") {
++    cflags_cc = ["-nostdinc++"]
++    cflags_objcc = [ "-nostdinc++" ]
++    defines = [
++      "__compiler_offsetof=__builtin_offsetof",
++      "nan=__builtin_nan"
++    ]
++    ldflags = [
++      "-stdlib=libstdc++",
++      "-Wl,--warn-shared-textrel"
++    ]
++    lib_dirs = [ "$custom_toolchain/lib/clang/18/lib/linux/" ]
++    include_dirs = [
++      "//flutter/third_party/libcxx/include",
++      "//flutter/third_party/libcxxabi/include",
++    ]
++  } else {
++    configs = ["//build/config/compiler:runtime_library"]
++  }
++}
++
++config("executable_ldconfig") {
++  if (current_toolchain == "//build/toolchain/termux:${current_cpu}") {
++    ldflags = [
++      "-Bdynamic",
++      "-Wl,-z,nocopyreloc",
++      "-Wl,--dynamic-linker=/system/bin/linker64",
++    ]
++  } else {
++    configs = ["//build/config/gcc:executable_ldconfig"]
++  }
++}
++
++# Termux SDK config — only apply sysroot/libs to target toolchain    
++config("sdk") {
++  if (current_toolchain == "//build/toolchain/termux:${current_cpu}") {
++    cflags = []
++    ldflags = [ "-Wl,-rpath=/data/data/com.termux/files/usr/lib" ]
++    libs = [ "log", "m" ]
++    lib_dirs = [ "$custom_toolchain/lib/clang/18/lib/linux/" ]
++    if (defined(target_sysroot) && target_sysroot != "") {
++      cflags += [ "--sysroot=" + target_sysroot ]
++      ldflags += [ "--sysroot=" + target_sysroot ]
++    }
++    if (defined(custom_sysroot) && custom_sysroot != "") {
++      cflags += [ "-idirafter$custom_sysroot/usr/include" ]
++      lib_dirs += [ "$custom_sysroot/usr/lib" ]
++    }
++  }
++}
++
+diff --git a/engine/src/build/config/termux/termux.gni b/engine/src/build/config/termux/termux.gni
+new file mode 100644
+index 00000000000..0d97976c4ac
+--- /dev/null
++++ b/engine/src/build/config/termux/termux.gni
+@@ -0,0 +1,7 @@
++declare_args() {
++  termux_api_level = 26
++
++  is_termux = false
++  is_termux_host = false
++  termux_cross_host = false
++}
+diff --git a/engine/src/build/toolchain/termux/BUILD.gn b/engine/src/build/toolchain/termux/BUILD.gn
+new file mode 100644
+index 00000000000..564c5829578
+--- /dev/null
++++ b/engine/src/build/toolchain/termux/BUILD.gn
+@@ -0,0 +1,40 @@
++import("//build/toolchain/gcc_toolchain.gni")
++import("//build/config/android/config.gni")
++import("//build/config/termux/termux.gni")
++import("//build/toolchain/custom/custom.gni")
++
++template("termux_toolchain") {
++  gcc_toolchain(target_name) {
++    assert(defined(custom_toolchain) && custom_toolchain != "")
++
++    is_clang = true
++    toolchain_os = "linux"
++    toolchain_cpu = invoker.toolchain_cpu
++
++    prefix = "$custom_toolchain/bin"
++    cc = prefix + "/clang"
++    cxx = prefix + "/clang++"
++    asm = prefix + "/clang"
++    ar = prefix + "/llvm-ar"
++    ld = prefix + "/clang++"
++    readelf = prefix + "/llvm-readelf"
++    nm = prefix + "/llvm-nm"
++    strip = prefix + "/llvm-strip"
++  }
++}
++
++termux_toolchain("arm64"){
++  toolchain_cpu = "arm64"
++}
++
++termux_toolchain("arm"){
++  toolchain_cpu = "arm"
++}
++
++termux_toolchain("x64"){
++  toolchain_cpu = "x64"
++}
++
++termux_toolchain("x86"){
++  toolchain_cpu = "x86"
++}
+diff --git a/engine/src/flutter/shell/testing/BUILD.gn b/engine/src/flutter/shell/testing/BUILD.gn
+index f97ae91ae83..a760ed12016 100644
+--- a/engine/src/flutter/shell/testing/BUILD.gn
++++ b/engine/src/flutter/shell/testing/BUILD.gn
+@@ -63,6 +63,9 @@ template("tester") {
+         "shlwapi.lib",
+       ]
+     }
++    if (is_termux && impeller_supports_rendering) {
++      libs += [ "vk_swiftshader" ]
++    }
+ 
+     deps = [
+       "$dart_src/runtime:libdart_jit",
+@@ -100,10 +103,10 @@ tester("flutter_tester") {
+     if (shell_enable_metal) {
+       sources += [ "tester_context_mtl_factory.mm" ]
+     }
+-    deps = [
+-      ":tester_gpu_configuration",
+-      "//flutter/third_party/swiftshader/src/Vulkan:swiftshader_libvulkan_static",
+-    ]
++    deps = [ ":tester_gpu_configuration" ]
++    if (!is_termux) {
++      deps += [ "//flutter/third_party/swiftshader/src/Vulkan:swiftshader_libvulkan_static" ]
++    }
+   }
+ 
+   metadata = {
+diff --git a/engine/src/build/config/android/config.gni b/engine/src/build/config/android/config.gni
+index 2ea3a3a59d6..8ebefc0be97 100644
+--- a/engine/src/build/config/android/config.gni
++++ b/engine/src/build/config/android/config.gni
+@@ -53,8 +53,13 @@ if (is_android) {
+   android_sdk = "${android_sdk_root}/platforms/android-${android_sdk_version}"
+ 
+   # Path to the Android NDK and SDK.
+-  android_ndk_version = "28.2.13676358"
+-  android_ndk_root = "//flutter/third_party/android_tools/sdk/ndk/$android_ndk_version"
++  declare_args() {
++    android_ndk_version = "28.2.13676358"
++  }
++  declare_args() {
++    android_ndk_root = "//flutter/third_party/android_tools/sdk/ndk/$android_ndk_version"
++    android_clang_rt_version = "19"
++  }
+   android_ndk_include_dir = "$android_ndk_root/usr/include"
+ 
+   android_sdk = "${android_sdk_root}/platforms/android-${android_sdk_version}"
+diff --git a/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc b/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc
+index 17d0a0d763d..bc1878501e2 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc
+@@ -6,7 +6,9 @@
+ #include "flutter/shell/platform/linux/public/flutter_linux/fl_standard_message_codec.h"
+ #include "flutter/shell/platform/linux/public/flutter_linux/fl_value.h"
+ 
++#if !PANGO_VERSION_CHECK(1, 44, 0)
+ G_DEFINE_AUTOPTR_CLEANUP_FUNC(PangoContext, g_object_unref)
++#endif
+ // PangoLayout g_autoptr macro weren't added until 1.49.4. Add them manually.
+ // https://gitlab.gnome.org/GNOME/pango/-/commit/0b84e14
+ #if !PANGO_VERSION_CHECK(1, 49, 4)

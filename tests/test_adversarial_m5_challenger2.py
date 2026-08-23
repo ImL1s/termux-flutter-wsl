@@ -77,8 +77,8 @@ def test_adv_m1_staging_clone_backup_pruning_on_success(tmp_path, monkeypatch):
     fake_repo.mkdir()
     (fake_repo / "build.toml").write_text("""
 [flutter]
-tag = "3.44.2"
-release_tag = "v3.44.2-termux"
+tag = "3.44.9"
+release_tag = "v3.44.9-termux"
 path = "flutter"
 engine_commit = "deadbeef"
 dart_version = "3.4.0"
@@ -88,7 +88,7 @@ sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 conf = "package.yaml"
 """, encoding="utf-8")
 
-    (fake_repo / "package.yaml").write_text("control:\n  Package: flutter\n  Version: 3.44.2\n", encoding="utf-8")
+    (fake_repo / "package.yaml").write_text("control:\n  Package: flutter\n  Version: 3.44.9\n", encoding="utf-8")
 
     flutter_dir = fake_repo / "flutter"
     flutter_dir.mkdir()
@@ -99,7 +99,7 @@ conf = "package.yaml"
     builder = Build()
     builder.conf = {
         "flutter": {
-            "tag": "3.44.2",
+            "tag": "3.44.9",
             "path": "flutter",
             "engine_commit": "deadbeef",
             "dart_version": "3.4.0",
@@ -107,11 +107,11 @@ conf = "package.yaml"
         "package": {"conf": "package.yaml"},
     }
 
-    monkeypatch.setattr(utils, "flutter_tag", lambda p: "3.44.2")
+    monkeypatch.setattr(utils, "flutter_tag", lambda p: "3.44.9")
     monkeypatch.setattr(builder, "classify_workspace_patch_state", lambda p: {"valid": True, "state": "clean"})
     def mock_status(p, expected_tag=None):
         if ".staging_" in str(p) or "staging" in str(p):
-            return {"exists": True, "tag": "3.44.2", "head": "sha123", "peeled_sha": "sha123", "dirty": False, "remote": "https://github.com/flutter/flutter.git"}
+            return {"exists": True, "tag": "3.44.9", "head": "sha123", "peeled_sha": "sha123", "dirty": False, "remote": "https://github.com/flutter/flutter.git"}
         return {"exists": True, "tag": "3.44.0", "head": "old", "peeled_sha": "new", "error": "mismatch", "remote": "https://github.com/flutter/flutter.git"}
     monkeypatch.setattr(builder, "workspace_status", mock_status)
 

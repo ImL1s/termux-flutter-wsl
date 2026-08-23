@@ -94,7 +94,7 @@ class TestAdversarialSHA256Validation:
         """Test verify_checksum_file on various checksum formats and corruptions."""
         # Standard sha256sum format
         valid_file = tmp_path / "valid.sha256"
-        valid_file.write_text(f"{self.VALID_64_HEX}  flutter_3.44.2_aarch64.deb\n", encoding="utf-8")
+        valid_file.write_text(f"{self.VALID_64_HEX}  flutter_3.44.9_aarch64.deb\n", encoding="utf-8")
         assert vra.verify_checksum_file(valid_file) == self.VALID_64_HEX
 
         # Single hash format
@@ -134,15 +134,15 @@ class TestCompanionCardinalityAndPromotionGates:
             for p in cand_dir.glob("*"):
                 p.unlink()
             for i in range(deb_count):
-                (cand_dir / f"flutter_3.44.2_{i}.deb").write_bytes(b"deb_content_12345")
+                (cand_dir / f"flutter_3.44.9_{i}.deb").write_bytes(b"deb_content_12345")
             for i in range(sha_count):
-                (cand_dir / f"flutter_3.44.2_{i}.deb.sha256").write_text(f"{self.SAMPLE_SHA}  deb\n")
+                (cand_dir / f"flutter_3.44.9_{i}.deb.sha256").write_text(f"{self.SAMPLE_SHA}  deb\n")
             for i in range(size_count):
-                (cand_dir / f"flutter_3.44.2_{i}.deb.size.txt").write_text("17\n")
+                (cand_dir / f"flutter_3.44.9_{i}.deb.size.txt").write_text("17\n")
             for i in range(meta_count):
                 meta_name = "build_metadata.json" if i == 0 else f"build_metadata_{i}.json"
                 (cand_dir / meta_name).write_text(json.dumps({
-                    "version": "3.44.2",
+                    "version": "3.44.9",
                     "arch": "arm64",
                     "run_id": "12345",
                     "source_commit": self.SAMPLE_COMMIT,
@@ -215,7 +215,7 @@ class TestCompanionCardinalityAndPromotionGates:
         }
 
         # Valid promotion
-        ok, msg = evaluate_promotion(valid_evidence, "v3.44.2-termux", self.SAMPLE_COMMIT)
+        ok, msg = evaluate_promotion(valid_evidence, "v3.44.9-termux", self.SAMPLE_COMMIT)
         assert ok is True
         assert msg == "PROMOTED"
 
@@ -227,30 +227,30 @@ class TestCompanionCardinalityAndPromotionGates:
         # Failed overall status
         ev_failed = copy.deepcopy(valid_evidence)
         ev_failed["status"] = "failed"
-        ok, msg = evaluate_promotion(ev_failed, "v3.44.2-termux", self.SAMPLE_COMMIT)
+        ok, msg = evaluate_promotion(ev_failed, "v3.44.9-termux", self.SAMPLE_COMMIT)
         assert ok is False
 
         # Failed mode_b_status
         ev_mode_b_fail = copy.deepcopy(valid_evidence)
         ev_mode_b_fail["mode_b_status"] = "failed"
-        ok, msg = evaluate_promotion(ev_mode_b_fail, "v3.44.2-termux", self.SAMPLE_COMMIT)
+        ok, msg = evaluate_promotion(ev_mode_b_fail, "v3.44.9-termux", self.SAMPLE_COMMIT)
         assert ok is False
 
         # Commit mismatch
-        ok, msg = evaluate_promotion(valid_evidence, "v3.44.2-termux", "fedcba9876543210fedcba9876543210fedcba98")
+        ok, msg = evaluate_promotion(valid_evidence, "v3.44.9-termux", "fedcba9876543210fedcba9876543210fedcba98")
         assert ok is False
         assert "Commit mismatch" in msg
 
         # Corrupt APK sha256
         ev_corrupt_apk = copy.deepcopy(valid_evidence)
         ev_corrupt_apk["artifacts"]["apk_sha256"] = "invalid_hash"
-        ok, msg = evaluate_promotion(ev_corrupt_apk, "v3.44.2-termux", self.SAMPLE_COMMIT)
+        ok, msg = evaluate_promotion(ev_corrupt_apk, "v3.44.9-termux", self.SAMPLE_COMMIT)
         assert ok is False
 
         # Zero size deb
         ev_zero_size = copy.deepcopy(valid_evidence)
         ev_zero_size["artifacts"]["deb_size"] = 0
-        ok, msg = evaluate_promotion(ev_zero_size, "v3.44.2-termux", self.SAMPLE_COMMIT)
+        ok, msg = evaluate_promotion(ev_zero_size, "v3.44.9-termux", self.SAMPLE_COMMIT)
         assert ok is False
 
 
@@ -270,12 +270,12 @@ class TestAdversarialVersionDriftInjections:
         # Canonical build.toml
         (root / "build.toml").write_text("""
 [flutter]
-tag = '3.44.2'
-release_tag = 'v3.44.2-termux'
-dart_version = '3.12.1'
+tag = '3.44.9'
+release_tag = 'v3.44.9-termux'
+dart_version = '3.12.2'
 engine_commit = '11223344556677889900aabbccddeeff00112233'
 sha256 = 'f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e'
-asset_name = 'flutter_3.44.2_aarch64.deb'
+asset_name = 'flutter_3.44.9_aarch64.deb'
 size = 52428800
 
 [ndk]
@@ -307,36 +307,36 @@ resource:
         # Aligned Markdown docs
         (root / "README.md").write_text("""
 # Flutter Termux
-Download: [deb](https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb)
-Dart SDK: `3.12.1`
+Download: [deb](https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb)
+Dart SDK: `3.12.2`
 Engine | [11223344556677889900aabbccddeeff00112233](...)
 """, encoding="utf-8")
 
         (root / "README_EN.md").write_text("""
 # Flutter Termux English
-Download: [deb](https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb)
+Download: [deb](https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb)
 """, encoding="utf-8")
 
         (root / "docs" / "releases").mkdir(parents=True)
         (root / "docs" / "releases" / "RELEASE_NOTES.md").write_text("""
-Release v3.44.2-termux: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/flutter_3.44.2_aarch64.deb
+Release v3.44.9-termux: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
 """, encoding="utf-8")
 
         # Aligned Agent guidance docs
         for doc in ["AGENTS.md", "GEMINI.md", "CLAUDE.md"]:
             (root / doc).write_text("""
-Target: aarch64, Flutter 3.44.2
-Patches in patches/3.44.2/
-adb push flutter_3.44.2_aarch64.deb /data/local/tmp/
+Target: aarch64, Flutter 3.44.9
+Patches in patches/3.44.9/
+adb push flutter_3.44.9_aarch64.deb /data/local/tmp/
 """, encoding="utf-8")
 
         # Aligned Guides
         (root / "docs" / "guides").mkdir(parents=True)
         (root / "docs" / "guides" / "BUILD_GUIDE.md").write_text("""
 | Property | Value |
-| Flutter tag | `3.44.2` |
+| Flutter tag | `3.44.9` |
 | Engine revision | `11223344556677889900aabbccddeeff00112233` |
-| Package | `flutter_3.44.2_aarch64.deb` |
+| Package | `flutter_3.44.9_aarch64.deb` |
 | SHA256 | `f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e` |
 """, encoding="utf-8")
 
@@ -346,28 +346,28 @@ adb push flutter_3.44.2_aarch64.deb /data/local/tmp/
 
         # Aligned installer scripts
         (root / "install_flutter_complete.sh").write_text("""#!/bin/bash
-FLUTTER_VERSION="3.44.2"
-RELEASE_TAG="v3.44.2-termux"
+FLUTTER_VERSION="3.44.9"
+RELEASE_TAG="v3.44.9-termux"
 EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 """, encoding="utf-8")
 
         (root / "scripts" / "install").mkdir(parents=True)
         (root / "scripts" / "install" / "install.sh").write_text("""#!/bin/bash
-FLUTTER_VERSION="3.44.2"
-RELEASE_TAG="v3.44.2-termux"
+FLUTTER_VERSION="3.44.9"
+RELEASE_TAG="v3.44.9-termux"
 EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 """, encoding="utf-8")
 
         (root / "scripts" / "install" / "install_termux_flutter.sh").write_text("""#!/bin/bash
-FLUTTER_VERSION="3.44.2"
-RELEASE_TAG="v3.44.2-termux"
+FLUTTER_VERSION="3.44.9"
+RELEASE_TAG="v3.44.9-termux"
 EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 """, encoding="utf-8")
 
         (root / "scripts" / "test").mkdir(parents=True)
         (root / "scripts" / "test" / "gh_e2e_test.sh").write_text("""#!/bin/bash
-FLUTTER_VERSION="3.44.2"
-RELEASE_TAG="v3.44.2-termux"
+FLUTTER_VERSION="3.44.9"
+RELEASE_TAG="v3.44.9-termux"
 EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 """, encoding="utf-8")
 

@@ -97,7 +97,7 @@ class TestChecksumFileParsing:
     def test_standard_sha256sum_format(self, tmp_path):
         target = tmp_path / "asset.deb.sha256"
         valid_hash = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
-        target.write_text(f"{valid_hash}  flutter_3.44.2_aarch64.deb\n", encoding="utf-8")
+        target.write_text(f"{valid_hash}  flutter_3.44.9_aarch64.deb\n", encoding="utf-8")
         assert verify_checksum_file(target) == valid_hash
 
     def test_single_hash_file(self, tmp_path):
@@ -141,7 +141,7 @@ class TestVerifyReleaseAssetExecution:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "build.toml").write_text("""
 [flutter]
-release_tag = "v3.44.2-termux"
+release_tag = "v3.44.9-termux"
 # missing asset_name and sha256
 """, encoding="utf-8")
         with pytest.raises(SystemExit) as exc:
@@ -152,8 +152,8 @@ release_tag = "v3.44.2-termux"
         monkeypatch.chdir(tmp_path)
         (tmp_path / "build.toml").write_text("""
 [flutter]
-release_tag = "v3.44.2-termux"
-asset_name = "flutter_3.44.2_aarch64.deb"
+release_tag = "v3.44.9-termux"
+asset_name = "flutter_3.44.9_aarch64.deb"
 sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 size = -10
 """, encoding="utf-8")
@@ -166,8 +166,8 @@ size = -10
         monkeypatch.setenv("LIGHTWEIGHT_CHECK", "1")
         (tmp_path / "build.toml").write_text("""
 [flutter]
-release_tag = "v3.44.2-termux"
-asset_name = "flutter_3.44.2_aarch64.deb"
+release_tag = "v3.44.9-termux"
+asset_name = "flutter_3.44.9_aarch64.deb"
 sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 size = 500
 """, encoding="utf-8")
@@ -185,11 +185,11 @@ size = 500
         computed_sha = hashlib.sha256(payload).hexdigest()
         computed_size = len(payload)
 
-        asset_name = "flutter_3.44.2_aarch64.deb"
+        asset_name = "flutter_3.44.9_aarch64.deb"
         (tmp_path / asset_name).write_bytes(payload)
         (tmp_path / "build.toml").write_text(f"""
 [flutter]
-release_tag = "v3.44.2-termux"
+release_tag = "v3.44.9-termux"
 asset_name = "{asset_name}"
 sha256 = "{computed_sha}"
 size = {computed_size}
@@ -204,11 +204,11 @@ size = {computed_size}
     def test_lightweight_check_with_mismatched_local_hash_fails(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("LIGHTWEIGHT_CHECK", "1")
-        asset_name = "flutter_3.44.2_aarch64.deb"
+        asset_name = "flutter_3.44.9_aarch64.deb"
         (tmp_path / asset_name).write_bytes(b"tampered content")
         (tmp_path / "build.toml").write_text(f"""
 [flutter]
-release_tag = "v3.44.2-termux"
+release_tag = "v3.44.9-termux"
 asset_name = "{asset_name}"
 sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 size = 16
@@ -223,11 +223,11 @@ size = 16
         monkeypatch.setenv("LIGHTWEIGHT_CHECK", "1")
         payload = b"content"
         computed_sha = hashlib.sha256(payload).hexdigest()
-        asset_name = "flutter_3.44.2_aarch64.deb"
+        asset_name = "flutter_3.44.9_aarch64.deb"
         (tmp_path / asset_name).write_bytes(payload)
         (tmp_path / "build.toml").write_text(f"""
 [flutter]
-release_tag = "v3.44.2-termux"
+release_tag = "v3.44.9-termux"
 asset_name = "{asset_name}"
 sha256 = "{computed_sha}"
 size = 999999
@@ -246,8 +246,8 @@ size = 999999
 
         (tmp_path / "build.toml").write_text("""
 [flutter]
-release_tag = "v3.44.2-termux"
-asset_name = "flutter_3.44.2_aarch64.deb"
+release_tag = "v3.44.9-termux"
+asset_name = "flutter_3.44.9_aarch64.deb"
 sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 """, encoding="utf-8")
 
@@ -265,11 +265,11 @@ sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
         payload = b"mock deb package content for full verification"
         computed_sha = hashlib.sha256(payload).hexdigest()
         computed_size = len(payload)
-        asset_name = "flutter_3.44.2_aarch64.deb"
+        asset_name = "flutter_3.44.9_aarch64.deb"
 
         (tmp_path / "build.toml").write_text(f"""
 [flutter]
-release_tag = "v3.44.2-termux"
+release_tag = "v3.44.9-termux"
 asset_name = "{asset_name}"
 sha256 = "{computed_sha}"
 size = {computed_size}
@@ -281,7 +281,7 @@ size = {computed_size}
             "assets": [
                 {
                     "name": asset_name,
-                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.2-termux/{asset_name}",
+                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/{asset_name}",
                     "size": computed_size,
                     "digest": f"sha256:{computed_sha}",
                 }
@@ -306,8 +306,8 @@ size = {computed_size}
 
         (tmp_path / "build.toml").write_text("""
 [flutter]
-release_tag = "v3.44.2-termux"
-asset_name = "flutter_3.44.2_aarch64.deb"
+release_tag = "v3.44.9-termux"
+asset_name = "flutter_3.44.9_aarch64.deb"
 sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 """, encoding="utf-8")
 
@@ -332,9 +332,9 @@ class TestCompanionMetadataContracts:
         staging = tmp_path / "staging"
         staging.mkdir()
 
-        deb = staging / "flutter_3.44.2_aarch64.deb"
-        sha = staging / "flutter_3.44.2_aarch64.deb.sha256"
-        size = staging / "flutter_3.44.2_aarch64.deb.size.txt"
+        deb = staging / "flutter_3.44.9_aarch64.deb"
+        sha = staging / "flutter_3.44.9_aarch64.deb.sha256"
+        size = staging / "flutter_3.44.9_aarch64.deb.size.txt"
         meta = staging / "build_metadata.json"
         inv = staging / "inventory.txt"
         evi = staging / "evidence.json"
@@ -343,10 +343,10 @@ class TestCompanionMetadataContracts:
         sha.write_text(f"{hashlib.sha256(b'content').hexdigest()}  {deb.name}\n", encoding="utf-8")
         size.write_text("7\n", encoding="utf-8")
         meta.write_text(json.dumps({
-            "commit": "b28d002a246838a11306bd68fb50b0f7e4fde09e",
+            "commit": "5a2a6a42cce67f965cf540fcecf616faca624aa1",
             "build_timestamp": "2026-08-15T05:00:00Z",
-            "flutter_tag": "3.44.2",
-            "dart_version": "3.12.1",
+            "flutter_tag": "3.44.9",
+            "dart_version": "3.12.2",
             "architecture": "aarch64",
         }), encoding="utf-8")
         inv.write_text("bin/flutter\nbin/cache/dart-sdk/bin/dart\n", encoding="utf-8")
@@ -369,8 +369,8 @@ class TestCompanionMetadataContracts:
     def test_duplicate_artifact_violates_cardinality(self, tmp_path):
         staging = tmp_path / "staging"
         staging.mkdir()
-        (staging / "flutter_3.44.2_aarch64.deb").write_bytes(b"deb1")
-        (staging / "flutter_3.44.2_aarch64_copy.deb").write_bytes(b"deb2")
+        (staging / "flutter_3.44.9_aarch64.deb").write_bytes(b"deb1")
+        (staging / "flutter_3.44.9_aarch64_copy.deb").write_bytes(b"deb2")
         debs = list(staging.glob("*.deb"))
         assert len(debs) != 1, "Multiple debs must violate singleton constraint"
 
@@ -400,12 +400,12 @@ class TestVersionDriftGovernance:
 
     def test_ssot_build_config_loading(self):
         cfg = check_version_drift.load_build_config(REPO_ROOT)
-        assert cfg["tag"] == "3.44.2"
-        assert cfg["release_tag"] == "v3.44.2-termux"
-        assert cfg["dart_version"] == "3.12.1"
-        assert cfg["engine_commit"] == "b28d002a246838a11306bd68fb50b0f7e4fde09e"
-        assert cfg["sha256"] == "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
-        assert cfg["asset_name"] == "flutter_3.44.2_aarch64.deb"
+        assert cfg["tag"] == "3.44.9"
+        assert cfg["release_tag"] == "v3.44.9-termux"
+        assert cfg["dart_version"] == "3.12.2"
+        assert cfg["engine_commit"] == "5a2a6a42cce67f965cf540fcecf616faca624aa1"
+        assert cfg["sha256"] == "0000000000000000000000000000000000000000000000000000000000000000"  # Placeholder until 3.44.9 deb is built
+        assert cfg["asset_name"] == "flutter_3.44.9_aarch64.deb"
 
     def test_drift_detected_when_build_py_hardcodes_stale_dart(self, tmp_path):
         (tmp_path / "build.py").write_text("""
@@ -416,7 +416,7 @@ class Build:
     def configure(self):
         pass
 """, encoding="utf-8")
-        cfg = {"dart_version": "3.12.1"}
+        cfg = {"dart_version": "3.12.2"}
         check_version_drift.ERRORS.clear()
         check_version_drift.check_build_py(cfg, tmp_path)
         assert len(check_version_drift.ERRORS) == 1
@@ -431,7 +431,7 @@ resource:
     source: |-
       export FLUTTER_PREBUILT_ENGINE_VERSION="stale_commit_hash"
 """, encoding="utf-8")
-        cfg = {"engine_commit": "b28d002a246838a11306bd68fb50b0f7e4fde09e"}
+        cfg = {"engine_commit": "5a2a6a42cce67f965cf540fcecf616faca624aa1"}
         check_version_drift.ERRORS.clear()
         check_version_drift.check_package_yaml(cfg, tmp_path)
         assert len(check_version_drift.ERRORS) == 1
@@ -442,9 +442,9 @@ resource:
 [Download](https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.41.5-termux/flutter.deb)
 """, encoding="utf-8")
         cfg = {
-            "release_tag": "v3.44.2-termux",
-            "dart_version": "3.12.1",
-            "engine_commit": "b28d002a246838a11306bd68fb50b0f7e4fde09e",
+            "release_tag": "v3.44.9-termux",
+            "dart_version": "3.12.2",
+            "engine_commit": "5a2a6a42cce67f965cf540fcecf616faca624aa1",
         }
         check_version_drift.ERRORS.clear()
         check_version_drift.check_markdown_docs(cfg, tmp_path)
@@ -456,8 +456,8 @@ resource:
 - Target: aarch64, Flutter 3.41.5
 """, encoding="utf-8")
         cfg = {
-            "tag": "3.44.2",
-            "asset_name": "flutter_3.44.2_aarch64.deb",
+            "tag": "3.44.9",
+            "asset_name": "flutter_3.44.9_aarch64.deb",
         }
         check_version_drift.ERRORS.clear()
         check_version_drift.check_agent_guidance_docs(cfg, tmp_path)
@@ -469,8 +469,8 @@ resource:
 ├── patches/3.35.0/
 """, encoding="utf-8")
         cfg = {
-            "tag": "3.44.2",
-            "asset_name": "flutter_3.44.2_aarch64.deb",
+            "tag": "3.44.9",
+            "asset_name": "flutter_3.44.9_aarch64.deb",
         }
         check_version_drift.ERRORS.clear()
         check_version_drift.check_agent_guidance_docs(cfg, tmp_path)
@@ -481,13 +481,13 @@ resource:
         guides_dir = tmp_path / "docs" / "guides"
         guides_dir.mkdir(parents=True)
         (guides_dir / "BUILD_GUIDE.md").write_text("""
-| Flutter tag | `3.44.2` |
+| Flutter tag | `3.44.9` |
 | SHA256 | `0000000000000000000000000000000000000000000000000000000000000000` |
 """, encoding="utf-8")
         cfg = {
-            "tag": "3.44.2",
-            "asset_name": "flutter_3.44.2_aarch64.deb",
-            "engine_commit": "b28d002a246838a11306bd68fb50b0f7e4fde09e",
+            "tag": "3.44.9",
+            "asset_name": "flutter_3.44.9_aarch64.deb",
+            "engine_commit": "5a2a6a42cce67f965cf540fcecf616faca624aa1",
             "sha256": "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e",
         }
         check_version_drift.ERRORS.clear()
@@ -502,8 +502,8 @@ RELEASE_TAG="v3.35.0-termux"
 EXPECTED_SHA256="wrong_hash"
 """, encoding="utf-8")
         cfg = {
-            "tag": "3.44.2",
-            "release_tag": "v3.44.2-termux",
+            "tag": "3.44.9",
+            "release_tag": "v3.44.9-termux",
             "sha256": "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e",
         }
         check_version_drift.ERRORS.clear()

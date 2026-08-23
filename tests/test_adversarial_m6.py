@@ -41,8 +41,8 @@ def test_sha256_validation_adversarial_formats(tmp_path, monkeypatch):
         encoded_sha = json.dumps(bad_sha)
         toml_content = f"""
 [flutter]
-release_tag = "v3.44.2-termux"
-asset_name = "flutter_3.44.2_aarch64.deb"
+release_tag = "v3.44.9-termux"
+asset_name = "flutter_3.44.9_aarch64.deb"
 sha256 = {encoded_sha}
 size = 100
 """
@@ -57,8 +57,8 @@ def test_sha256_validation_missing_sha256(tmp_path, monkeypatch):
     """Verify verify_release_asset.py rejects missing sha256 in build.toml."""
     toml_content = """
 [flutter]
-release_tag = "v3.44.2-termux"
-asset_name = "flutter_3.44.2_aarch64.deb"
+release_tag = "v3.44.9-termux"
+asset_name = "flutter_3.44.9_aarch64.deb"
 size = 100
 """
     (tmp_path / "build.toml").write_text(toml_content, encoding="utf-8")
@@ -75,8 +75,8 @@ def test_sha256_uppercase_valid_in_lightweight_mode(tmp_path, monkeypatch):
     uppercase_sha = "66A7099324C0D7094D604AA92ABEEC87B7A29B8E0BC697B819E0CD91FC706000"
     toml_content = f"""
 [flutter]
-release_tag = "v3.44.2-termux"
-asset_name = "flutter_3.44.2_aarch64.deb"
+release_tag = "v3.44.9-termux"
+asset_name = "flutter_3.44.9_aarch64.deb"
 sha256 = "{uppercase_sha}"
 size = 100
 """
@@ -94,7 +94,7 @@ size = 100
             data = {
                 "assets": [
                     {
-                        "name": "flutter_3.44.2_aarch64.deb",
+                        "name": "flutter_3.44.9_aarch64.deb",
                         "browser_download_url": "https://example.com/flutter.deb",
                         "size": 100,
                         "digest": f"sha256:{uppercase_sha.lower()}",

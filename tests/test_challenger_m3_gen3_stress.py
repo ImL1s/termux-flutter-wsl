@@ -377,14 +377,14 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path, monkeypatch):
         p.write_text("content")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
-    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.9", "completed": True, "timestamp": time.time()}))
 
-    deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
+    deb_file = tmp_path / "flutter_3.44.9_aarch64.deb"
 
     def create_build_instance():
         b = Build()
         b.root = Path(root)
-        b.tag = "3.44.2"
+        b.tag = "3.44.9"
         b.output = lambda arch: str(deb_file)
         b.preflight = lambda: True
         b.clone = lambda **kw: None
@@ -491,14 +491,14 @@ def test_adv_build_all_package_inputs_set_concatenation_no_typeerror(tmp_path, m
         p.write_text("dummy")
 
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
-    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.2", "completed": True, "timestamp": time.time()}))
+    (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.9", "completed": True, "timestamp": time.time()}))
 
-    deb_file = tmp_path / "flutter_3.44.2_aarch64.deb"
+    deb_file = tmp_path / "flutter_3.44.9_aarch64.deb"
     deb_file.write_text("deb package")
 
     b = Build()
     b.root = Path(root)
-    b.tag = "3.44.2"
+    b.tag = "3.44.9"
     b.output = lambda arch: str(deb_file)
     b.preflight = lambda: True
     b.clone = lambda **kw: None

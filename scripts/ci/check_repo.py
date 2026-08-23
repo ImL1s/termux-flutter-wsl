@@ -173,8 +173,13 @@ def check_post_install_contract() -> None:
 
 def check_installer_contract() -> None:
     text = read("install_flutter_complete.sh")
-    if 'FLUTTER_VERSION="3.44.2"' not in text:
-        fail("install_flutter_complete.sh default Flutter version is not 3.44.2")
+    # Read expected version from build.toml
+    toml_text = read("build.toml")
+    import re as _re
+    m = _re.search(r"tag\s*=\s*'([^']+)'", toml_text)
+    expected_ver = m.group(1) if m else "3.44.9"
+    if f'FLUTTER_VERSION="{expected_ver}"' not in text:
+        fail(f"install_flutter_complete.sh default Flutter version is not {expected_ver}")
     if 'NDK_VERSION="29.0.14206865"' not in text:
         fail("install_flutter_complete.sh default NDK version is not r29")
     if "android-ndk-r27" in text:

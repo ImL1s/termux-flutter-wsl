@@ -30,7 +30,7 @@ on:
         required: false
         default: false
       release_tag:
-        description: "Tag for the release (e.g. v3.44.2-termux)"
+        description: "Tag for the release (e.g. v3.44.9-termux)"
         required: false
       timeout_minutes:
         description: Device smoke timeout in minutes. Keep the tablet awake/unlocked before starting.

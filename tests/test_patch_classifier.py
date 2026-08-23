@@ -27,7 +27,7 @@ def create_git_repo_with_patch(tmp_path):
     commit_1 = repo.index.commit("Initial commit")
 
     # Create tag
-    tag_name = "3.44.2"
+    tag_name = "3.44.9"
     repo.create_tag(tag_name, commit_1)
 
     # Create remote origin
@@ -67,7 +67,7 @@ path = "."
     conf_path.write_text(conf_content, encoding="utf-8")
 
     pkg_yaml = tmp_path / "package.yaml"
-    pkg_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.2\n", encoding="utf-8")
+    pkg_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.9\n", encoding="utf-8")
 
     b = Build(conf=str(conf_path))
     return b, repo, repo_dir, patch_file, tag_name

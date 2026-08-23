@@ -1,0 +1,82 @@
+diff --git a/runtime/platform/globals.h b/runtime/platform/globals.h
+index 66c3f273fc7..e050865357d 100644
+--- a/runtime/platform/globals.h
++++ b/runtime/platform/globals.h
+@@ -105,7 +105,7 @@
+ // for more information on predefined macros:
+ //   - http://msdn.microsoft.com/en-us/library/b0084kay.aspx
+ //   - with gcc, run: "echo | gcc -E -dM -"
+-#if defined(__ANDROID__)
++#if defined(__ANDROID__) && !defined(__TERMUX__)
+ 
+ // Check for Android first, to determine its difference from Linux.
+ #define DART_HOST_OS_ANDROID 1
+diff --git a/runtime/platform/utils_linux.h b/runtime/platform/utils_linux.h
+index 082e4ef0f06..c7d425e13dc 100644
+--- a/runtime/platform/utils_linux.h
++++ b/runtime/platform/utils_linux.h
+@@ -10,6 +10,7 @@
+ #endif
+ 
+ #include <endian.h>  // NOLINT
++#include <string.h>
+ 
+ namespace dart {
+ 
+@@ -38,17 +39,8 @@ inline uint64_t Utils::HostToLittleEndian64(uint64_t value) {
+ }
+ 
+ inline char* Utils::StrError(int err, char* buffer, size_t bufsize) {
+-#if !defined(__GLIBC__) ||                                                     \
+-    ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE)
+-  // Use the XSI version.
+-  if (strerror_r(err, buffer, bufsize) != 0) {
+-    snprintf(buffer, bufsize, "%s", "strerror_r failed");
+-  }
++  snprintf(buffer, bufsize, "%s (errno %d)", strerror(err), err);
+   return buffer;
+-#else
+-  // Use the GNU specific version.
+-  return strerror_r(err, buffer, bufsize);
+-#endif
+ }
+ 
+ }  // namespace dart
+diff --git a/runtime/vm/profiler.cc b/runtime/vm/profiler.cc
+index 38ed932111c..dc425ec86d5 100644
+--- a/runtime/vm/profiler.cc
++++ b/runtime/vm/profiler.cc
+@@ -2333,19 +2333,22 @@ void SampleBlockProcessor::Shutdown() {
+   ASSERT(!thread_running_);
+ }
+ 
++#endif  // defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
++
+ void Profiler::IsolateShutdown(Isolate* isolate) {
+   FlushSampleBlocks(isolate);
+   NOT_IN_PRECOMPILED(Timeline::DrainCompletedSampleBlocksIntoRecorder(isolate));
+ }
+ 
+ void Profiler::IsolateGroupShutdown(IsolateGroup* isolate_group) {
+-#if defined(SUPPORT_TIMELINE)
++#if defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+   if (config_.enabled && config_.stream_to_timeline) {
+     Timeline::NotifyAboutIsolateGroupShutdown(isolate_group);
+   }
+-#endif  // defined(SUPPORT_TIMELINE)
++#endif  // defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+ }
+ 
++#if defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+ void SampleBlockProcessor::ThreadMain(uword parameters) {
+   ASSERT(initialized_);
+   {
+@@ -2405,7 +2408,7 @@ void SampleBlockProcessor::ThreadMain(uword parameters) {
+   // Signal to main thread we are exiting.
+   thread_running_ = false;
+ }
+-#endif
++#endif  // defined(SUPPORT_TIMELINE) && defined(SUPPORT_PERFETTO)
+ 
+ #endif  // defined(DART_INCLUDE_PROFILER)
+ 

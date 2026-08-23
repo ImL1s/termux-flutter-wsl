@@ -73,7 +73,7 @@ def test_verify_checksum_file_validation(tmp_path):
     sha_file = tmp_path / "test.sha256"
 
     # Valid file content
-    sha_file.write_text(f"{valid_sha}  flutter_3.44.2_aarch64.deb\n")
+    sha_file.write_text(f"{valid_sha}  flutter_3.44.9_aarch64.deb\n")
     assert verify_checksum_file(sha_file) == valid_sha.lower()
 
     # Empty file
@@ -100,9 +100,9 @@ def test_lightweight_check_non_skip_sha256_validation(tmp_path):
     bad_toml = tmp_path / "build.toml"
     bad_toml.write_text(
         '[flutter]\n'
-        'tag = "3.44.2"\n'
-        'release_tag = "v3.44.2-termux"\n'
-        'asset_name = "flutter_3.44.2_aarch64.deb"\n'
+        'tag = "3.44.9"\n'
+        'release_tag = "v3.44.9-termux"\n'
+        'asset_name = "flutter_3.44.9_aarch64.deb"\n'
         'sha256 = "INVALID_SHA256_FORMAT"\n'
     )
 

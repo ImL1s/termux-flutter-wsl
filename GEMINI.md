@@ -44,7 +44,7 @@ Windows (edit files)
     ├── package.py          ← Reads package.yaml, builds data.tar.xz + control.tar.xz → .deb
     ├── package.yaml        ← Declarative: maps build artifacts → deb install paths
     ├── utils.py            ← Arch mapping, output paths, Termux detection
-    └── patches/3.44.2/     ← Engine/Dart/Skia patches (version-specific)
+    └── patches/3.44.9/     ← Engine/Dart/Skia patches (version-specific)
     │
     ▼ (sync to WSL via [sync] config in build.toml)
 WSL Ubuntu (build)
@@ -138,7 +138,7 @@ android {
 - Host: Windows + WSL2 Ubuntu, Ryzen 9950X3D (24 threads allocated)
 - NDK: r27d at `/opt/android-ndk-r27d`
 - WSL build dir: `<workspace-root>/`
-- Flutter: 3.44.2
+- Flutter: 3.44.9
 - Target: aarch64 (ARM64)
 - Test device: `[REDACTED]` (Samsung SM-X716B / Android 16)
 
@@ -146,10 +146,10 @@ android {
 
 ```powershell
 # From Windows (use PowerShell, NOT Git Bash — path mangling)
-adb push flutter_3.44.2_aarch64.deb /data/local/tmp/
+adb push flutter_3.44.9_aarch64.deb /data/local/tmp/
 
 # In Termux
-dpkg -i /data/local/tmp/flutter_3.44.2_aarch64.deb
+dpkg -i /data/local/tmp/flutter_3.44.9_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh  # Required for APK builds
 source $PREFIX/etc/profile.d/flutter.sh

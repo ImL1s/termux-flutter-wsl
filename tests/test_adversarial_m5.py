@@ -35,19 +35,19 @@ def validate_evidence_schema_strict(evidence_data: dict) -> bool:
 def test_adversarial_build_metadata_missing_source_commit(tmp_path):
     # Case 1: missing source_commit key
     metadata_missing = tmp_path / "metadata_missing.json"
-    metadata_missing.write_text(json.dumps({"version": "3.44.2", "arch": "arm64"}), encoding="utf-8")
+    metadata_missing.write_text(json.dumps({"version": "3.44.9", "arch": "arm64"}), encoding="utf-8")
     commit_missing = parse_metadata_source_commit(metadata_missing.read_text(encoding="utf-8"))
     assert commit_missing == "", "Missing source_commit key must result in empty string"
 
     # Case 2: source_commit is null
     metadata_null = tmp_path / "metadata_null.json"
-    metadata_null.write_text(json.dumps({"version": "3.44.2", "source_commit": None}), encoding="utf-8")
+    metadata_null.write_text(json.dumps({"version": "3.44.9", "source_commit": None}), encoding="utf-8")
     commit_null = parse_metadata_source_commit(metadata_null.read_text(encoding="utf-8"))
     assert commit_null == "", "source_commit=null must be sanitized to empty string, not string 'None'"
 
     # Case 3: source_commit is empty string
     metadata_empty = tmp_path / "metadata_empty.json"
-    metadata_empty.write_text(json.dumps({"version": "3.44.2", "source_commit": ""}), encoding="utf-8")
+    metadata_empty.write_text(json.dumps({"version": "3.44.9", "source_commit": ""}), encoding="utf-8")
     commit_empty = parse_metadata_source_commit(metadata_empty.read_text(encoding="utf-8"))
     assert commit_empty == "", "source_commit='' must yield empty string"
 
@@ -58,7 +58,7 @@ def test_adversarial_build_metadata_missing_source_commit(tmp_path):
 
 def test_adversarial_build_metadata_invalid_json(tmp_path):
     invalid_json_file = tmp_path / "invalid_metadata.json"
-    invalid_json_file.write_text("{version: 3.44.2, invalid_json", encoding="utf-8")
+    invalid_json_file.write_text("{version: 3.44.9, invalid_json", encoding="utf-8")
 
     with pytest.raises(json.JSONDecodeError):
         parse_metadata_source_commit(invalid_json_file.read_text(encoding="utf-8"))
