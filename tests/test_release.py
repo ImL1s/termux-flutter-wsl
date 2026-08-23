@@ -155,6 +155,10 @@ def test_termux_smoke_shellcheck():
     assert res.returncode == 0, f"shellcheck failed on {script_path}:\n{res.stdout}\n{res.stderr}"
 
 
+@pytest.mark.skipif(
+    not shutil.which("pwsh") and not shutil.which("powershell"),
+    reason="PowerShell not available on PATH",
+)
 def test_run_termux_smoke_ps1_syntax():
     """Verify run_termux_smoke.ps1 PowerShell syntax via AST parser."""
     script_path = ROOT / "scripts" / "device" / "run_termux_smoke.ps1"

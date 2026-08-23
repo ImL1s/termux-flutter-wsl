@@ -14,13 +14,7 @@ LIB_COMMON = REPO_ROOT / "scripts" / "install" / "lib_common.sh"
 INSTALLER = REPO_ROOT / "install_flutter_complete.sh"
 
 
-def to_bash_path(path):
-    path = Path(path).resolve()
-    p = path.as_posix()
-    if len(p) > 1 and p[1] == ":":
-        drive = p[0].lower()
-        return f"/mnt/{drive}{p[2:]}"
-    return p
+from conftest import to_bash_path
 
 
 def test_verify_sha256_success(tmp_path):

@@ -65,12 +65,12 @@ This repository packages a Flutter SDK for Termux ARM64:
 | Dart | `3.12.2` |
 | Architecture | `aarch64` / `arm64-v8a` |
 | Release asset | [`flutter_3.44.9_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.9-termux) |
-| Size | `177,161,976` bytes (~169 MiB) |
+| Size | `174,157,728` bytes (~166 MiB) |
 | SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
 
 ### Device smoke test
 
-Last full device validation: **2026-07-04**, Samsung SM-X716B / Android 16 / Termux.
+Last full device validation: **2026-08-23**, Samsung SM-X716B / Android 16 / Termux.
 
 | Check | Result |
 | --- | --- |

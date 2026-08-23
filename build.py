@@ -812,7 +812,7 @@ class Build:
         out_dir = Path(out_dir)
         receipt_path = self._stage_receipt_path(out_dir)
         if not receipt_path.exists():
-            return True
+            return False
         try:
             data = json.loads(receipt_path.read_text(encoding='utf-8'))
             recorded = data.get('artifacts', {})
@@ -1482,7 +1482,7 @@ class Build:
             Path(out_debug) / 'gen/const_finder.dart.snapshot',
             Path(out_debug) / 'gen/dart-pkg/sky_engine',
         ]
-        if not force and all(p.exists() for p in debug_outputs) and (not self._stage_receipt_path(out_debug).exists() or self.verify_stage_receipt(out_debug, debug_outputs)):
+        if not force and all(p.exists() for p in debug_outputs) and self.verify_stage_receipt(out_debug, debug_outputs):
             logger.info(f'[6/{total}] debug tools output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
@@ -1503,13 +1503,13 @@ class Build:
             Path(out_release) / 'gen_snapshot',
             Path(out_release) / 'dartdev_aot.dart.snapshot',
         ]
-        if not force and all(p.exists() for p in release_outputs) and (not self._stage_receipt_path(out_release).exists() or self.verify_stage_receipt(out_release, release_outputs)):
+        if not force and all(p.exists() for p in release_outputs) and self.verify_stage_receipt(out_release, release_outputs):
             logger.info(f'[7/{total}] configure release skipped (output exists).')
         else:
             run_step(7, total, 'configure release', self.configure, arch=arch, mode='release')
 
         # Step 8: build release
-        if not force and all(p.exists() for p in release_outputs) and (not self._stage_receipt_path(out_release).exists() or self.verify_stage_receipt(out_release, release_outputs)):
+        if not force and all(p.exists() for p in release_outputs) and self.verify_stage_receipt(out_release, release_outputs):
             logger.info(f'[8/{total}] build release output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
@@ -1522,13 +1522,13 @@ class Build:
             Path(out_profile) / 'libflutter_linux_gtk.so',
             Path(out_profile) / 'gen_snapshot',
         ]
-        if not force and all(p.exists() for p in profile_outputs) and (not self._stage_receipt_path(out_profile).exists() or self.verify_stage_receipt(out_profile, profile_outputs)):
+        if not force and all(p.exists() for p in profile_outputs) and self.verify_stage_receipt(out_profile, profile_outputs):
             logger.info(f'[9/{total}] configure profile skipped (output exists).')
         else:
             run_step(9, total, 'configure profile', self.configure, arch=arch, mode='profile')
 
         # Step 10: build profile
-        if not force and all(p.exists() for p in profile_outputs) and (not self._stage_receipt_path(out_profile).exists() or self.verify_stage_receipt(out_profile, profile_outputs)):
+        if not force and all(p.exists() for p in profile_outputs) and self.verify_stage_receipt(out_profile, profile_outputs):
             logger.info(f'[10/{total}] build profile output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
@@ -1538,7 +1538,7 @@ class Build:
         # Step 11: configure and build android gen_snapshot release
         android_rel_dir = self.root / 'engine/src/out/android_release_arm64'
         android_rel_gen = android_rel_dir / 'clang_arm64/gen_snapshot'
-        if not force and android_rel_gen.exists() and (not self._stage_receipt_path(android_rel_dir).exists() or self.verify_stage_receipt(android_rel_dir, [android_rel_gen])):
+        if not force and android_rel_gen.exists() and self.verify_stage_receipt(android_rel_dir, [android_rel_gen]):
             logger.info(f'[11/{total}] android gen_snapshot release output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True
@@ -1554,7 +1554,7 @@ class Build:
         android_prof_gen1 = android_prof_dir / 'exe.stripped/gen_snapshot'
         android_prof_gen2 = android_prof_dir / 'clang_arm64/gen_snapshot'
         android_prof_gen = android_prof_gen1 if android_prof_gen1.exists() else android_prof_gen2
-        if not force and android_prof_gen.exists() and (not self._stage_receipt_path(android_prof_dir).exists() or self.verify_stage_receipt(android_prof_dir, [android_prof_gen])):
+        if not force and android_prof_gen.exists() and self.verify_stage_receipt(android_prof_dir, [android_prof_gen]):
             logger.info(f'[12/{total}] android gen_snapshot profile output already exists, skipping (use --force to rebuild).')
         else:
             rebuilt_any_artifact[0] = True

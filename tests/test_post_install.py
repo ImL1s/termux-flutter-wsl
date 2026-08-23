@@ -9,17 +9,7 @@ REPO_ROOT = Path(__file__).parent.parent
 POST_INSTALL = REPO_ROOT / "scripts" / "install" / "post_install.sh"
 
 
-def to_bash_path(path):
-    path = Path(path).resolve()
-    try:
-        rel = path.relative_to(REPO_ROOT)
-        return rel.as_posix()
-    except ValueError:
-        p = path.as_posix()
-        if len(p) > 1 and p[1] == ":":
-            drive = p[0].lower()
-            return f"/mnt/{drive}{p[2:]}"
-        return p
+from conftest import to_bash_path
 
 
 def create_mock_env(tmp_path):

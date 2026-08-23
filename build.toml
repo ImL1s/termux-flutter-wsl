@@ -5,6 +5,7 @@ revision = '0'
 dart_version = '3.12.2'
 engine_commit = '5a2a6a42cce67f965cf540fcecf616faca624aa1'
 sha256 = '8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20'
+size = 174157728
 asset_name = 'flutter_3.44.9_aarch64.deb'
 repo = 'https://github.com/flutter/flutter'
 path = './flutter'

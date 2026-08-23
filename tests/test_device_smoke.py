@@ -4,14 +4,10 @@ import subprocess
 from pathlib import Path
 import pytest
 
+from conftest import to_bash_path, to_wsl_posix
+
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = (REPO_ROOT / "scripts" / "device" / "termux_smoke.sh").relative_to(REPO_ROOT).as_posix()
-
-def to_wsl_posix(p):
-    s = p.as_posix() if isinstance(p, Path) else str(p)
-    if len(s) > 1 and s[1:3] == ":/":
-        return f"/mnt/{s[0].lower()}{s[2:]}"
-    return s
 
 def test_termux_smoke_script_syntax():
     res = subprocess.run(["bash", "-n", SCRIPT_PATH], cwd=REPO_ROOT, capture_output=True, text=True)

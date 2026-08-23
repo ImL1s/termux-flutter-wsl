@@ -13,14 +13,7 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
 from verify_release_asset import validate_sha256_format, verify_checksum_file
-
-
-def to_wsl_posix(path):
-    p = Path(path).resolve().as_posix()
-    if len(p) > 1 and p[1] == ':':
-        drive = p[0].lower()
-        return f"/mnt/{drive}{p[2:]}"
-    return p
+from conftest import to_bash_path, to_wsl_posix
 
 
 def test_ci_workflow_step_verification():
