@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import re
+import datetime
 import tarfile
 import urllib.request
 import hashlib
@@ -79,7 +80,7 @@ def format_tar_ownership(member: tarfile.TarInfo) -> str:
 
 
 def parse_inventory_entries(inventory_text: str) -> list[str]:
-    """Parse normalized ordered entries (mode owner size path/target) from dpkg-deb -c style inventory text."""
+    """Parse normalized ordered entries (mode owner size timestamp path/target) from dpkg-deb -c style inventory text."""
     entries = []
     for line in inventory_text.splitlines():
         if not line.strip() or line.startswith("#"):
@@ -87,34 +88,51 @@ def parse_inventory_entries(inventory_text: str) -> list[str]:
         m = INVENTORY_LINE_REGEX.match(line)
         if not m:
             raise ValueError(f"Malformed inventory line: '{line}'")
-        mode_str, owner_group, size_str, _, _, path_part = m.groups()
+        mode_str, owner_group, size_str, date_str, time_str, path_part = m.groups()
         owner_str = owner_group.strip()
         parsed_size = int(size_str)
+        time_part = f"{date_str} {time_str}"
         if " -> " in path_part:
             path_str, link_target = path_part.split(" -> ", 1)
             norm_path = normalize_member_path(path_str)
             norm_target = normalize_member_path(link_target)
             if norm_path:
-                entries.append(f"{mode_str} {owner_str} {parsed_size} {norm_path} -> {norm_target}")
+                entries.append(f"{mode_str} {owner_str} {parsed_size} {time_part} {norm_path} -> {norm_target}")
         elif " link to " in path_part:
             path_str, link_target = path_part.split(" link to ", 1)
             norm_path = normalize_member_path(path_str)
             norm_target = normalize_member_path(link_target)
             if norm_path:
-                entries.append(f"{mode_str} {owner_str} {parsed_size} {norm_path} link to {norm_target}")
+                entries.append(f"{mode_str} {owner_str} {parsed_size} {time_part} {norm_path} link to {norm_target}")
         else:
             norm_path = normalize_member_path(path_part)
             if norm_path:
-                entries.append(f"{mode_str} {owner_str} {parsed_size} {norm_path}")
+                entries.append(f"{mode_str} {owner_str} {parsed_size} {time_part} {norm_path}")
     return entries
 
 
-def extract_deb_member_paths(deb_path) -> list[str]:
-    """Extract list of normalized ordered entries (mode owner size path/target) contained in a .deb package's data.tar.* archive."""
+def extract_deb_member_paths(deb_path, first_inventory_time: str | None = None) -> list[str]:
+    """Extract list of normalized ordered entries (mode owner size timestamp path/target) contained in a .deb package's data.tar.* archive."""
     with open(deb_path, "rb") as f:
         magic = f.read(8)
         if magic != b"!<arch>\n":
             raise ValueError(f"Invalid deb archive header: {magic}")
+
+        has_seconds = False
+        inv_epoch = None
+        if first_inventory_time:
+            parts = first_inventory_time.split()
+            if len(parts) == 2:
+                time_fmt = "%Y-%m-%d %H:%M:%S" if len(parts[1]) == 8 else "%Y-%m-%d %H:%M"
+                has_seconds = (len(parts[1]) == 8)
+                try:
+                    inv_dt = datetime.datetime.strptime(first_inventory_time, time_fmt).replace(tzinfo=datetime.timezone.utc)
+                    inv_epoch = int(inv_dt.timestamp())
+                except ValueError:
+                    inv_epoch = None
+
+        tz_offset = None
+        time_fmt = "%Y-%m-%d %H:%M:%S" if has_seconds else "%Y-%m-%d %H:%M"
 
         while True:
             header = f.read(60)
@@ -137,19 +155,31 @@ def extract_deb_member_paths(deb_path) -> list[str]:
                         p = normalize_member_path(member.name)
                         if not p:
                             continue
+                        if tz_offset is None:
+                            if inv_epoch is not None:
+                                tz_offset = inv_epoch - member.mtime
+                            else:
+                                tz_offset = 0
+
                         mtype = tar_member_type(member)
                         perm_str = format_tar_permissions(member.mode)
                         mode_str = f"{mtype}{perm_str}"
                         owner_str = format_tar_ownership(member)
                         member_size = member.size
+                        try:
+                            member_dt = datetime.datetime.fromtimestamp(member.mtime + tz_offset, datetime.timezone.utc)
+                            time_part = member_dt.strftime(time_fmt)
+                        except Exception:
+                            time_part = "1970-01-01 00:00"
+
                         if member.issym() and member.linkname:
                             norm_target = normalize_member_path(member.linkname)
-                            entries.append(f"{mode_str} {owner_str} {member_size} {p} -> {norm_target}")
+                            entries.append(f"{mode_str} {owner_str} {member_size} {time_part} {p} -> {norm_target}")
                         elif member.islnk() and member.linkname:
                             norm_target = normalize_member_path(member.linkname)
-                            entries.append(f"{mode_str} {owner_str} {member_size} {p} link to {norm_target}")
+                            entries.append(f"{mode_str} {owner_str} {member_size} {time_part} {p} link to {norm_target}")
                         else:
-                            entries.append(f"{mode_str} {owner_str} {member_size} {p}")
+                            entries.append(f"{mode_str} {owner_str} {member_size} {time_part} {p}")
                 return entries
             else:
                 skip = size + (1 if size % 2 == 1 else 0)
@@ -564,7 +594,12 @@ def main():
     # 10. Cross-check inventory.txt against downloaded .deb package entries
     print("Cross-checking inventory.txt against downloaded package entries...")
     try:
-        deb_entries = extract_deb_member_paths(download_path)
+        first_time = None
+        if inventory_paths:
+            tokens = inventory_paths[0].split(maxsplit=5)
+            if len(tokens) >= 5:
+                first_time = f"{tokens[3]} {tokens[4]}"
+        deb_entries = extract_deb_member_paths(download_path, first_inventory_time=first_time)
         if inventory_paths != deb_entries:
             print(f"Error: Semantic mismatch between inventory.txt and {expected_asset} contents!")
             inv_set = set(inventory_paths)
