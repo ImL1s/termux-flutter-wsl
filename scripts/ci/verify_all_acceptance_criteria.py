@@ -52,8 +52,8 @@ def record_fail(check_name: str, message: str) -> None:
 
 
 def check_stale_url_tags() -> None:
-    check_name = "1. Release URL tag repair (grep download/v3.44.9/)"
-    stale_pattern = "download/v3.44.9/"
+    check_name = "1. Release URL tag repair (check superseded/untagged URLs)"
+    stale_patterns = ["download/v3.44.2", "download/v3.44.9/"]
     found_matches: list[str] = []
 
     search_paths: list[Path] = []
@@ -64,25 +64,27 @@ def check_stale_url_tags() -> None:
     for p in ROOT.glob("*.sh"):
         search_paths.append(p)
 
-    # release/ and docs/ recursively
-    for dir_name in ("release", "docs"):
+    for dir_name in ("release", "docs", "scripts"):
         target_dir = ROOT / dir_name
         if target_dir.is_dir():
             for p in target_dir.rglob("*"):
                 if p.is_file() and p.suffix in (".md", ".sh", ".txt", ".yml", ".yaml"):
+                    if "plans" in p.parts:
+                        continue
                     search_paths.append(p)
 
     for path in sorted(set(search_paths)):
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
-            if stale_pattern in content:
-                rel = path.relative_to(ROOT)
-                found_matches.append(str(rel))
+            for sp in stale_patterns:
+                if sp in content:
+                    rel = path.relative_to(ROOT)
+                    found_matches.append(f"{rel} ({sp})")
         except Exception as e:
             record_fail(check_name, f"Error reading {path}: {e}")
 
     if found_matches:
-        record_fail(check_name, f"Found stale download/v3.44.9/ URL in: {', '.join(found_matches)}")
+        record_fail(check_name, f"Found stale/superseded download URLs in: {', '.join(found_matches)}")
     else:
         record_pass(check_name)
 

@@ -47,6 +47,7 @@ def load_build_config(root_path: Path | None = None) -> dict[str, str]:
     dart_version = flutter_cfg.get("dart_version", "")
     engine_commit = flutter_cfg.get("engine_commit", "")
     sha256 = flutter_cfg.get("sha256", "")
+    size = flutter_cfg.get("size", "")
     asset_name = flutter_cfg.get("asset_name", "")
 
     if not tag:
@@ -62,6 +63,7 @@ def load_build_config(root_path: Path | None = None) -> dict[str, str]:
         "dart_version": str(dart_version),
         "engine_commit": str(engine_commit),
         "sha256": str(sha256),
+        "size": str(size) if size else "",
         "asset_name": str(asset_name) or f"flutter_{tag}_aarch64.deb",
     }
 
@@ -127,6 +129,13 @@ def check_markdown_docs(cfg: dict[str, str], root_path: Path | None = None) -> N
         # Check dart version in shields or table if present
         if "3.12.0" in text and dart_version != "3.12.0":
             fail(f"{rel_path}: Contains hardcoded '3.12.0' but expected '{dart_version}'")
+
+        # Check package size if present
+        if cfg.get("size") and "Size |" in text:
+            formatted_size = f"{int(cfg['size']):,}"
+            m = re.search(r"Size \|\s*`?([0-9,]+)`?", text)
+            if m and m.group(1) != formatted_size:
+                fail(f"{rel_path}: Package size mismatch: found '{m.group(1)}', expected '{formatted_size}'")
 
         # We can also check if engine commit matches
         if engine_commit and "Engine | [" in text:

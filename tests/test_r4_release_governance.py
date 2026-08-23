@@ -275,8 +275,7 @@ sha256 = "{computed_sha}"
 size = {computed_size}
 """, encoding="utf-8")
 
-        # Mock GitHub API release response
-        mock_response = MagicMock()
+        # Mock GitHub API release response with all 5 assets
         api_data = {
             "assets": [
                 {
@@ -284,11 +283,44 @@ size = {computed_size}
                     "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/{asset_name}",
                     "size": computed_size,
                     "digest": f"sha256:{computed_sha}",
-                }
+                },
+                {
+                    "name": f"{asset_name}.sha256",
+                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/{asset_name}.sha256",
+                },
+                {
+                    "name": f"{asset_name}.size.txt",
+                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/{asset_name}.size.txt",
+                },
+                {
+                    "name": "inventory.txt",
+                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/inventory.txt",
+                },
+                {
+                    "name": "build_metadata.json",
+                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/build_metadata.json",
+                },
             ]
         }
-        mock_response.read.return_value = json.dumps(api_data).encode("utf-8")
-        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = f"{computed_sha}  {asset_name}\n".encode("utf-8")
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = f"{computed_size}\n".encode("utf-8")
+            elif url.endswith("build_metadata.json"):
+                resp.read.return_value = json.dumps({"sha256": computed_sha, "size_bytes": computed_size}).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
 
         # Mock download writing target file
         def fake_download(url, dest):

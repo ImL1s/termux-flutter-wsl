@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build import Build
 import utils
 from test_installer_rollback import create_executable_state_machine_harness
+from conftest import to_bash_path, to_bash_posix
 
 REPO_ROOT = Path(__file__).parent.parent
 LIB_COMMON = (REPO_ROOT / "scripts" / "install" / "lib_common.sh").resolve()
@@ -23,14 +24,6 @@ INSTALLER = (REPO_ROOT / "install_flutter_complete.sh").resolve()
 
 def get_bash_cmd():
     return ["bash"]
-
-
-def to_bash_posix(path):
-    p = Path(path).resolve().as_posix()
-    if len(p) > 1 and p[1] == ":":
-        drive = p[0].lower()
-        return f"/mnt/{drive}{p[2:]}"
-    return p
 
 
 # ==============================================================================

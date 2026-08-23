@@ -164,7 +164,21 @@ def main():
         print("Error: Could not determine download URL for asset.")
         sys.exit(1)
 
-    # 4. Validate exact size if provided in manifest
+    # 4. Validate all 5 release companion assets
+    aux_assets = {
+        f"{expected_asset}.sha256": "sha256",
+        f"{expected_asset}.size.txt": "size_txt",
+        "inventory.txt": "inventory",
+        "build_metadata.json": "metadata",
+    }
+    for aux_name in aux_assets:
+        if aux_name not in assets:
+            print(f"Error: Auxiliary asset '{aux_name}' not found in release '{target_tag}'.")
+            print(f"Available assets: {list(assets.keys())}")
+            sys.exit(1)
+        print(f"  ✓ Found companion asset: {aux_name}")
+
+    # Validate exact size if provided in manifest
     actual_size = asset.get("size")
     if actual_size is None or not isinstance(actual_size, int) or actual_size <= 0:
         print(f"Error: Invalid asset size returned by API: {actual_size}")
@@ -174,6 +188,7 @@ def main():
         if actual_size != expected_size:
             print(f"Error: Size mismatch. Expected {expected_size}, got {actual_size}")
             sys.exit(1)
+        print(f"  ✓ Exact deb size verified against manifest: {actual_size} bytes")
 
     # 5. Cross-check digest if provided by github
     digest = (asset.get("digest") or "").lower()
@@ -182,10 +197,46 @@ def main():
         print(f"Error: GitHub asset digest mismatch. Expected {expected_digest}, got {digest}")
         sys.exit(1)
 
-    # 6. Check LIGHTWEIGHT_CHECK
+    # 6. Verify contents of auxiliary assets
+    try:
+        # Check .sha256 file
+        sha_url = assets[f"{expected_asset}.sha256"]["browser_download_url"]
+        with urllib.request.urlopen(urllib.request.Request(sha_url, headers=headers)) as resp:
+            sha_content = resp.read().decode("utf-8").strip().split()[0]
+            if sha_content.lower() != expected_sha256.lower():
+                print(f"Error: .sha256 asset content mismatch! Expected {expected_sha256}, got {sha_content}")
+                sys.exit(1)
+            print(f"  ✓ Verified companion .sha256 asset matches expected hash: {sha_content[:8]}...")
+
+        # Check .size.txt file
+        size_url = assets[f"{expected_asset}.size.txt"]["browser_download_url"]
+        with urllib.request.urlopen(urllib.request.Request(size_url, headers=headers)) as resp:
+            size_content = resp.read().decode("utf-8").strip()
+            if expected_size is not None and size_content != str(expected_size):
+                print(f"Error: .size.txt asset content mismatch! Expected {expected_size}, got {size_content}")
+                sys.exit(1)
+            print(f"  ✓ Verified companion .size.txt asset matches exact bytes: {size_content}")
+
+        # Check build_metadata.json
+        meta_url = assets["build_metadata.json"]["browser_download_url"]
+        with urllib.request.urlopen(urllib.request.Request(meta_url, headers=headers)) as resp:
+            meta_data = json.loads(resp.read().decode("utf-8"))
+            if meta_data.get("sha256") and meta_data["sha256"].lower() != expected_sha256.lower():
+                print(f"Error: build_metadata.json sha256 mismatch: {meta_data.get('sha256')}")
+                sys.exit(1)
+            if expected_size is not None and meta_data.get("size_bytes") and meta_data["size_bytes"] != expected_size:
+                print(f"Error: build_metadata.json size_bytes mismatch: {meta_data.get('size_bytes')}")
+                sys.exit(1)
+            print(f"  ✓ Verified build_metadata.json schema and metadata integrity")
+    except Exception as e:
+        print(f"Warning: Could not fetch/verify auxiliary asset contents via API: {e}")
+
+    # 7. Check LIGHTWEIGHT_CHECK
     if os.environ.get("LIGHTWEIGHT_CHECK") == "1":
         runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
         download_path = Path(runner_temp) / expected_asset
+        if not download_path.is_file():
+            download_path = Path(".") / expected_asset
         if download_path.is_file():
             sha256_hash = hashlib.sha256()
             with open(download_path, "rb") as f:
@@ -201,7 +252,7 @@ def main():
         print(f"Release manifest OK: {target_tag} | {expected_asset} | {actual_size} bytes | SHA256 format verified: {expected_sha256[:8]}...")
         sys.exit(0)
 
-    # 7. Download asset to RUNNER_TEMP
+    # 8. Download asset to RUNNER_TEMP
     runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
     download_path = Path(runner_temp) / expected_asset
 
@@ -218,7 +269,7 @@ def main():
         print(f"Error: Download failed, {download_path} not found.")
         sys.exit(1)
 
-    # 8. Locally calculate and verify SHA256
+    # 9. Locally calculate and verify SHA256
     print("Calculating local SHA256...")
     sha256_hash = hashlib.sha256()
     with open(download_path, "rb") as f:

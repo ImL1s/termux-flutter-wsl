@@ -14,17 +14,7 @@ CHECK_TOOLCHAIN = REPO_ROOT / "scripts" / "ci" / "check_toolchain.sh"
 LIB_COMMON = REPO_ROOT / "scripts" / "install" / "lib_common.sh"
 
 
-def to_bash_path(path):
-    path = Path(path).resolve()
-    try:
-        rel = path.relative_to(REPO_ROOT)
-        return rel.as_posix()
-    except ValueError:
-        p = path.as_posix()
-        if len(p) > 1 and p[1] == ":":
-            drive = p[0].lower()
-            return f"/mnt/{drive}{p[2:]}"
-        return p
+from conftest import to_bash_path
 
 
 def write_sh_script(p, content):

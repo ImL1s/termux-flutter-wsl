@@ -60,7 +60,12 @@ def check_markdown_fences() -> None:
     for path in sorted(ROOT.glob("**/*.md")):
         if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc", ".agents", "scratch"} for part in path.parts):
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
         if text.count("```") % 2:
             fail(f"unbalanced markdown code fence: {path.relative_to(ROOT)}")
 
@@ -70,14 +75,22 @@ def check_markdown_links() -> None:
     for path in sorted(ROOT.glob("**/*.md")):
         if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc", ".agents", "scratch"} for part in path.parts):
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
         for match in link_pattern.finditer(text):
             target = unquote(match.group(1).split("#", 1)[0])
             if "://" in target or target.startswith("#"):
                 continue
             resolved = ((ROOT if target.startswith("/") else path.parent) / target.lstrip("/")).resolve()
             if not resolved.is_file():
-                rel_path = path.relative_to(ROOT)
+                try:
+                    rel_path = path.relative_to(ROOT)
+                except ValueError:
+                    rel_path = path.name
                 fail(f"{rel_path}: broken markdown link: {match.group(1)}")
 
 

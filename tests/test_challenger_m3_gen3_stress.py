@@ -411,6 +411,26 @@ def test_adv_build_all_mtime_staleness_comprehensive(tmp_path, monkeypatch):
     os.utime(deb_file, (future_time, future_time))
 
     b = create_build_instance()
+    b.save_stage_receipt(out_debug, [
+        out_debug / "libflutter_linux_gtk.so",
+        out_debug / "dart-sdk" / "bin" / "dart",
+        out_debug / "dart-sdk" / "bin" / "dartvm",
+        out_debug / "impellerc",
+        out_debug / "gen" / "const_finder.dart.snapshot",
+        out_debug / "gen" / "dart-pkg" / "sky_engine",
+    ])
+    b.save_stage_receipt(out_release, [
+        out_release / "libflutter_linux_gtk.so",
+        out_release / "gen_snapshot",
+        out_release / "dartdev_aot.dart.snapshot",
+    ])
+    b.save_stage_receipt(out_profile, [
+        out_profile / "libflutter_linux_gtk.so",
+        out_profile / "gen_snapshot",
+    ])
+    b.save_stage_receipt(root / "engine/src/out/android_release_arm64", [out_android_rel / "gen_snapshot"])
+    b.save_stage_receipt(root / "engine/src/out/android_profile_arm64", [out_android_prof / "gen_snapshot"])
+
     debuild_calls = []
     b.debuild = lambda **kw: debuild_calls.append(True)
     b.build_all(arch="arm64")

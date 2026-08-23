@@ -12,8 +12,9 @@ echo "=========================================="
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 FLUTTER_ROOT="${FLUTTER_ROOT:-$PREFIX/opt/flutter}"
 ANDROID_SDK="${ANDROID_SDK:-$PREFIX/opt/android-sdk}"
-DART_SDK="${DART_SDK:-$FLUTTER_ROOT/bin/cache/dart-sdk}"
-export FLUTTER_PREBUILT_ENGINE_VERSION="${FLUTTER_PREBUILT_ENGINE_VERSION:-77e2e94772b6eb43759e34ed1ad7da4674e19cab}"
+if [ -z "${FLUTTER_PREBUILT_ENGINE_VERSION:-}" ] && [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
+    export FLUTTER_PREBUILT_ENGINE_VERSION="$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | tr -d '\n\r')"
+fi
 
 export PATH="$PREFIX/bin:$PATH"
 PATCH_STATE_FILE="${PATCH_STATE_FILE:-$PREFIX/share/flutter/patch_state.json}"
@@ -1065,9 +1066,11 @@ finalize_flutter_tools_cache() {
         return 1
     fi
 
-    local REVISION="${FLUTTER_PREBUILT_ENGINE_VERSION:-}"
-    if [ -z "$REVISION" ] && [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
+    local REVISION=""
+    if [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
         REVISION=$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | tr -d '\n\r')
+    elif [ -n "${FLUTTER_PREBUILT_ENGINE_VERSION:-}" ]; then
+        REVISION="$FLUTTER_PREBUILT_ENGINE_VERSION"
     fi
     if [ -z "$REVISION" ]; then
         if [ -x "$PREFIX/bin/git" ] && [ -d "$FLUTTER_ROOT/.git" ]; then

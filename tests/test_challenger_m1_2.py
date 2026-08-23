@@ -9,16 +9,11 @@ import time
 from pathlib import Path
 import pytest
 
+from conftest import to_bash_path, to_wsl_posix
+
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = (REPO_ROOT / "install_flutter_complete.sh").resolve()
 LIB_COMMON = REPO_ROOT / "scripts" / "install" / "lib_common.sh"
-
-
-def to_wsl_posix(p):
-    s = p.as_posix() if isinstance(p, Path) else str(p)
-    if len(s) > 1 and s[1:3] == ":/":
-        return f"/mnt/{s[0].lower()}{s[2:]}"
-    return s
 
 
 def create_executable_state_machine_harness(tmp_path):

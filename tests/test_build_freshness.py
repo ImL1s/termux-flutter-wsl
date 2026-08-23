@@ -314,16 +314,35 @@ def test_build_all_deb_exists_no_typeerror_and_skips_when_fresh(tmp_path, monkey
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
     (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.9", "completed": True, "timestamp": time.time()}))
 
+    b = Build()
+    b.root = Path(root)
+    b.tag = "3.44.9"
+    b.save_stage_receipt(out_debug, [
+        out_debug / "libflutter_linux_gtk.so",
+        out_debug / "dart-sdk" / "bin" / "dart",
+        out_debug / "dart-sdk" / "bin" / "dartvm",
+        out_debug / "impellerc",
+        out_debug / "gen" / "const_finder.dart.snapshot",
+        out_debug / "gen" / "dart-pkg" / "sky_engine",
+    ])
+    b.save_stage_receipt(out_release, [
+        out_release / "libflutter_linux_gtk.so",
+        out_release / "gen_snapshot",
+        out_release / "dartdev_aot.dart.snapshot",
+    ])
+    b.save_stage_receipt(out_profile, [
+        out_profile / "libflutter_linux_gtk.so",
+        out_profile / "gen_snapshot",
+    ])
+    b.save_stage_receipt(root / "engine/src/out/android_release_arm64", [out_android_rel / "gen_snapshot"])
+    b.save_stage_receipt(root / "engine/src/out/android_profile_arm64", [out_android_prof / "gen_snapshot"])
+
     deb_file = tmp_path / "flutter_3.44.9_aarch64.deb"
     deb_file.write_text("deb package")
     future_time = time.time() + 500
     os.utime(deb_file, (future_time, future_time))
 
     monkeypatch.setattr(Build, "is_sync_complete", lambda self, *a, **kw: True)
-
-    b = Build()
-    b.root = Path(root)
-    b.tag = "3.44.9"
     b.output = lambda arch: str(deb_file)
     b.preflight = lambda: True
     b.clone = lambda **kw: None
@@ -386,6 +405,29 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
     (out_debug / "gen" / "dart-pkg" / "sky_engine").mkdir(parents=True, exist_ok=True)
     (root / ".gclient_sync.receipt.json").write_text(json.dumps({"tag": "3.44.9", "completed": True, "timestamp": time.time()}))
 
+    b = Build()
+    b.root = Path(root)
+    b.tag = "3.44.9"
+    b.save_stage_receipt(out_debug, [
+        out_debug / "libflutter_linux_gtk.so",
+        out_debug / "dart-sdk" / "bin" / "dart",
+        out_debug / "dart-sdk" / "bin" / "dartvm",
+        out_debug / "impellerc",
+        out_debug / "gen" / "const_finder.dart.snapshot",
+        out_debug / "gen" / "dart-pkg" / "sky_engine",
+    ])
+    b.save_stage_receipt(out_release, [
+        out_release / "libflutter_linux_gtk.so",
+        out_release / "gen_snapshot",
+        out_release / "dartdev_aot.dart.snapshot",
+    ])
+    b.save_stage_receipt(out_profile, [
+        out_profile / "libflutter_linux_gtk.so",
+        out_profile / "gen_snapshot",
+    ])
+    b.save_stage_receipt(root / "engine/src/out/android_release_arm64", [out_android_rel / "gen_snapshot"])
+    b.save_stage_receipt(root / "engine/src/out/android_profile_arm64", [out_android_prof / "gen_snapshot"])
+
     deb_file = tmp_path / "flutter_3.44.9_aarch64.deb"
     deb_file.write_text("deb package")
 
@@ -394,10 +436,6 @@ def test_build_all_deb_exists_newer_input_triggers_debuild(tmp_path, monkeypatch
     (out_debug / "impellerc").write_text("updated impellerc")
 
     monkeypatch.setattr(Build, "is_sync_complete", lambda self, *a, **kw: True)
-
-    b = Build()
-    b.root = Path(root)
-    b.tag = "3.44.9"
     b.output = lambda arch: str(deb_file)
     b.preflight = lambda: True
     b.clone = lambda **kw: None

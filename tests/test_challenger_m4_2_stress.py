@@ -495,29 +495,27 @@ class TestWorkflowSecurityAndRepoSanity:
 
     def test_check_repo_catches_unbalanced_markdown_fences(self, tmp_path, monkeypatch):
         """Verify check_repo.py detects unbalanced markdown fences."""
-        test_file = REPO_ROOT / "docs" / "test_unbalanced_fence.md"
-        try:
-            test_file.write_text("# Test\n```bash\necho hello\n", encoding="utf-8")
-            cr.ERRORS.clear()
-            cr.check_markdown_fences()
-            assert any("test_unbalanced_fence.md" in err for err in cr.ERRORS)
-        finally:
-            if test_file.exists():
-                test_file.unlink()
-            cr.ERRORS.clear()
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        test_file = docs_dir / "test_unbalanced_fence.md"
+        test_file.write_text("# Test\n```bash\necho hello\n", encoding="utf-8")
+        monkeypatch.setattr(cr, "ROOT", tmp_path)
+        cr.ERRORS.clear()
+        cr.check_markdown_fences()
+        assert any("test_unbalanced_fence.md" in err for err in cr.ERRORS)
+        cr.ERRORS.clear()
 
-    def test_check_repo_catches_broken_markdown_links(self):
+    def test_check_repo_catches_broken_markdown_links(self, tmp_path, monkeypatch):
         """Verify check_repo.py detects broken relative markdown links."""
-        test_file = REPO_ROOT / "docs" / "test_broken_link.md"
-        try:
-            test_file.write_text("# Test\nLink to [nonexistent](nonexistent_file.md)\n", encoding="utf-8")
-            cr.ERRORS.clear()
-            cr.check_markdown_links()
-            assert any("test_broken_link.md" in err for err in cr.ERRORS)
-        finally:
-            if test_file.exists():
-                test_file.unlink()
-            cr.ERRORS.clear()
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        test_file = docs_dir / "test_broken_link.md"
+        test_file.write_text("# Test\nLink to [nonexistent](nonexistent_file.md)\n", encoding="utf-8")
+        monkeypatch.setattr(cr, "ROOT", tmp_path)
+        cr.ERRORS.clear()
+        cr.check_markdown_links()
+        assert any("test_broken_link.md" in err for err in cr.ERRORS)
+        cr.ERRORS.clear()
 
     def test_check_repo_detects_forbidden_release_versions(self):
         """Verify check_repo.py detects stale 3.41.5 release commands in checked files."""
