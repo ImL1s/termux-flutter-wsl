@@ -1,7 +1,7 @@
 {
   "aarch64": {
     "arch": "arm64",
-    "created_at": "2026-08-14T09:54:26.558315+00:00",
+    "created_at": "2026-08-23T02:11:37.720356+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -794,14 +794,14 @@
         "version": "0.0.3"
       },
       "vulkan-loader-generic": {
-        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
+        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.360_aarch64.deb",
         "dist": "stable",
         "name": "vulkan-loader-generic",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "ed6c8fe3cf01e5c1de8bfd8bd1ec73fa38114ba48594660883f9af44d2ca4054",
-        "size": 128664,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
-        "version": "1.4.359"
+        "sha256": "d70e6d5a72943ee4d0beb128554c93ae93e3f43f98c54187d7e5483ebfc38c47",
+        "size": 152432,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.360_aarch64.deb",
+        "version": "1.4.360"
       },
       "xkeyboard-config": {
         "archive_path": "pool/main/x/xkeyboard-config/xkeyboard-config_2.48-1_all.deb",
@@ -854,11 +854,11 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "7df466cf6f0f71e1b824b938dbb8b3bb5a8d8aa2e0634e312d840a81cb19d60f"
+    "tree_hash": "951fc3c6c5532b0dde85dbcb3e0c8adabe46d356bf1842a05e7b6f50fd1511b0"
   },
   "arm64": {
     "arch": "arm64",
-    "created_at": "2026-08-14T09:54:26.558315+00:00",
+    "created_at": "2026-08-23T02:11:37.720356+00:00",
     "packages": {
       "adwaita-icon-theme": {
         "archive_path": "pool/main/a/adwaita-icon-theme/adwaita-icon-theme_50.0_all.deb",
@@ -1651,14 +1651,14 @@
         "version": "0.0.3"
       },
       "vulkan-loader-generic": {
-        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
+        "archive_path": "pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.360_aarch64.deb",
         "dist": "stable",
         "name": "vulkan-loader-generic",
         "repo": "https://packages-cf.termux.dev/apt/termux-main/",
-        "sha256": "ed6c8fe3cf01e5c1de8bfd8bd1ec73fa38114ba48594660883f9af44d2ca4054",
-        "size": 128664,
-        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.359_aarch64.deb",
-        "version": "1.4.359"
+        "sha256": "d70e6d5a72943ee4d0beb128554c93ae93e3f43f98c54187d7e5483ebfc38c47",
+        "size": 152432,
+        "url": "https://packages-cf.termux.dev/apt/termux-main/pool/main/v/vulkan-loader-generic/vulkan-loader-generic_1.4.360_aarch64.deb",
+        "version": "1.4.360"
       },
       "xkeyboard-config": {
         "archive_path": "pool/main/x/xkeyboard-config/xkeyboard-config_2.48-1_all.deb",
@@ -1711,6 +1711,6 @@
         "version": "1.5.7-1"
       }
     },
-    "tree_hash": "7df466cf6f0f71e1b824b938dbb8b3bb5a8d8aa2e0634e312d840a81cb19d60f"
+    "tree_hash": "951fc3c6c5532b0dde85dbcb3e0c8adabe46d356bf1842a05e7b6f50fd1511b0"
   }
 }

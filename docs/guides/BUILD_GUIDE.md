@@ -10,7 +10,7 @@
 | Engine revision | `5a2a6a42cce67f965cf540fcecf616faca624aa1` |
 | Package | `flutter_3.44.9_aarch64.deb` |
 | Package size | 666,366,556 bytes（約 636 MiB） |
-| SHA256 | `0000000000000000000000000000000000000000000000000000000000000000` |
+| SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
 | Device smoke | Samsung SM-X716B / Android 16 / Termux |
 
 3.44.9 需要特別注意三個新點：
