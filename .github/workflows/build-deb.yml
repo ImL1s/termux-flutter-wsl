@@ -141,7 +141,7 @@ jobs:
           EVIDENCE_FILE="evidence.json"
 
           # Generate inventory (list of files in deb)
-          dpkg-deb -c "$DEB" > inventory.txt
+          TZ=UTC dpkg-deb -c "$DEB" > inventory.txt
 
           TREE_SHA=$(git log -1 --format='%T' HEAD)
           NOW_EPOCH=$(date +%s)

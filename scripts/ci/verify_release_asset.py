@@ -129,7 +129,8 @@ def extract_deb_member_paths(deb_path, first_inventory_time: str | None = None) 
                 except ValueError:
                     inv_epoch = None
 
-        tz_offset = None
+        tz = datetime.timezone.utc
+        tz_set = False
         time_fmt = "%Y-%m-%d %H:%M:%S" if has_seconds else "%Y-%m-%d %H:%M"
 
         while True:
@@ -153,11 +154,17 @@ def extract_deb_member_paths(deb_path, first_inventory_time: str | None = None) 
                         p = normalize_member_path(member.name)
                         if not p:
                             continue
-                        if tz_offset is None:
+                        if not tz_set:
+                            tz_set = True
                             if inv_epoch is not None:
-                                tz_offset = inv_epoch - member.mtime
+                                raw_offset = inv_epoch - member.mtime
+                                tz_seconds = round(raw_offset / 900) * 900
+                                if -86400 < tz_seconds < 86400:
+                                    tz = datetime.timezone(datetime.timedelta(seconds=tz_seconds))
+                                else:
+                                    tz = datetime.timezone.utc
                             else:
-                                tz_offset = 0
+                                tz = datetime.timezone.utc
 
                         mtype = tar_member_type(member)
                         perm_str = format_tar_permissions(member.mode)
@@ -169,7 +176,7 @@ def extract_deb_member_paths(deb_path, first_inventory_time: str | None = None) 
                             member_size_str = str(member.size)
 
                         try:
-                            member_dt = datetime.datetime.fromtimestamp(member.mtime + tz_offset, datetime.timezone.utc)
+                            member_dt = datetime.datetime.fromtimestamp(member.mtime, tz)
                             time_part = member_dt.strftime(time_fmt)
                         except Exception:
                             time_part = "1970-01-01 00:00"
