@@ -71,8 +71,15 @@ def format_tar_permissions(mode: int) -> str:
     return f"{r1}{w1}{x1}{r2}{w2}{x2}{r3}{w3}{x3}"
 
 
+def format_tar_ownership(member: tarfile.TarInfo) -> str:
+    """Derive dpkg-deb style owner/group string from TarInfo."""
+    u = member.uname if member.uname else str(member.uid)
+    g = member.gname if member.gname else str(member.gid)
+    return f"{u}/{g}"
+
+
 def parse_inventory_entries(inventory_text: str) -> list[str]:
-    """Parse normalized ordered entries (mode size path/target) from dpkg-deb -c style inventory text."""
+    """Parse normalized ordered entries (mode owner size path/target) from dpkg-deb -c style inventory text."""
     entries = []
     for line in inventory_text.splitlines():
         if not line.strip() or line.startswith("#"):
@@ -80,29 +87,30 @@ def parse_inventory_entries(inventory_text: str) -> list[str]:
         m = INVENTORY_LINE_REGEX.match(line)
         if not m:
             raise ValueError(f"Malformed inventory line: '{line}'")
-        mode_str, _, size_str, _, _, path_part = m.groups()
+        mode_str, owner_group, size_str, _, _, path_part = m.groups()
+        owner_str = owner_group.strip()
         parsed_size = int(size_str)
         if " -> " in path_part:
             path_str, link_target = path_part.split(" -> ", 1)
             norm_path = normalize_member_path(path_str)
             norm_target = normalize_member_path(link_target)
             if norm_path:
-                entries.append(f"{mode_str} {parsed_size} {norm_path} -> {norm_target}")
+                entries.append(f"{mode_str} {owner_str} {parsed_size} {norm_path} -> {norm_target}")
         elif " link to " in path_part:
             path_str, link_target = path_part.split(" link to ", 1)
             norm_path = normalize_member_path(path_str)
             norm_target = normalize_member_path(link_target)
             if norm_path:
-                entries.append(f"{mode_str} {parsed_size} {norm_path} link to {norm_target}")
+                entries.append(f"{mode_str} {owner_str} {parsed_size} {norm_path} link to {norm_target}")
         else:
             norm_path = normalize_member_path(path_part)
             if norm_path:
-                entries.append(f"{mode_str} {parsed_size} {norm_path}")
+                entries.append(f"{mode_str} {owner_str} {parsed_size} {norm_path}")
     return entries
 
 
 def extract_deb_member_paths(deb_path) -> list[str]:
-    """Extract list of normalized ordered entries (mode size path/target) contained in a .deb package's data.tar.* archive."""
+    """Extract list of normalized ordered entries (mode owner size path/target) contained in a .deb package's data.tar.* archive."""
     with open(deb_path, "rb") as f:
         magic = f.read(8)
         if magic != b"!<arch>\n":
@@ -132,15 +140,16 @@ def extract_deb_member_paths(deb_path) -> list[str]:
                         mtype = tar_member_type(member)
                         perm_str = format_tar_permissions(member.mode)
                         mode_str = f"{mtype}{perm_str}"
+                        owner_str = format_tar_ownership(member)
                         member_size = member.size
                         if member.issym() and member.linkname:
                             norm_target = normalize_member_path(member.linkname)
-                            entries.append(f"{mode_str} {member_size} {p} -> {norm_target}")
+                            entries.append(f"{mode_str} {owner_str} {member_size} {p} -> {norm_target}")
                         elif member.islnk() and member.linkname:
                             norm_target = normalize_member_path(member.linkname)
-                            entries.append(f"{mode_str} {member_size} {p} link to {norm_target}")
+                            entries.append(f"{mode_str} {owner_str} {member_size} {p} link to {norm_target}")
                         else:
-                            entries.append(f"{mode_str} {member_size} {p}")
+                            entries.append(f"{mode_str} {owner_str} {member_size} {p}")
                 return entries
             else:
                 skip = size + (1 if size % 2 == 1 else 0)
