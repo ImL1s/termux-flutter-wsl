@@ -8,9 +8,11 @@ Dedicated unit, boundary, integration, and adversarial regression tests for:
 """
 
 import hashlib
+import io
 import json
 import os
 import sys
+import tarfile
 import tempfile
 import urllib.error
 import urllib.request
@@ -262,7 +264,29 @@ sha256 = "f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
         monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
         monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
 
-        payload = b"mock deb package content for full verification"
+        # Build a valid mini .deb package containing 15 mock files in data.tar.gz
+        file_paths = [f"data/data/com.termux/files/usr/opt/flutter/file_{i}" for i in range(15)]
+
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+            for p in file_paths:
+                ti = tarfile.TarInfo(name=p)
+                ti.size = 5
+                tar.addfile(ti, io.BytesIO(b"hello"))
+        data_bytes = tar_buf.getvalue()
+
+        deb_buf = io.BytesIO()
+        deb_buf.write(b"!<arch>\n")
+        deb_bin = b"2.0\n"
+        deb_buf.write(f"{'debian-binary':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(deb_bin):<10}`\n".encode("ascii"))
+        deb_buf.write(deb_bin)
+        data_hdr = f"{'data.tar.gz':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(data_bytes):<10}`\n".encode("ascii")
+        deb_buf.write(data_hdr)
+        deb_buf.write(data_bytes)
+        if len(data_bytes) % 2 == 1:
+            deb_buf.write(b"\n")
+
+        payload = deb_buf.getvalue()
         computed_sha = hashlib.sha256(payload).hexdigest()
         computed_size = len(payload)
         asset_name = "flutter_3.44.9_aarch64.deb"
@@ -313,9 +337,17 @@ size = {computed_size}
             elif url.endswith(".size.txt"):
                 resp.read.return_value = f"{computed_size}\n".encode("utf-8")
             elif url.endswith("inventory.txt"):
-                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 123 2026-08-23 12:00 opt/flutter/file_{i}" for i in range(15)).encode("utf-8")
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 ./{p}" for p in file_paths).encode("utf-8")
             elif url.endswith("build_metadata.json"):
-                resp.read.return_value = json.dumps({"sha256": computed_sha, "size_bytes": computed_size}).encode("utf-8")
+                meta_dict = {
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "sha256": computed_sha,
+                    "size_bytes": computed_size,
+                }
+                resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -335,7 +367,7 @@ size = {computed_size}
 
     @patch("urllib.request.urlopen")
     def test_full_mode_missing_metadata_fields_fails(self, mock_urlopen, tmp_path, monkeypatch):
-        """Verify build_metadata.json with missing required fields (e.g. {}) fails closed."""
+        """Verify build_metadata.json with missing required provenance fields fails closed."""
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
 
@@ -368,10 +400,68 @@ size = 100
             elif url.endswith(".size.txt"):
                 resp.read.return_value = b"100\n"
             elif url.endswith("inventory.txt"):
-                resp.read.return_value = "\n".join(f"file_{i}" for i in range(15)).encode("utf-8")
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 file_{i}" for i in range(15)).encode("utf-8")
             elif url.endswith("build_metadata.json"):
-                # Missing required sha256 and size_bytes!
-                resp.read.return_value = json.dumps({}).encode("utf-8")
+                # Missing required source_commit, tree_sha, version, arch!
+                resp.read.return_value = json.dumps({"sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca", "size_bytes": 100}).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
+
+        with pytest.raises(SystemExit) as exc:
+            verify_release_asset.main()
+        assert exc.value.code == 1
+
+    @patch("urllib.request.urlopen")
+    def test_full_mode_invalid_commit_format_fails(self, mock_urlopen, tmp_path, monkeypatch):
+        """Verify build_metadata.json with invalid 40-char commit hash fails closed."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
+
+        asset_name = "flutter_3.44.9_aarch64.deb"
+        (tmp_path / "build.toml").write_text(f"""
+[flutter]
+release_tag = "v3.44.9-termux"
+asset_name = "{asset_name}"
+sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
+size = 100
+""", encoding="utf-8")
+
+        api_data = {
+            "assets": [
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": 100},
+                {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
+                {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
+                {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
+                {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+            ]
+        }
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = b"00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca\n"
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = b"100\n"
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 file_{i}" for i in range(15)).encode("utf-8")
+            elif url.endswith("build_metadata.json"):
+                meta_dict = {
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "source_commit": "not-a-40-hex-commit-hash",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                    "size_bytes": 100,
+                }
+                resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -421,7 +511,15 @@ size = 100
             elif url.endswith("inventory.txt"):
                 resp.read.return_value = b"   \n"  # Empty inventory!
             elif url.endswith("build_metadata.json"):
-                resp.read.return_value = json.dumps({"sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca", "size_bytes": 100}).encode("utf-8")
+                meta_dict = {
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                    "size_bytes": 100,
+                }
+                resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -429,6 +527,96 @@ size = 100
             return m
 
         mock_urlopen.side_effect = fake_urlopen
+
+        with pytest.raises(SystemExit) as exc:
+            verify_release_asset.main()
+        assert exc.value.code == 1
+
+    @patch("urllib.request.urlopen")
+    @patch("urllib.request.urlretrieve")
+    def test_full_mode_inventory_deb_mismatch_fails(self, mock_retrieve, mock_urlopen, tmp_path, monkeypatch):
+        """Verify semantic mismatch between inventory.txt and deb contents fails closed."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
+        monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+
+        # Deb has 15 files
+        file_paths = [f"opt/flutter/file_{i}" for i in range(15)]
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+            for p in file_paths:
+                ti = tarfile.TarInfo(name=p)
+                ti.size = 5
+                tar.addfile(ti, io.BytesIO(b"hello"))
+        data_bytes = tar_buf.getvalue()
+
+        deb_buf = io.BytesIO()
+        deb_buf.write(b"!<arch>\n")
+        deb_bin = b"2.0\n"
+        deb_buf.write(f"{'debian-binary':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(deb_bin):<10}`\n".encode("ascii"))
+        deb_buf.write(deb_bin)
+        data_hdr = f"{'data.tar.gz':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(data_bytes):<10}`\n".encode("ascii")
+        deb_buf.write(data_hdr)
+        deb_buf.write(data_bytes)
+        payload = deb_buf.getvalue()
+
+        computed_sha = hashlib.sha256(payload).hexdigest()
+        computed_size = len(payload)
+        asset_name = "flutter_3.44.9_aarch64.deb"
+
+        (tmp_path / "build.toml").write_text(f"""
+[flutter]
+release_tag = "v3.44.9-termux"
+asset_name = "{asset_name}"
+sha256 = "{computed_sha}"
+size = {computed_size}
+""", encoding="utf-8")
+
+        api_data = {
+            "assets": [
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": computed_size},
+                {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
+                {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
+                {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
+                {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+            ]
+        }
+
+        # Inventory has an EXTRA unexpected file
+        inv_paths = file_paths + ["opt/flutter/extra_phantom_file"]
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = f"{computed_sha}  {asset_name}\n".encode("utf-8")
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = f"{computed_size}\n".encode("utf-8")
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 ./{p}" for p in inv_paths).encode("utf-8")
+            elif url.endswith("build_metadata.json"):
+                meta_dict = {
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "sha256": computed_sha,
+                    "size_bytes": computed_size,
+                }
+                resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
+
+        def fake_download(url, dest):
+            Path(dest).write_bytes(payload)
+        mock_retrieve.side_effect = fake_download
 
         with pytest.raises(SystemExit) as exc:
             verify_release_asset.main()

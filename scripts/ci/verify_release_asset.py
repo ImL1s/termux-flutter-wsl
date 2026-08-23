@@ -1,13 +1,76 @@
 #!/usr/bin/env python3
+import io
 import os
 import sys
 import json
 import re
+import tarfile
 import urllib.request
 import hashlib
 from pathlib import Path
 
 SHA256_HEX_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
+INVENTORY_LINE_REGEX = re.compile(
+    r"^([dlcbsp-][rwxst-]{9})\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
+)
+
+
+def parse_inventory_entries(inventory_text: str) -> set:
+    """Parse normalized file paths from dpkg-deb -c style inventory text."""
+    paths = set()
+    for line in inventory_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = INVENTORY_LINE_REGEX.match(line)
+        if not m:
+            raise ValueError(f"Malformed inventory line: '{line}'")
+        _, _, _, _, _, path_part = m.groups()
+        if " -> " in path_part:
+            path_str, _ = path_part.split(" -> ", 1)
+        else:
+            path_str = path_part
+        norm_path = path_str.lstrip("./").rstrip("/")
+        if norm_path:
+            paths.add(norm_path)
+    return paths
+
+
+def extract_deb_member_paths(deb_path) -> set:
+    """Extract set of normalized paths contained in a .deb package's data.tar.* archive."""
+    with open(deb_path, "rb") as f:
+        magic = f.read(8)
+        if magic != b"!<arch>\n":
+            raise ValueError(f"Invalid deb archive header: {magic}")
+
+        while True:
+            header = f.read(60)
+            if not header or len(header) < 60:
+                break
+            name = header[:16].decode("ascii", errors="ignore").strip().rstrip("/")
+            size_str = header[48:58].decode("ascii", errors="ignore").strip()
+            if not size_str:
+                break
+            size = int(size_str)
+
+            if name.startswith("data.tar"):
+                data_bytes = f.read(size)
+                if size % 2 == 1:
+                    f.read(1)
+
+                paths = set()
+                with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:*") as tar:
+                    for member in tar.getmembers():
+                        p = member.name.lstrip("./").rstrip("/")
+                        if p:
+                            paths.add(p)
+                return paths
+            else:
+                skip = size + (1 if size % 2 == 1 else 0)
+                f.seek(skip, io.SEEK_CUR)
+
+    raise ValueError("No data.tar member found in .deb archive")
+
 
 def validate_sha256_format(sha_str: str | None) -> str:
     if sha_str is None or not isinstance(sha_str, str):
@@ -235,17 +298,18 @@ def main():
     if not inv_url:
         print("Error: Missing download URL for companion inventory.txt")
         sys.exit(1)
+    inventory_paths = set()
     try:
         with urllib.request.urlopen(urllib.request.Request(inv_url, headers=headers)) as resp:
             inv_content = resp.read().decode("utf-8")
             if not inv_content.strip():
                 print("Error: Companion inventory.txt is empty!")
                 sys.exit(1)
-            inv_lines = [l for l in inv_content.splitlines() if l.strip()]
-            if len(inv_lines) < 10:
-                print(f"Error: Companion inventory.txt contains suspicious entry count: {len(inv_lines)}")
+            inventory_paths = parse_inventory_entries(inv_content)
+            if len(inventory_paths) < 10:
+                print(f"Error: Companion inventory.txt contains suspicious entry count: {len(inventory_paths)}")
                 sys.exit(1)
-            print(f"  ✓ Verified companion inventory.txt content ({len(inv_lines)} file entries)")
+            print(f"  ✓ Verified companion inventory.txt format ({len(inventory_paths)} valid entries)")
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion inventory.txt asset: {e}")
         sys.exit(1)
@@ -262,48 +326,56 @@ def main():
                 print("Error: build_metadata.json is not a valid JSON dictionary")
                 sys.exit(1)
 
-            # Enforce required schema fields
-            required_fields = ["sha256", "size_bytes"]
-            for rf in required_fields:
+            # Enforce full required provenance schema
+            required_provenance_fields = ["version", "arch", "source_commit", "tree_sha", "sha256", "size_bytes"]
+            for rf in required_provenance_fields:
                 if rf not in meta_data:
                     print(f"Error: build_metadata.json missing required provenance field '{rf}'")
                     sys.exit(1)
 
+            # Validate version
+            expected_ver = expected_tag.lstrip("v").replace("-termux", "")
+            meta_ver = str(meta_data["version"]).lstrip("v").replace("-termux", "")
+            if meta_ver != expected_ver:
+                print(f"Error: build_metadata.json version mismatch! Expected {expected_ver}, got {meta_ver}")
+                sys.exit(1)
+
+            # Validate arch
+            meta_arch = str(meta_data["arch"]).lower()
+            if meta_arch not in ("arm64", "aarch64"):
+                print(f"Error: build_metadata.json unexpected arch: {meta_arch}")
+                sys.exit(1)
+
+            # Validate source_commit & tree_sha format (40 hex chars)
+            meta_commit = str(meta_data["source_commit"]).strip().lower()
+            if not re.match(r"^[0-9a-f]{40}$", meta_commit):
+                print(f"Error: build_metadata.json source_commit '{meta_commit}' is not a valid 40-char git commit hash")
+                sys.exit(1)
+
+            meta_tree = str(meta_data["tree_sha"]).strip().lower()
+            if not re.match(r"^[0-9a-f]{40}$", meta_tree):
+                print(f"Error: build_metadata.json tree_sha '{meta_tree}' is not a valid 40-char git tree hash")
+                sys.exit(1)
+
+            # Validate sha256
             meta_sha = str(meta_data["sha256"]).strip().lower()
             if meta_sha != expected_sha256.lower():
                 print(f"Error: build_metadata.json sha256 mismatch! Expected {expected_sha256}, got {meta_sha}")
                 sys.exit(1)
 
+            # Validate size_bytes
             meta_size = meta_data["size_bytes"]
+            if not isinstance(meta_size, int) or meta_size <= 0:
+                print(f"Error: build_metadata.json size_bytes '{meta_size}' is not a positive integer")
+                sys.exit(1)
             if expected_size is not None and meta_size != expected_size:
                 print(f"Error: build_metadata.json size_bytes mismatch! Expected {expected_size}, got {meta_size}")
                 sys.exit(1)
 
-            print(f"  ✓ Verified build_metadata.json required schema and provenance integrity")
+            print(f"  ✓ Verified build_metadata.json full provenance schema (version={meta_ver}, arch={meta_arch}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size})")
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion build_metadata.json asset: {e}")
         sys.exit(1)
-
-    # 7. Check LIGHTWEIGHT_CHECK
-    if os.environ.get("LIGHTWEIGHT_CHECK") == "1":
-        runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
-        download_path = Path(runner_temp) / expected_asset
-        if not download_path.is_file():
-            download_path = Path(".") / expected_asset
-        if download_path.is_file():
-            sha256_hash = hashlib.sha256()
-            with open(download_path, "rb") as f:
-                for byte_block in iter(lambda: f.read(4096), b""):
-                    sha256_hash.update(byte_block)
-            actual_sha256 = sha256_hash.hexdigest().lower()
-            if actual_sha256 != expected_sha256.lower():
-                print(f"Error: Local file SHA256 mismatch in lightweight check mode!\nExpected: {expected_sha256}\nActual:   {actual_sha256}")
-                sys.exit(1)
-            print(f"LIGHTWEIGHT_CHECK: Local file SHA256 verified ({actual_sha256}).")
-
-        print("LIGHTWEIGHT_CHECK enabled: Verified SHA256 hex format, API metadata, and checksum integrity.")
-        print(f"Release manifest OK: {target_tag} | {expected_asset} | {actual_size} bytes | SHA256 format verified: {expected_sha256[:8]}...")
-        sys.exit(0)
 
     # 8. Download asset to RUNNER_TEMP
     runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
@@ -336,6 +408,25 @@ def main():
         sys.exit(1)
 
     print(f"SUCCESS: Local SHA256 verified successfully: {actual_sha256}")
+
+    # 10. Cross-check inventory.txt against downloaded .deb package entries
+    print("Cross-checking inventory.txt against downloaded package entries...")
+    try:
+        deb_paths = extract_deb_member_paths(download_path)
+        missing_in_deb = inventory_paths - deb_paths
+        extra_in_deb = deb_paths - inventory_paths
+        if missing_in_deb or extra_in_deb:
+            print(f"Error: Semantic mismatch between inventory.txt and {expected_asset} contents!")
+            if missing_in_deb:
+                print(f"  In inventory.txt but missing from deb ({len(missing_in_deb)} entries): {list(missing_in_deb)[:5]}")
+            if extra_in_deb:
+                print(f"  In deb but missing from inventory.txt ({len(extra_in_deb)} entries): {list(extra_in_deb)[:5]}")
+            sys.exit(1)
+        print(f"  ✓ Inventory perfectly matches package contents ({len(deb_paths)} entries verified)")
+    except Exception as e:
+        print(f"Error: Failed to verify package inventory integrity: {e}")
+        sys.exit(1)
+
     print(f"Release OK: {target_tag} | {expected_asset} | {actual_size} bytes | Digest cross-check: {'OK' if digest else 'Unavailable'}")
 
 if __name__ == "__main__":
