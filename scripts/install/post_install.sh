@@ -12,6 +12,7 @@ echo "=========================================="
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 FLUTTER_ROOT="${FLUTTER_ROOT:-$PREFIX/opt/flutter}"
 ANDROID_SDK="${ANDROID_SDK:-$PREFIX/opt/android-sdk}"
+DART_SDK="${DART_SDK:-$FLUTTER_ROOT/bin/cache/dart-sdk}"
 if [ -z "${FLUTTER_PREBUILT_ENGINE_VERSION:-}" ] && [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
     export FLUTTER_PREBUILT_ENGINE_VERSION="$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | tr -d '\n\r')"
 fi

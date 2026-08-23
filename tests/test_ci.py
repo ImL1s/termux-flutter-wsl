@@ -227,3 +227,29 @@ def test_size_artifact_contract_producer_and_parser(tmp_path):
     bad_neg = tmp_path / "bad_neg.txt"
     bad_neg.write_text("-12345\n", encoding="utf-8")
     assert check_size_file(bad_neg, 12345) != "VERIFIED"
+
+
+def test_check_markdown_no_control_characters_detects_vertical_tabs_and_form_feeds(tmp_path, monkeypatch):
+    """Verify check_markdown_no_control_characters catches \v, \f, and raw control bytes even across line splits."""
+    from scripts.ci import check_repo
+    monkeypatch.setattr(check_repo, "ROOT", tmp_path)
+    failures = []
+    monkeypatch.setattr(check_repo, "fail", lambda msg: failures.append(msg))
+
+    # Valid doc
+    (tmp_path / "doc.md").write_text("# Title\n\nSome clean text\n", encoding="utf-8")
+    check_repo.check_markdown_no_control_characters()
+    assert len(failures) == 0
+
+    # Doc with vertical tab (\v / U+000B)
+    (tmp_path / "doc_vt.md").write_text("Hello\x0bWorld\n", encoding="utf-8")
+    check_repo.check_markdown_no_control_characters()
+    assert any("forbidden control character U+000B" in f for f in failures)
+
+    # Doc with form feed (\f / U+000C)
+    failures.clear()
+    (tmp_path / "doc_vt.md").unlink()
+    (tmp_path / "doc_ff.md").write_text("Hello\x0cWorld\n", encoding="utf-8")
+    check_repo.check_markdown_no_control_characters()
+    assert any("forbidden control character U+000C" in f for f in failures)
+

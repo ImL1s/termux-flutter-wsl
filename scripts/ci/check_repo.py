@@ -70,6 +70,24 @@ def check_markdown_fences() -> None:
             fail(f"unbalanced markdown code fence: {path.relative_to(ROOT)}")
 
 
+def check_markdown_no_control_characters() -> None:
+    for path in sorted(ROOT.glob("**/*.md")):
+        if any(part in {".git", "flutter", "sysroot", "reference_termux_flutter", ".omx", ".omc", ".agents", "scratch"} for part in path.parts):
+            continue
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        line_no = 1
+        for ch in text:
+            if ch == "\n":
+                line_no += 1
+            elif ord(ch) < 32 and ch not in "\r\t":
+                fail(f"{path.relative_to(ROOT)}:L{line_no}: forbidden control character U+{ord(ch):04X}")
+
+
 def check_markdown_links() -> None:
     link_pattern = re.compile(r"\[[^\]]+\]\(([^)\s]+\.md(?:#[^)]+)?)\)")
     for path in sorted(ROOT.glob("**/*.md")):
@@ -343,6 +361,7 @@ def main() -> int:
     check_ci_layout()
     check_doc_layout()
     check_markdown_fences()
+    check_markdown_no_control_characters()
     check_markdown_links()
     check_no_stale_release_commands()
     check_yaml_files()
