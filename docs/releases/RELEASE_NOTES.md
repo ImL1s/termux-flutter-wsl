@@ -1,28 +1,28 @@
-# Flutter 3.44.2 for Termux ARM64
+# Flutter 3.44.9 for Termux ARM64
 
-**Flutter 3.44.2 / Dart 3.12 for Android-bionic ARM64 hosts.**
+**Flutter 3.44.9 / Dart 3.12.2 for Android-bionic ARM64 hosts.**
 
-This release updates the Termux Flutter SDK package to Flutter 3.44.2. It resolves an NDK resource compilation issue with `aapt2` during release builds and fixes system Dart VM JIT engine mapping logic.
+This release updates the Termux Flutter SDK package to Flutter 3.44.9. It incorporates all post-v3.44.2 installer hardening, dynamic JAVA_HOME auto-detection, robust PREFIX quoting under `set -euo pipefail`, and refreshed Termux toolchain sysroot packages.
 
 ## Package
 
 | Item | Value |
 |------|-------|
-| Package | `flutter_3.44.2_aarch64.deb` |
-| Size | 177,161,976 bytes (~169 MiB) |
+| Package | `flutter_3.44.9_aarch64.deb` |
+| Size | 174,157,728 bytes (~166.1 MiB) |
 | SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
-| Flutter | 3.44.2 |
-| Flutter Tools Dart | 3.12.1 |
-| Dart VM | post-install `dartvm` resolves to Dart 3.12.1 (`android_arm64`) |
+| Flutter | 3.44.9 |
+| Flutter Tools Dart | 3.12.2 |
+| Dart VM | post-install `dartvm` resolves to Dart 3.12.2 (`android_arm64`) |
 | Target host | Termux / Android bionic / ARM64 |
 
 ## Install
 
 ```bash
 pkg update -y
-pkg install -y x11-repo wget openjdk-21
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.2_aarch64.deb
-dpkg -i flutter_3.44.2_aarch64.deb
+pkg install -y x11-repo wget openjdk-21 openjdk-17
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
+dpkg -i flutter_3.44.9_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source $PREFIX/etc/profile.d/flutter.sh
@@ -35,9 +35,9 @@ Device smoke on Samsung SM-X716B / Android 16 / ARM64 Termux:
 
 | Command | Result |
 |---------|--------|
-| `flutter --version` | ✅ Flutter 3.44.2 |
-| `dart --version` | ✅ Dart 3.12.1 on `android_arm64` |
-| `dartvm --version` | ✅ Dart 3.12.1 on `linux_arm64` |
+| `flutter --version` | ✅ Flutter 3.44.9 |
+| `dart --version` | ✅ Dart 3.12.2 on `android_arm64` |
+| `dartvm --version` | ✅ Dart 3.12.2 on `linux_arm64` |
 | `flutter doctor -v` | ✅ completes; unknown channel / no connected device are expected warnings |
 | `flutter create --platforms=android,linux` | ✅ |
 | `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` | ✅ ARM64 APK produced |
@@ -46,16 +46,16 @@ Device smoke on Samsung SM-X716B / Android 16 / ARM64 Termux:
 
 ## Highlights
 
-### Flutter 3.44.2 update
+### Flutter 3.44.9 update
 
-- Updated package metadata, NDK configurations, and patches to target Flutter 3.44.2.
+- Updated package metadata, NDK configurations, and patches to target Flutter 3.44.9 (Dart 3.12.2).
 - Keeps Flutter CLI on Termux JIT Dart while preserving engine VM tools for snapshots.
 
-### APK build resource fixes
+### Installer & Environment Hardening
 
-Building release APKs on device with native Termux `aapt2` can result in empty resources or a missing `AndroidManifest.xml` due to incompatibilities during the R8 shrinking/resource optimization tasks. This release:
-- Updates the automated `termux_smoke.sh` script to disable resource optimizations and R8 resource shrinking.
-- Updates developer instructions for per-project configurations.
+- Fully guarded `$PREFIX` paths against whitespace and `set -u` unbound variable errors.
+- Dynamic `JAVA_HOME` discovery across Termux OpenJDK installations.
+- Automated dependency resolution including OpenJDK 21 and 17.
 
 ### Post-install Dart VM detection fix
 
