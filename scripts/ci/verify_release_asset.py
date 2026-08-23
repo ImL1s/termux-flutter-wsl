@@ -15,6 +15,29 @@ INVENTORY_LINE_REGEX = re.compile(
     r"^([dlcbsph-][rwxstST-]{9})\s+(\S+)\s+(\d+(?:,\d+)?)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
 )
 
+BUILD_CRITICAL_PREFIXES = (
+    "patches/",
+    "scripts/install/",
+    "scripts/fix/",
+    "scripts/setup/",
+)
+
+BUILD_CRITICAL_FILES = (
+    "build.py",
+    "package.py",
+    "sysroot.py",
+    "utils.py",
+    "package.yaml",
+    "build.toml",
+    ".gclient",
+    "sysroot.lock.json",
+    "install_flutter_complete.sh",
+    "install.sh",
+    "install_termux_flutter.sh",
+    "scripts/ci/check_toolchain.sh",
+)
+
+
 
 def normalize_member_path(p: str) -> str:
     """Normalize tar member / inventory path by stripping leading './' and trailing '/' without clobbering whitespace or leading dots."""
@@ -534,7 +557,7 @@ def main():
                         changed_files = [f.get("filename", "") for f in compare_obj.get("files", [])]
                         disallowed_changed = [
                             f for f in changed_files
-                            if f.startswith("patches/") or f in ("build.py", "package.py", "sysroot.py", "utils.py", "package.yaml")
+                            if f.startswith(BUILD_CRITICAL_PREFIXES) or f in BUILD_CRITICAL_FILES
                         ]
                         if disallowed_changed:
                             print(f"Error: Disallowed build/engine source files changed between build commit {meta_commit} and release {target_tag}: {disallowed_changed}")
@@ -562,7 +585,44 @@ def main():
                 print(f"Error: build_metadata.json size_bytes mismatch! Expected manifest size {expected_size}, got {meta_size}")
                 sys.exit(1)
 
-            print(f"  ✓ Verified build_metadata.json full provenance schema (version={meta_ver}, arch={meta_arch}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size})")
+            # Verify optional execution tracking fields if present
+            if "run_id" in meta_data and meta_data["run_id"] is not None:
+                run_id = meta_data["run_id"]
+                if not (isinstance(run_id, int) or (isinstance(run_id, str) and str(run_id).isdigit())):
+                    print(f"Error: build_metadata.json run_id '{run_id}' is not a valid integer")
+                    sys.exit(1)
+                run_api_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+                try:
+                    run_req = urllib.request.Request(run_api_url, headers=headers)
+                    with urllib.request.urlopen(run_req) as resp:
+                        run_obj = json.loads(resp.read().decode("utf-8"))
+                        run_head_sha = str(run_obj.get("head_sha", "")).lower()
+                        run_conclusion = str(run_obj.get("conclusion", "")).lower()
+                        if run_head_sha != meta_commit.lower():
+                            print(f"Error: Workflow run {run_id} head_sha mismatch! Claimed {meta_commit}, but run head_sha is '{run_head_sha}'")
+                            sys.exit(1)
+                        if run_conclusion != "success":
+                            print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
+                            sys.exit(1)
+                        print(f"  ✓ Verified workflow run_id {run_id} succeeded for source_commit {meta_commit[:8]}...")
+                except Exception as e:
+                    print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
+                    sys.exit(1)
+
+            if "build_number" in meta_data and meta_data["build_number"] is not None:
+                b_num = meta_data["build_number"]
+                if not (isinstance(b_num, int) or (isinstance(b_num, str) and str(b_num).isdigit())):
+                    print(f"Error: build_metadata.json build_number '{b_num}' is not a valid integer")
+                    sys.exit(1)
+
+            if "build_duration_seconds" in meta_data and meta_data["build_duration_seconds"] is not None:
+                b_dur = meta_data["build_duration_seconds"]
+                if not (isinstance(b_dur, (int, float)) and b_dur >= 0):
+                    print(f"Error: build_metadata.json build_duration_seconds '{b_dur}' is not a valid non-negative number")
+                    sys.exit(1)
+
+            print(f"  ✓ Verified build_metadata.json core provenance fields (version={meta_ver}, arch={meta_arch}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size})")
+
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion build_metadata.json asset: {e}")
         sys.exit(1)
