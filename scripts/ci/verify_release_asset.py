@@ -11,7 +11,7 @@ from pathlib import Path
 
 SHA256_HEX_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
 INVENTORY_LINE_REGEX = re.compile(
-    r"^([dlcbsph-][rwxst-]{9})\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
+    r"^([dlcbsph-][rwxstST-]{9})\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
 )
 
 
