@@ -5,7 +5,7 @@
 #
 # Usage: curl -sL https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master/scripts/install/install_termux_flutter.sh -o ~/install.sh && bash ~/install.sh
 #
-# 目標狀態 (v3.44.2):
+# 目標狀態 (v3.44.9):
 #   - flutter doctor / create / build / run: 發布前需在乾淨 Termux 環境重新驗證
 #
 

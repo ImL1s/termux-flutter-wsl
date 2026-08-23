@@ -224,7 +224,7 @@ def test_installer_runtime_signal_trap_cleans_up_and_rolls_back(tmp_path, sig_na
         f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
         f"WORK_DIR='{work_posix}'; "
         f"MUTATION_STARTED=true; MUTATION_COMMITTED=false; "
-        f"dpkg -i flutter_3.44.2_aarch64.deb; "
+        f"dpkg -i flutter_3.44.9_aarch64.deb; "
         f"kill -{sig_name} $$"
     ]
 
@@ -290,7 +290,7 @@ def test_installer_runtime_normal_exit_with_commit_exits_zero(tmp_path):
         f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
         f"WORK_DIR='{work_posix}'; "
         f"MUTATION_STARTED=true; MUTATION_COMMITTED=true; "
-        f"dpkg -i flutter_3.44.2_aarch64.deb; "
+        f"dpkg -i flutter_3.44.9_aarch64.deb; "
         f"(exit 0); "
         f"cleanup_and_exit"
     ]
@@ -381,7 +381,7 @@ def test_profile_script_safe_under_set_u_and_exports_java_home(tmp_path):
     profile_src = pkg_data["resource"]["profile"]["source"]
 
     import string
-    profile_rendered = string.Template(profile_src).safe_substitute(version="b28d002a246838a11306bd68fb50b0f7e4fde09e")
+    profile_rendered = string.Template(profile_src).safe_substitute(version="5a2a6a42cce67f965cf540fcecf616faca624aa1")
 
     profile_file = tmp_path / "flutter.sh"
     with open(profile_file, "w", encoding="utf-8", newline="\n") as f:

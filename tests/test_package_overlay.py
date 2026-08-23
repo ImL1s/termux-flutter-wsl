@@ -33,12 +33,12 @@ def test_distinct_outputs_succeed(tmp_path):
     }
     control = {
         "Package": "flutter",
-        "Version": "3.44.2",
+        "Version": "3.44.9",
         "Architecture": "arm64",
         "Maintainer": "test",
         "Description": "test"
     }
-    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.2")
+    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.9")
     deb_out = tmp_path / "out.deb"
     pkg.debuild(output=deb_out)
     assert deb_out.exists()
@@ -61,12 +61,12 @@ def test_undeclared_duplicate_targets_fail(tmp_path):
     }
     control = {
         "Package": "flutter",
-        "Version": "3.44.2",
+        "Version": "3.44.9",
         "Architecture": "arm64",
         "Maintainer": "test",
         "Description": "test"
     }
-    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.2")
+    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.9")
     deb_out = tmp_path / "out.deb"
     with pytest.raises(ValueError, match="Duplicate target output path collision detected"):
         pkg.debuild(output=deb_out)
@@ -96,12 +96,12 @@ def test_declared_dart_sdk_binary_overlay_succeeds(tmp_path):
     }
     control = {
         "Package": "flutter",
-        "Version": "3.44.2",
+        "Version": "3.44.9",
         "Architecture": "arm64",
         "Maintainer": "test",
         "Description": "test"
     }
-    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.2")
+    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.9")
     deb_out = tmp_path / "out.deb"
     pkg.debuild(output=deb_out)
     assert deb_out.exists()
@@ -131,12 +131,12 @@ def test_declared_overlay_produces_single_final_target(tmp_path):
     }
     control = {
         "Package": "flutter",
-        "Version": "3.44.2",
+        "Version": "3.44.9",
         "Architecture": "arm64",
         "Maintainer": "test",
         "Description": "test"
     }
-    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.2")
+    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.9")
     deb_out = tmp_path / "out.deb"
     pkg.debuild(output=deb_out)
 
@@ -171,12 +171,12 @@ def test_inventory_contains_replacement_source_and_hash(tmp_path):
     }
     control = {
         "Package": "flutter",
-        "Version": "3.44.2",
+        "Version": "3.44.9",
         "Architecture": "arm64",
         "Maintainer": "test",
         "Description": "test"
     }
-    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.2")
+    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.9")
     deb_out = tmp_path / "out.deb"
     pkg.debuild(output=deb_out)
 
@@ -207,12 +207,12 @@ def test_overlay_outside_scope_fails(tmp_path):
     }
     control = {
         "Package": "flutter",
-        "Version": "3.44.2",
+        "Version": "3.44.9",
         "Architecture": "arm64",
         "Maintainer": "test",
         "Description": "test"
     }
-    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.2")
+    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.9")
     deb_out = tmp_path / "out.deb"
     with pytest.raises(ValueError, match="Overlay scope violation"):
         pkg.debuild(output=deb_out)
@@ -253,12 +253,12 @@ def test_hermetic_package_fixture_dart_sdk_overlay_debuild(tmp_path):
     }
     control = {
         "Package": "flutter",
-        "Version": "3.44.2",
+        "Version": "3.44.9",
         "Architecture": "arm64",
         "Maintainer": "test",
         "Description": "test"
     }
-    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.2")
-    deb_out = tmp_path / "flutter_3.44.2_aarch64.deb"
+    pkg = Package(root=root, arch="arm64", control=control, resource=resource, tag="3.44.9")
+    deb_out = tmp_path / "flutter_3.44.9_aarch64.deb"
     pkg.debuild(output=deb_out)
     assert deb_out.exists()

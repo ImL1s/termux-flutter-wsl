@@ -209,14 +209,14 @@ def test_successful_clone_with_existing_out_path_cleans_up_backup(tmp_path, monk
 
     conf_path = tmp_path / "build.toml"
     package_yaml = tmp_path / "package.yaml"
-    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.2\n", encoding="utf-8")
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.9\n", encoding="utf-8")
 
     flutter_str = str(out_dir).replace('\\', '/')
     package_str = str(package_yaml).replace('\\', '/')
 
     conf_content = f"""
     [flutter]
-    tag = "3.44.2"
+    tag = "3.44.9"
     path = "{flutter_str}"
     [package]
     conf = "{package_str}"
@@ -232,10 +232,10 @@ def test_successful_clone_with_existing_out_path_cleans_up_backup(tmp_path, monk
         (p / "new_version.txt").write_text("NEW")
 
     monkeypatch.setattr(git.Repo, 'clone_from', mock_clone)
-    monkeypatch.setattr(utils, 'flutter_tag', lambda path: '3.44.2')
+    monkeypatch.setattr(utils, 'flutter_tag', lambda path: '3.44.9')
 
     b = Build(conf=str(conf_path))
-    b.clone(tag='3.44.2', force=True)
+    b.clone(tag='3.44.9', force=True)
 
     # Check that out_dir contains new content
     assert out_dir.exists()
@@ -258,14 +258,14 @@ def test_concurrent_clone_failure_does_not_corrupt_active_checkout(tmp_path, mon
 
     conf_path = tmp_path / "build.toml"
     package_yaml = tmp_path / "package.yaml"
-    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.2\n", encoding="utf-8")
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.9\n", encoding="utf-8")
 
     flutter_str = str(out_dir).replace('\\', '/')
     package_str = str(package_yaml).replace('\\', '/')
 
     conf_content = f"""
     [flutter]
-    tag = "3.44.2"
+    tag = "3.44.9"
     path = "{flutter_str}"
     [package]
     conf = "{package_str}"
@@ -283,7 +283,7 @@ def test_concurrent_clone_failure_does_not_corrupt_active_checkout(tmp_path, mon
 
     b = Build(conf=str(conf_path))
     with pytest.raises(RuntimeError, match="Failed to clone flutter repo"):
-        b.clone(tag='3.44.2', force=True)
+        b.clone(tag='3.44.9', force=True)
 
     # Existing checkout must be fully preserved
     assert out_dir.exists(), "Existing checkout must remain intact on clone failure"
@@ -302,14 +302,14 @@ def test_transactional_activation_multi_step_rollback(tmp_path, monkeypatch):
 
     conf_path = tmp_path / "build.toml"
     package_yaml = tmp_path / "package.yaml"
-    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.2\n", encoding="utf-8")
+    package_yaml.write_text("control:\n  Package: flutter\n  Version: 3.44.9\n", encoding="utf-8")
 
     flutter_str = str(out_dir).replace('\\', '/')
     package_str = str(package_yaml).replace('\\', '/')
 
     conf_content = f"""
     [flutter]
-    tag = "3.44.2"
+    tag = "3.44.9"
     path = "{flutter_str}"
     [package]
     conf = "{package_str}"
@@ -323,7 +323,7 @@ def test_transactional_activation_multi_step_rollback(tmp_path, monkeypatch):
         (p / "new_data.txt").write_text("NEW")
 
     monkeypatch.setattr(git.Repo, 'clone_from', mock_clone)
-    monkeypatch.setattr(utils, 'flutter_tag', lambda path: '3.44.2')
+    monkeypatch.setattr(utils, 'flutter_tag', lambda path: '3.44.9')
 
     orig_rename = os.rename
     rename_count = 0
@@ -340,7 +340,7 @@ def test_transactional_activation_multi_step_rollback(tmp_path, monkeypatch):
 
     b = Build(conf=str(conf_path))
     with pytest.raises(RuntimeError, match="Transactional activation failed for"):
-        b.clone(tag='3.44.2', force=True)
+        b.clone(tag='3.44.9', force=True)
 
     # Verify original dir was restored
     assert out_dir.exists()

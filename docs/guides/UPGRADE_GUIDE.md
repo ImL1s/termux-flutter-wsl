@@ -95,7 +95,7 @@ mkdir -p patches/3.XX.Y
 **方法 A：直接複製上版 patch，嘗試套用**
 
 ```bash
-cp patches/3.44.2/*.patch patches/3.XX.Y/
+cp patches/3.44.9/*.patch patches/3.XX.Y/
 python3 build.py patch_engine
 python3 build.py patch_dart
 python3 build.py patch_skia
@@ -108,10 +108,10 @@ python3 build.py patch_skia
 ```bash
 cd flutter/engine/src/flutter
 # 查看原始 patch 改了哪些檔案
-git apply --stat /root/projects/termux-flutter/patches/3.44.2/engine.patch
+git apply --stat /root/projects/termux-flutter/patches/3.44.9/engine.patch
 
 # 嘗試套用，看哪裡衝突
-git apply --check patches/3.44.2/engine.patch
+git apply --check patches/3.44.9/engine.patch
 
 # 手動修改衝突的檔案，然後產生新 patch
 git diff > /root/projects/termux-flutter/patches/3.XX.Y/engine.patch
@@ -401,7 +401,7 @@ termux-flutter-wsl/
 ├── .gclient                  # gclient sync 配置
 │
 ├── patches/
-│   ├── 3.44.2/               # 3.44.2 專用 patch
+│   ├── 3.44.9/               # 3.44.9 專用 patch
 │   │   ├── engine.patch
 │   │   ├── dart.patch
 │   │   ├── skia.patch

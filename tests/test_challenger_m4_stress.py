@@ -189,7 +189,7 @@ def create_mock_post_install_env(tmp_path):
     pkg_cfg.write_text("{}", newline="\n")
 
     (flutter_root / "bin" / "internal" / "engine.version").write_text("77e2e94772b6eb43759e34ed1ad7da4674e19cab\n", newline="\n")
-    (flutter_root / "version").write_text("3.44.2\n", newline="\n")
+    (flutter_root / "version").write_text("3.44.9\n", newline="\n")
 
     files = {
         flutter_root / "packages" / "flutter_tools" / "gradle" / "src" / "main" / "kotlin" / "FlutterExtension.kt":
@@ -282,7 +282,7 @@ def test_adv_installer_abnormal_termination_signal_traps(tmp_path, sig_name, sig
         f"source ./{rel_script.as_posix()} 2>/dev/null || true; "
         f"FLUTTER_WAS_INSTALLED=false; ANDROID_SDK_WAS_INSTALLED=false; "
         f"MUTATION_STARTED=true; MUTATION_COMMITTED=false; "
-        f"dpkg -i flutter_3.44.2_aarch64.deb 2>/dev/null; "
+        f"dpkg -i flutter_3.44.9_aarch64.deb 2>/dev/null; "
         f"kill -s {sig_name} $$"
     ]
     res = subprocess.run(bash_cmd, env=env, cwd=tmp_path, capture_output=True, text=True)

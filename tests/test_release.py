@@ -97,7 +97,7 @@ def test_null_source_commit_handling():
 
     # Verify null/missing source_commit parsing evaluation fails closed in PowerShell / JSON logic
     import json
-    metadata_json = '{"version": "3.44.2", "source_commit": null}'
+    metadata_json = '{"version": "3.44.9", "source_commit": null}'
     data = json.loads(metadata_json)
     source_commit = (data.get('source_commit') or '').strip()
     assert source_commit == "", "null source_commit must resolve to empty string and fail closed"
