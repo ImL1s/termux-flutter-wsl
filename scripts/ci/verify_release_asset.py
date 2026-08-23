@@ -32,11 +32,13 @@ BUILD_CRITICAL_FILES = (
     "requirements.txt",
     ".gclient",
     "sysroot.lock.json",
+    ".github/workflows/build-deb.yml",
     "install_flutter_complete.sh",
     "install.sh",
     "install_termux_flutter.sh",
     "scripts/ci/check_toolchain.sh",
 )
+
 
 
 

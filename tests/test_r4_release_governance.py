@@ -2683,6 +2683,7 @@ sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
         "requirements.txt",
         ".gclient",
         "sysroot.lock.json",
+        ".github/workflows/build-deb.yml",
         "scripts/install/post_install.sh",
         "scripts/install/flutter_project_config.sh",
         "scripts/fix/bashrc_fix.sh",
@@ -2692,6 +2693,7 @@ sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
         "install_termux_flutter.sh",
         "scripts/ci/check_toolchain.sh",
     ])
+
     @patch("urllib.request.urlopen")
     def test_full_mode_disallowed_build_critical_files_drift_fails(self, mock_urlopen, disallowed_file, tmp_path, monkeypatch):
         """Verify changes touching any build-critical file between source_commit and release tag fail closed."""
