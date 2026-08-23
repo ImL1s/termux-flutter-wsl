@@ -1,13 +1,200 @@
 #!/usr/bin/env python3
+import io
 import os
 import sys
 import json
 import re
+import datetime
+import tarfile
 import urllib.request
 import hashlib
 from pathlib import Path
 
 SHA256_HEX_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
+INVENTORY_LINE_REGEX = re.compile(
+    r"^([dlcbsph-][rwxstST-]{9})\s+(\S+)\s+(\d+(?:,\d+)?)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(.*)$"
+)
+
+
+def normalize_member_path(p: str) -> str:
+    """Normalize tar member / inventory path by stripping leading './' and trailing '/' without clobbering whitespace or leading dots."""
+    s = p
+    if s == ".":
+        return ""
+    if s.startswith("./"):
+        s = s[2:]
+    if s.endswith("/") and s != "/":
+        s = s[:-1]
+    return s
+
+
+def tar_member_type(member: tarfile.TarInfo) -> str:
+    """Derive dpkg-deb style single-character type indicator from tar member."""
+    if member.isdir():
+        return "d"
+    if member.issym():
+        return "l"
+    if member.islnk():
+        return "h"
+    if member.ischr():
+        return "c"
+    if member.isblk():
+        return "b"
+    if member.isfifo():
+        return "p"
+    return "-"
+
+
+def format_tar_permissions(mode: int) -> str:
+    """Format the 9-char rwxrwxrwx permission string (including setuid/setgid/sticky bits S/s/T/t) from tar mode int."""
+    perm = mode & 0o7777
+    r1 = "r" if perm & 0o400 else "-"
+    w1 = "w" if perm & 0o200 else "-"
+    if perm & 0o4000:
+        x1 = "s" if perm & 0o100 else "S"
+    else:
+        x1 = "x" if perm & 0o100 else "-"
+
+    r2 = "r" if perm & 0o040 else "-"
+    w2 = "w" if perm & 0o020 else "-"
+    if perm & 0o2000:
+        x2 = "s" if perm & 0o010 else "S"
+    else:
+        x2 = "x" if perm & 0o010 else "-"
+
+    r3 = "r" if perm & 0o004 else "-"
+    w3 = "w" if perm & 0o002 else "-"
+    if perm & 0o1000:
+        x3 = "t" if perm & 0o001 else "T"
+    else:
+        x3 = "x" if perm & 0o001 else "-"
+
+    return f"{r1}{w1}{x1}{r2}{w2}{x2}{r3}{w3}{x3}"
+
+
+def format_tar_ownership(member: tarfile.TarInfo) -> str:
+    """Derive dpkg-deb style owner/group string from TarInfo."""
+    u = member.uname if member.uname else str(member.uid)
+    g = member.gname if member.gname else str(member.gid)
+    return f"{u}/{g}"
+
+
+def parse_inventory_entries(inventory_text: str) -> list[str]:
+    """Parse normalized ordered entries (mode owner size timestamp path/target) from dpkg-deb -c style inventory text."""
+    entries = []
+    for line in inventory_text.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        m = INVENTORY_LINE_REGEX.match(line)
+        if not m:
+            raise ValueError(f"Malformed inventory line: '{line}'")
+        mode_str, owner_group, size_str, date_str, time_str, path_part = m.groups()
+        owner_str = owner_group.strip()
+        time_part = f"{date_str} {time_str}"
+        if " -> " in path_part:
+            path_str, link_target = path_part.split(" -> ", 1)
+            norm_path = normalize_member_path(path_str)
+            if norm_path:
+                entries.append(f"{mode_str} {owner_str} {size_str} {time_part} {norm_path} -> {link_target}")
+        elif " link to " in path_part:
+            path_str, link_target = path_part.split(" link to ", 1)
+            norm_path = normalize_member_path(path_str)
+            hardlink_target = link_target[2:] if link_target.startswith("./") else link_target
+            if norm_path:
+                entries.append(f"{mode_str} {owner_str} {size_str} {time_part} {norm_path} link to {hardlink_target}")
+        else:
+            norm_path = normalize_member_path(path_part)
+            if norm_path:
+                entries.append(f"{mode_str} {owner_str} {size_str} {time_part} {norm_path}")
+    return entries
+
+
+def extract_deb_member_paths(deb_path, first_inventory_time: str | None = None) -> list[str]:
+    """Extract list of normalized ordered entries (mode owner size timestamp path/target) contained in a .deb package's data.tar.* archive."""
+    with open(deb_path, "rb") as f:
+        magic = f.read(8)
+        if magic != b"!<arch>\n":
+            raise ValueError(f"Invalid deb archive header: {magic}")
+
+        has_seconds = False
+        inv_epoch = None
+        if first_inventory_time:
+            parts = first_inventory_time.split()
+            if len(parts) == 2:
+                time_fmt = "%Y-%m-%d %H:%M:%S" if len(parts[1]) == 8 else "%Y-%m-%d %H:%M"
+                has_seconds = (len(parts[1]) == 8)
+                try:
+                    inv_dt = datetime.datetime.strptime(first_inventory_time, time_fmt).replace(tzinfo=datetime.timezone.utc)
+                    inv_epoch = int(inv_dt.timestamp())
+                except ValueError:
+                    inv_epoch = None
+
+        tz = datetime.timezone.utc
+        tz_set = False
+        time_fmt = "%Y-%m-%d %H:%M:%S" if has_seconds else "%Y-%m-%d %H:%M"
+
+        while True:
+            header = f.read(60)
+            if not header or len(header) < 60:
+                break
+            name = header[:16].decode("ascii", errors="ignore").strip().rstrip("/")
+            size_str = header[48:58].decode("ascii", errors="ignore").strip()
+            if not size_str:
+                break
+            size = int(size_str)
+
+            if name.startswith("data.tar"):
+                data_bytes = f.read(size)
+                if size % 2 == 1:
+                    f.read(1)
+
+                entries = []
+                with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:*") as tar:
+                    for member in tar.getmembers():
+                        p = normalize_member_path(member.name)
+                        if not p:
+                            continue
+                        if not tz_set:
+                            tz_set = True
+                            if inv_epoch is not None:
+                                raw_offset = inv_epoch - member.mtime
+                                tz_seconds = round(raw_offset / 900) * 900
+                                if -86400 < tz_seconds < 86400:
+                                    tz = datetime.timezone(datetime.timedelta(seconds=tz_seconds))
+                                else:
+                                    tz = datetime.timezone.utc
+                            else:
+                                tz = datetime.timezone.utc
+
+                        mtype = tar_member_type(member)
+                        perm_str = format_tar_permissions(member.mode)
+                        mode_str = f"{mtype}{perm_str}"
+                        owner_str = format_tar_ownership(member)
+                        if member.ischr() or member.isblk():
+                            member_size_str = f"{member.devmajor},{member.devminor}"
+                        else:
+                            member_size_str = str(member.size)
+
+                        try:
+                            member_dt = datetime.datetime.fromtimestamp(member.mtime, tz)
+                            time_part = member_dt.strftime(time_fmt)
+                        except Exception:
+                            time_part = "1970-01-01 00:00"
+
+                        if member.issym() and member.linkname:
+                            entries.append(f"{mode_str} {owner_str} {member_size_str} {time_part} {p} -> {member.linkname}")
+                        elif member.islnk() and member.linkname:
+                            hardlink_target = member.linkname[2:] if member.linkname.startswith("./") else member.linkname
+                            entries.append(f"{mode_str} {owner_str} {member_size_str} {time_part} {p} link to {hardlink_target}")
+                        else:
+                            entries.append(f"{mode_str} {owner_str} {member_size_str} {time_part} {p}")
+                return entries
+            else:
+                skip = size + (1 if size % 2 == 1 else 0)
+                f.seek(skip, io.SEEK_CUR)
+
+    raise ValueError("No data.tar member found in .deb archive")
+
 
 def validate_sha256_format(sha_str: str | None) -> str:
     if sha_str is None or not isinstance(sha_str, str):
@@ -222,10 +409,17 @@ def main():
     try:
         with urllib.request.urlopen(urllib.request.Request(size_url, headers=headers)) as resp:
             size_content = resp.read().decode("utf-8").strip()
-            if expected_size is not None and size_content != str(expected_size):
-                print(f"Error: .size.txt asset content mismatch! Expected {expected_size}, got {size_content}")
+            if not size_content.isdigit():
+                print(f"Error: Companion .size.txt asset content is not a valid integer: '{size_content}'")
                 sys.exit(1)
-            print(f"  ✓ Verified companion .size.txt asset matches exact bytes: {size_content}")
+            parsed_size = int(size_content)
+            if parsed_size != actual_size:
+                print(f"Error: .size.txt asset content mismatch! Expected actual deb size {actual_size}, got {parsed_size}")
+                sys.exit(1)
+            if expected_size is not None and parsed_size != expected_size:
+                print(f"Error: .size.txt asset content mismatch! Expected manifest size {expected_size}, got {parsed_size}")
+                sys.exit(1)
+            print(f"  ✓ Verified companion .size.txt asset matches exact bytes: {parsed_size}")
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion .size.txt asset: {e}")
         sys.exit(1)
@@ -235,17 +429,18 @@ def main():
     if not inv_url:
         print("Error: Missing download URL for companion inventory.txt")
         sys.exit(1)
+    inventory_paths = set()
     try:
         with urllib.request.urlopen(urllib.request.Request(inv_url, headers=headers)) as resp:
             inv_content = resp.read().decode("utf-8")
             if not inv_content.strip():
                 print("Error: Companion inventory.txt is empty!")
                 sys.exit(1)
-            inv_lines = [l for l in inv_content.splitlines() if l.strip()]
-            if len(inv_lines) < 10:
-                print(f"Error: Companion inventory.txt contains suspicious entry count: {len(inv_lines)}")
+            inventory_paths = parse_inventory_entries(inv_content)
+            if len(inventory_paths) < 10:
+                print(f"Error: Companion inventory.txt contains suspicious entry count: {len(inventory_paths)}")
                 sys.exit(1)
-            print(f"  ✓ Verified companion inventory.txt content ({len(inv_lines)} file entries)")
+            print(f"  ✓ Verified companion inventory.txt format ({len(inventory_paths)} valid entries)")
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion inventory.txt asset: {e}")
         sys.exit(1)
@@ -262,48 +457,115 @@ def main():
                 print("Error: build_metadata.json is not a valid JSON dictionary")
                 sys.exit(1)
 
-            # Enforce required schema fields
-            required_fields = ["sha256", "size_bytes"]
-            for rf in required_fields:
+            # Enforce full required provenance schema
+            required_provenance_fields = ["version", "arch", "source_commit", "tree_sha", "sha256", "size_bytes"]
+            for rf in required_provenance_fields:
                 if rf not in meta_data:
                     print(f"Error: build_metadata.json missing required provenance field '{rf}'")
                     sys.exit(1)
 
+            # Validate version (strip at most one leading 'v' and one trailing '-termux')
+            def _normalize_ver(v_str: str) -> str:
+                s = str(v_str).strip()
+                if s.startswith("v"):
+                    s = s[1:]
+                if s.endswith("-termux"):
+                    s = s[:-len("-termux")]
+                return s
+
+            expected_ver = _normalize_ver(expected_tag)
+            meta_ver = _normalize_ver(meta_data["version"])
+            if meta_ver != expected_ver:
+                print(f"Error: build_metadata.json version mismatch! Expected {expected_ver}, got {meta_ver}")
+                sys.exit(1)
+
+            # Validate arch
+            meta_arch = str(meta_data["arch"]).lower()
+            if meta_arch not in ("arm64", "aarch64"):
+                print(f"Error: build_metadata.json unexpected arch: {meta_arch}")
+                sys.exit(1)
+
+            # Validate source_commit & tree_sha format (40 hex chars)
+            meta_commit = str(meta_data["source_commit"]).strip().lower()
+            if not re.match(r"^[0-9a-f]{40}$", meta_commit):
+                print(f"Error: build_metadata.json source_commit '{meta_commit}' is not a valid 40-char git commit hash")
+                sys.exit(1)
+
+            meta_tree = str(meta_data["tree_sha"]).strip().lower()
+            if not re.match(r"^[0-9a-f]{40}$", meta_tree):
+                print(f"Error: build_metadata.json tree_sha '{meta_tree}' is not a valid 40-char git tree hash")
+                sys.exit(1)
+
+            # Cryptographically bind source_commit and tree_sha against GitHub commit API
+            commit_api_url = f"https://api.github.com/repos/{repo}/git/commits/{meta_commit}"
+            try:
+                commit_req = urllib.request.Request(commit_api_url, headers=headers)
+                with urllib.request.urlopen(commit_req) as resp:
+                    commit_obj = json.loads(resp.read().decode("utf-8"))
+                    actual_tree_sha = commit_obj.get("tree", {}).get("sha", "").lower()
+                    if actual_tree_sha != meta_tree.lower():
+                        print(f"Error: build_metadata.json tree_sha mismatch! Claimed '{meta_tree}', but commit {meta_commit} tree is '{actual_tree_sha}'")
+                        sys.exit(1)
+                    print(f"  ✓ Verified tree_sha is cryptographically bound to source_commit: {meta_tree[:8]}...")
+            except Exception as e:
+                print(f"Error: Failed to verify commit provenance via GitHub API for {meta_commit}: {e}")
+                sys.exit(1)
+
+            # Verify source_commit is bound to the release tag's lineage
+            compare_url = f"https://api.github.com/repos/{repo}/compare/{meta_commit}...{target_tag}"
+            try:
+                compare_req = urllib.request.Request(compare_url, headers=headers)
+                with urllib.request.urlopen(compare_req) as resp:
+                    compare_obj = json.loads(resp.read().decode("utf-8"))
+                    behind_by = compare_obj.get("behind_by", 0)
+                    ahead_by = compare_obj.get("ahead_by", 0)
+                    status = compare_obj.get("status", "")
+                    if behind_by > 0 or status not in ("ahead", "identical"):
+                        print(f"Error: build_metadata.json source_commit {meta_commit} is not on the release lineage of {target_tag} (status={status}, behind_by={behind_by})")
+                        sys.exit(1)
+
+                    if status == "identical":
+                        print(f"  ✓ Verified source_commit is identical to release tag {target_tag}")
+                    else:
+                        if ahead_by > 5:
+                            print(f"Error: build_metadata.json source_commit {meta_commit} is too far behind {target_tag} (ahead_by={ahead_by} > 5)")
+                            sys.exit(1)
+                        # Verify that differences only affect documentation/metadata, not build sources or patches
+                        changed_files = [f.get("filename", "") for f in compare_obj.get("files", [])]
+                        disallowed_changed = [
+                            f for f in changed_files
+                            if f.startswith("patches/") or f in ("build.py", "package.py", "sysroot.py", "utils.py", "package.yaml")
+                        ]
+                        if disallowed_changed:
+                            print(f"Error: Disallowed build/engine source files changed between build commit {meta_commit} and release {target_tag}: {disallowed_changed}")
+                            sys.exit(1)
+                        print(f"  ✓ Verified source_commit belongs to release {target_tag} lineage (status={status}, ahead_by={ahead_by}, zero build source drift)")
+            except Exception as e:
+                print(f"Error: Failed to verify commit lineage for {meta_commit} against {target_tag}: {e}")
+                sys.exit(1)
+
+            # Validate sha256
             meta_sha = str(meta_data["sha256"]).strip().lower()
             if meta_sha != expected_sha256.lower():
                 print(f"Error: build_metadata.json sha256 mismatch! Expected {expected_sha256}, got {meta_sha}")
                 sys.exit(1)
 
+            # Validate size_bytes
             meta_size = meta_data["size_bytes"]
+            if not isinstance(meta_size, int) or meta_size <= 0:
+                print(f"Error: build_metadata.json size_bytes '{meta_size}' is not a positive integer")
+                sys.exit(1)
+            if meta_size != actual_size:
+                print(f"Error: build_metadata.json size_bytes mismatch! Expected actual deb size {actual_size}, got {meta_size}")
+                sys.exit(1)
             if expected_size is not None and meta_size != expected_size:
-                print(f"Error: build_metadata.json size_bytes mismatch! Expected {expected_size}, got {meta_size}")
+                print(f"Error: build_metadata.json size_bytes mismatch! Expected manifest size {expected_size}, got {meta_size}")
                 sys.exit(1)
 
-            print(f"  ✓ Verified build_metadata.json required schema and provenance integrity")
+            print(f"  ✓ Verified build_metadata.json full provenance schema (version={meta_ver}, arch={meta_arch}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size})")
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion build_metadata.json asset: {e}")
         sys.exit(1)
-
-    # 7. Check LIGHTWEIGHT_CHECK
-    if os.environ.get("LIGHTWEIGHT_CHECK") == "1":
-        runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
-        download_path = Path(runner_temp) / expected_asset
-        if not download_path.is_file():
-            download_path = Path(".") / expected_asset
-        if download_path.is_file():
-            sha256_hash = hashlib.sha256()
-            with open(download_path, "rb") as f:
-                for byte_block in iter(lambda: f.read(4096), b""):
-                    sha256_hash.update(byte_block)
-            actual_sha256 = sha256_hash.hexdigest().lower()
-            if actual_sha256 != expected_sha256.lower():
-                print(f"Error: Local file SHA256 mismatch in lightweight check mode!\nExpected: {expected_sha256}\nActual:   {actual_sha256}")
-                sys.exit(1)
-            print(f"LIGHTWEIGHT_CHECK: Local file SHA256 verified ({actual_sha256}).")
-
-        print("LIGHTWEIGHT_CHECK enabled: Verified SHA256 hex format, API metadata, and checksum integrity.")
-        print(f"Release manifest OK: {target_tag} | {expected_asset} | {actual_size} bytes | SHA256 format verified: {expected_sha256[:8]}...")
-        sys.exit(0)
 
     # 8. Download asset to RUNNER_TEMP
     runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
@@ -336,6 +598,34 @@ def main():
         sys.exit(1)
 
     print(f"SUCCESS: Local SHA256 verified successfully: {actual_sha256}")
+
+    # 10. Cross-check inventory.txt against downloaded .deb package entries
+    print("Cross-checking inventory.txt against downloaded package entries...")
+    try:
+        first_time = None
+        if inventory_paths:
+            tokens = inventory_paths[0].split(maxsplit=5)
+            if len(tokens) >= 5:
+                first_time = f"{tokens[3]} {tokens[4]}"
+        deb_entries = extract_deb_member_paths(download_path, first_inventory_time=first_time)
+        if inventory_paths != deb_entries:
+            print(f"Error: Semantic mismatch between inventory.txt and {expected_asset} contents!")
+            inv_set = set(inventory_paths)
+            deb_set = set(deb_entries)
+            missing_in_deb = inv_set - deb_set
+            extra_in_deb = deb_set - inv_set
+            if missing_in_deb:
+                print(f"  In inventory.txt but missing from deb ({len(missing_in_deb)} entries): {list(missing_in_deb)[:5]}")
+            if extra_in_deb:
+                print(f"  In deb but missing from inventory.txt ({len(extra_in_deb)} entries): {list(extra_in_deb)[:5]}")
+            if not missing_in_deb and not extra_in_deb:
+                print(f"  Multiplicity or ordering mismatch: inventory has {len(inventory_paths)} entries, deb has {len(deb_entries)} entries")
+            sys.exit(1)
+        print(f"  ✓ Inventory perfectly matches package contents ({len(deb_entries)} entries verified)")
+    except Exception as e:
+        print(f"Error: Failed to verify package inventory integrity: {e}")
+        sys.exit(1)
+
     print(f"Release OK: {target_tag} | {expected_asset} | {actual_size} bytes | Digest cross-check: {'OK' if digest else 'Unavailable'}")
 
 if __name__ == "__main__":
