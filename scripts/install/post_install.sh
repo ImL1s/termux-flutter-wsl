@@ -633,59 +633,179 @@ if ! [ -x "$GIT_BIN" ] && ! command -v "$GIT_BIN" >/dev/null 2>&1; then
     GIT_BIN="git"
 fi
 
-FLUTTER_VER="3.44.9"
-if [ -f "$FLUTTER_ROOT/version" ]; then
-    FLUTTER_VER="$(cat "$FLUTTER_ROOT/version" | tr -d '\n\r')"
-elif [ -f "$FLUTTER_ROOT/bin/cache/flutter.version.json" ]; then
-    FLUTTER_VER="$(grep -o '"frameworkVersion": *"[^"]*"' "$FLUTTER_ROOT/bin/cache/flutter.version.json" 2>/dev/null | cut -d'"' -f4 || echo "3.44.9")"
-    [ -n "$FLUTTER_VER" ] || FLUTTER_VER="3.44.9"
+# Load canonical metadata from packaged manifest or embedded source-of-truth constants
+CANONICAL_FLUTTER_VER="3.44.9"
+CANONICAL_FRAMEWORK_REV="6b182d2c7585eba26d4edce0f97630effd256c33"
+CANONICAL_FRAMEWORK_DATE="2026-08-05 17:04:07 +0000"
+CANONICAL_ENGINE_REV="$local_eng_ver"
+CANONICAL_DART_VER="3.12.2"
+CANONICAL_DEVTOOLS_VER="2.42.0"
+CANONICAL_CHANNEL="stable"
+CANONICAL_REPO_URL="https://github.com/flutter/flutter.git"
+
+MANIFEST_FILE="$PREFIX/share/flutter/manifest.json"
+if [ ! -f "$MANIFEST_FILE" ] && [ -f "$FLUTTER_ROOT/bin/cache/canonical_manifest.json" ]; then
+    MANIFEST_FILE="$FLUTTER_ROOT/bin/cache/canonical_manifest.json"
 fi
 
+if [ -f "$MANIFEST_FILE" ]; then
+    m_ver=$(grep -o '"flutter_version": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
+    m_rev=$(grep -o '"framework_revision": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
+    m_date=$(grep -o '"framework_commit_date": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
+    m_eng=$(grep -o '"engine_revision": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
+    m_dart=$(grep -o '"dart_version": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
+    m_dev=$(grep -o '"devtools_version": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
+    [ -n "$m_ver" ] && CANONICAL_FLUTTER_VER="$m_ver"
+    [ -n "$m_rev" ] && CANONICAL_FRAMEWORK_REV="$m_rev"
+    [ -n "$m_date" ] && CANONICAL_FRAMEWORK_DATE="$m_date"
+    [ -n "$m_eng" ] && CANONICAL_ENGINE_REV="$m_eng"
+    [ -n "$m_dart" ] && CANONICAL_DART_VER="$m_dart"
+    [ -n "$m_dev" ] && CANONICAL_DEVTOOLS_VER="$m_dev"
+fi
+
+# Fallback: if legacy $FLUTTER_ROOT/version is present in test fixtures, allow tag override but maintain canonical framework provenance
+if [ -f "$FLUTTER_ROOT/version" ]; then
+    fixture_ver="$(cat "$FLUTTER_ROOT/version" | tr -d '\n\r')"
+    if [ -n "$fixture_ver" ] && echo "$fixture_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+        CANONICAL_FLUTTER_VER="$fixture_ver"
+    fi
+elif [ -f "$FLUTTER_ROOT/.git/termux_synthetic" ]; then
+    saved_synth_ver=$(grep -o '"version": *"[^"]*"' "$FLUTTER_ROOT/.git/termux_synthetic" 2>/dev/null | cut -d'"' -f4 || echo "")
+    if [ -n "$saved_synth_ver" ] && echo "$saved_synth_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+        CANONICAL_FLUTTER_VER="$saved_synth_ver"
+    fi
+fi
+
+# Fail-closed change directory
+cd "$FLUTTER_ROOT" || { echo "Error: Failed to cd to $FLUTTER_ROOT" >&2; exit 1; }
+
+# Helper to identify if .git was created as a synthetic termux repository
+is_synthetic_repo() {
+    local target_dir="$1"
+    local git_dir="$target_dir/.git"
+    [ -d "$git_dir" ] || return 1
+    if [ -f "$git_dir/termux_synthetic" ]; then
+        return 0
+    fi
+    local commit_count
+    commit_count=$("$GIT_BIN" --git-dir="$git_dir" rev-list --count HEAD 2>/dev/null || echo "999")
+    local first_msg
+    first_msg=$("$GIT_BIN" --git-dir="$git_dir" log -1 --pretty=%B 2>/dev/null || echo "")
+    if [ "$commit_count" -le 2 ] && [ "$first_msg" = "Init framework" ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Synthetic repo setup & contamination repair
 if ! [ -d "$FLUTTER_ROOT/.git" ]; then
-    echo "  ! Missing .git, creating dummy repository on stable branch for version resolution..."
-    cd "$FLUTTER_ROOT" || true
+    echo "  ! Missing .git, creating synthetic repository on stable branch for version resolution..."
     rm -f version
-    "$GIT_BIN" init -q -b stable >/dev/null 2>&1 || "$GIT_BIN" init -q >/dev/null 2>&1 || true
+    "$GIT_BIN" init -q -b stable >/dev/null 2>&1 || "$GIT_BIN" init -q >/dev/null 2>&1
     "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1 || true
-    "$GIT_BIN" config user.email "termux@example.com" >/dev/null 2>&1 || true
-    "$GIT_BIN" config user.name "termux" >/dev/null 2>&1 || true
+    "$GIT_BIN" config user.email "termux@example.com"
+    "$GIT_BIN" config user.name "termux"
     "$GIT_BIN" add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
     "$GIT_BIN" commit -q -m "Init framework" >/dev/null 2>&1 || true
     "$GIT_BIN" branch -M stable >/dev/null 2>&1 || true
-    "$GIT_BIN" tag -f "$FLUTTER_VER" >/dev/null 2>&1 || true
-    echo "  ✓ Dummy tag $FLUTTER_VER created on stable branch"
-else
-    cd "$FLUTTER_ROOT" || true
+    "$GIT_BIN" tag -f "$CANONICAL_FLUTTER_VER" HEAD >/dev/null 2>&1
+    echo "{\"synthetic\":true,\"package\":\"termux-flutter-wsl\",\"version\":\"$CANONICAL_FLUTTER_VER\"}" > .git/termux_synthetic
+    rm -f .git/FETCH_HEAD
+    echo "  ✓ Synthetic tag $CANONICAL_FLUTTER_VER created on stable branch"
+elif is_synthetic_repo "$FLUTTER_ROOT"; then
+    echo "  ! Verifying and repairing synthetic repository state..."
     rm -f version
-    CURRENT_BRANCH="$("$GIT_BIN" symbolic-ref --short HEAD 2>/dev/null || echo "")"
-    if [ "$CURRENT_BRANCH" = "master" ] || [ "$CURRENT_BRANCH" = "main" ]; then
-        "$GIT_BIN" branch -M stable >/dev/null 2>&1 || "$GIT_BIN" checkout -B stable >/dev/null 2>&1 || "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1 || true
+    # Normalize branch to stable if needed (handles master, main, trunk, develop, custom-name, detached HEAD)
+    curr_br="$("$GIT_BIN" symbolic-ref --short HEAD 2>/dev/null || echo "")"
+    if [ "$curr_br" != "stable" ]; then
+        "$GIT_BIN" checkout -B stable >/dev/null 2>&1 || "$GIT_BIN" branch -M stable >/dev/null 2>&1 || "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1
     fi
-    "$GIT_BIN" tag -f "$FLUTTER_VER" HEAD >/dev/null 2>&1 || true
-    echo "  ✓ Git repository branch verified as stable with tag $FLUTTER_VER"
+
+    # Purge any imported tag contamination (e.g. 1100+ upstream tags fetched)
+    existing_tags=$("$GIT_BIN" tag -l 2>/dev/null || echo "")
+    for t in $existing_tags; do
+        if [ "$t" != "$CANONICAL_FLUTTER_VER" ]; then
+            "$GIT_BIN" tag -d "$t" >/dev/null 2>&1 || true
+        fi
+    done
+    head_tag=$("$GIT_BIN" tag --points-at HEAD 2>/dev/null || echo "")
+    if ! echo "$head_tag" | grep -qx "$CANONICAL_FLUTTER_VER"; then
+        "$GIT_BIN" tag -f "$CANONICAL_FLUTTER_VER" HEAD >/dev/null 2>&1
+    fi
+    rm -f .git/FETCH_HEAD
+    echo "{\"synthetic\":true,\"package\":\"termux-flutter-wsl\",\"version\":\"$CANONICAL_FLUTTER_VER\"}" > .git/termux_synthetic
+    echo "  ✓ Synthetic repository sanitized: branch=stable, tag=$CANONICAL_FLUTTER_VER (contamination purged)"
+else
+    # Non-synthetic / real user or upstream checkout: guardrail to protect user work
+    echo "  ℹ Non-synthetic / user-owned Git checkout detected at $FLUTTER_ROOT; preserving git history and refs"
+    if [ -n "$("$GIT_BIN" status --porcelain 2>/dev/null)" ]; then
+        echo "    (Note: working tree contains modifications)"
+    fi
 fi
 
-FRAMEWORK_REV="$("$GIT_BIN" rev-parse HEAD 2>/dev/null || echo "6b182d2c7585eba26d4edce0f97630effd256c33")"
-DART_VERSION_VAL=""
-if [ -f "$FLUTTER_ROOT/bin/cache/dart-sdk.stamp" ]; then
-    DART_VERSION_VAL="$(cat "$FLUTTER_ROOT/bin/cache/dart-sdk.stamp" 2>/dev/null | tr -d '\n\r')"
+# Fail-closed postcondition verification for synthetic repos
+if is_synthetic_repo "$FLUTTER_ROOT"; then
+    verified_branch="$("$GIT_BIN" symbolic-ref --short HEAD 2>/dev/null || echo "unknown")"
+    if [ "$verified_branch" != "stable" ]; then
+        echo "Error: Synthetic repository branch verification failed: expected 'stable', got '$verified_branch'" >&2
+        exit 1
+    fi
+    tags_at_head="$("$GIT_BIN" tag --points-at HEAD 2>/dev/null || echo "")"
+    if ! echo "$tags_at_head" | grep -qx "$CANONICAL_FLUTTER_VER"; then
+        echo "Error: Synthetic repository tag verification failed: '$CANONICAL_FLUTTER_VER' not pointing at HEAD" >&2
+        exit 1
+    fi
+    tag_count="$("$GIT_BIN" tag -l 2>/dev/null | wc -l)"
+    if [ "$tag_count" -ne 1 ]; then
+        echo "Error: Synthetic repository tag count verification failed: expected 1 tag, found $tag_count" >&2
+        exit 1
+    fi
 fi
-[ -n "$DART_VERSION_VAL" ] || DART_VERSION_VAL="3.12.2"
 
-cat > "$FLUTTER_ROOT/bin/cache/flutter.version.json" << EOF
+# Determine semantic Dart SDK version (never engine cache stamp)
+EFFECTIVE_DART_VER=""
+if [ -x "$DART_SDK/bin/dart" ]; then
+    EFFECTIVE_DART_VER="$("$DART_SDK/bin/dart" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")"
+elif command -v dart >/dev/null 2>&1; then
+    EFFECTIVE_DART_VER="$(dart --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")"
+fi
+if [ -z "$EFFECTIVE_DART_VER" ] || ! echo "$EFFECTIVE_DART_VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+    EFFECTIVE_DART_VER="$CANONICAL_DART_VER"
+fi
+
+# Atomic generation and validation of canonical flutter.version.json
+TMP_VER_JSON="$FLUTTER_ROOT/bin/cache/flutter.version.json.tmp.$$"
+cat > "$TMP_VER_JSON" << EOF
 {
-  "frameworkVersion": "$FLUTTER_VER",
-  "channel": "stable",
-  "repositoryUrl": "https://github.com/flutter/flutter.git",
-  "frameworkRevision": "$FRAMEWORK_REV",
-  "frameworkCommitDate": "2026-06-09 00:00:00 -0700",
-  "engineRevision": "$local_eng_ver",
-  "dartSdkVersion": "$DART_VERSION_VAL",
-  "devToolsVersion": "2.42.0",
-  "flutterVersion": "$FLUTTER_VER"
+  "frameworkVersion": "$CANONICAL_FLUTTER_VER",
+  "channel": "$CANONICAL_CHANNEL",
+  "repositoryUrl": "$CANONICAL_REPO_URL",
+  "frameworkRevision": "$CANONICAL_FRAMEWORK_REV",
+  "frameworkCommitDate": "$CANONICAL_FRAMEWORK_DATE",
+  "engineRevision": "$CANONICAL_ENGINE_REV",
+  "dartSdkVersion": "$EFFECTIVE_DART_VER",
+  "devToolsVersion": "$CANONICAL_DEVTOOLS_VER",
+  "flutterVersion": "$CANONICAL_FLUTTER_VER"
 }
 EOF
-echo "  ✓ flutter.version.json generated ($FLUTTER_VER stable)"
+
+# Strict validation
+if ! grep -q "\"frameworkVersion\": \"$CANONICAL_FLUTTER_VER\"" "$TMP_VER_JSON" || \
+   ! grep -q "\"channel\": \"stable\"" "$TMP_VER_JSON" || \
+   ! grep -q "\"repositoryUrl\": \"https://github.com/flutter/flutter.git\"" "$TMP_VER_JSON" || \
+   ! grep -q "\"frameworkRevision\": \"$CANONICAL_FRAMEWORK_REV\"" "$TMP_VER_JSON" || \
+   ! grep -q "\"engineRevision\": \"$CANONICAL_ENGINE_REV\"" "$TMP_VER_JSON" || \
+   ! grep -q "\"dartSdkVersion\": \"$EFFECTIVE_DART_VER\"" "$TMP_VER_JSON" || \
+   ! grep -q "\"devToolsVersion\": \"$CANONICAL_DEVTOOLS_VER\"" "$TMP_VER_JSON" || \
+   ! grep -q "\"flutterVersion\": \"$CANONICAL_FLUTTER_VER\"" "$TMP_VER_JSON"; then
+    echo "Error: Generated flutter.version.json failed canonical validation" >&2
+    rm -f "$TMP_VER_JSON"
+    exit 1
+fi
+
+mv -f "$TMP_VER_JSON" "$FLUTTER_ROOT/bin/cache/flutter.version.json"
+chmod 644 "$FLUTTER_ROOT/bin/cache/flutter.version.json"
+echo "  ✓ Canonical flutter.version.json generated ($CANONICAL_FLUTTER_VER stable, framework=$CANONICAL_FRAMEWORK_REV)"
 
 # Get engine version for downloads
 ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab")

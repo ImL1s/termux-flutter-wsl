@@ -46,6 +46,9 @@ def load_build_config(root_path: Path | None = None) -> dict[str, str]:
     release_tag = flutter_cfg.get("release_tag", "")
     dart_version = flutter_cfg.get("dart_version", "")
     engine_commit = flutter_cfg.get("engine_commit", "")
+    framework_revision = flutter_cfg.get("framework_revision", "")
+    framework_commit_date = flutter_cfg.get("framework_commit_date", "")
+    devtools_version = flutter_cfg.get("devtools_version", "")
     sha256 = flutter_cfg.get("sha256", "")
     size = flutter_cfg.get("size", "")
     asset_name = flutter_cfg.get("asset_name", "")
@@ -62,6 +65,9 @@ def load_build_config(root_path: Path | None = None) -> dict[str, str]:
         "release_tag": str(release_tag),
         "dart_version": str(dart_version),
         "engine_commit": str(engine_commit),
+        "framework_revision": str(framework_revision),
+        "framework_commit_date": str(framework_commit_date),
+        "devtools_version": str(devtools_version),
         "sha256": str(sha256),
         "size": str(size) if size else "",
         "asset_name": str(asset_name) or f"flutter_{tag}_aarch64.deb",
@@ -264,6 +270,30 @@ def check_installer_scripts(cfg: dict[str, str], root_path: Path | None = None) 
                 fail(f"{rel_path}: EXPECTED_SHA256 line does not contain expected hash '{cfg['sha256']}': {line}")
 
 
+def check_post_install_script(cfg: dict[str, str], root_path: Path | None = None) -> None:
+    base_root = root_path or ROOT
+    path = base_root / "scripts" / "install" / "post_install.sh"
+    if not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8")
+    tag = cfg.get("tag")
+    dart_ver = cfg.get("dart_version")
+    fw_rev = cfg.get("framework_revision")
+    fw_date = cfg.get("framework_commit_date")
+    dev_ver = cfg.get("devtools_version")
+
+    if tag and f'CANONICAL_FLUTTER_VER="{tag}"' not in text:
+        fail(f"scripts/install/post_install.sh: CANONICAL_FLUTTER_VER mismatch, expected '{tag}'")
+    if dart_ver and f'CANONICAL_DART_VER="{dart_ver}"' not in text:
+        fail(f"scripts/install/post_install.sh: CANONICAL_DART_VER mismatch, expected '{dart_ver}'")
+    if fw_rev and f'CANONICAL_FRAMEWORK_REV="{fw_rev}"' not in text:
+        fail(f"scripts/install/post_install.sh: CANONICAL_FRAMEWORK_REV mismatch, expected '{fw_rev}'")
+    if fw_date and f'CANONICAL_FRAMEWORK_DATE="{fw_date}"' not in text:
+        fail(f"scripts/install/post_install.sh: CANONICAL_FRAMEWORK_DATE mismatch, expected '{fw_date}'")
+    if dev_ver and f'CANONICAL_DEVTOOLS_VER="{dev_ver}"' not in text:
+        fail(f"scripts/install/post_install.sh: CANONICAL_DEVTOOLS_VER mismatch, expected '{dev_ver}'")
+
+
 def run_checks(root_path: Path | None = None) -> list[str]:
     ERRORS.clear()
     cfg = load_build_config(root_path)
@@ -276,6 +306,7 @@ def run_checks(root_path: Path | None = None) -> list[str]:
     check_agent_guidance_docs(cfg, root_path)
     check_guide_docs(cfg, root_path)
     check_installer_scripts(cfg, root_path)
+    check_post_install_script(cfg, root_path)
 
     return ERRORS
 
