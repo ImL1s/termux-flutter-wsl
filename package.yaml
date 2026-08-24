@@ -337,3 +337,38 @@ resource:
     output: $prefix/bin/flutter-termux
     mode: 0o755
 
+  version_json:
+    source: |-
+      {
+        "frameworkVersion": "$tag",
+        "channel": "stable",
+        "repositoryUrl": "https://github.com/flutter/flutter.git",
+        "frameworkRevision": "$framework_revision",
+        "frameworkCommitDate": "$framework_commit_date",
+        "engineRevision": "$version",
+        "dartSdkVersion": "$dart_version",
+        "devToolsVersion": "$devtools_version",
+        "flutterVersion": "$tag"
+      }
+    output: $distro/bin/cache/flutter.version.json
+    binary: true
+    mode: 0o644
+
+  canonical_manifest:
+    source: |-
+      {
+        "flutter_version": "$tag",
+        "package_version": "$package_version",
+        "framework_revision": "$framework_revision",
+        "framework_commit_date": "$framework_commit_date",
+        "engine_revision": "$version",
+        "dart_version": "$dart_version",
+        "devtools_version": "$devtools_version",
+        "channel": "stable",
+        "repository_url": "https://github.com/flutter/flutter.git"
+      }
+    output:
+      - $distro/bin/cache/canonical_manifest.json
+      - $prefix/share/flutter/manifest.json
+    binary: true
+    mode: 0o644

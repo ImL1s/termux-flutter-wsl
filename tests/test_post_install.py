@@ -437,15 +437,14 @@ def test_post_install_preserves_existing_flutter_sh(tmp_path):
 
 
 def test_post_install_dummy_git_repo_stable_branch_and_version_json(tmp_path):
-    """Verify post_install.sh initializes dummy git repository on stable branch with tag and flutter.version.json."""
+    """Verify post_install.sh initializes synthetic git repository on stable branch with canonical provenance."""
     import json
     flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
-    flut_path = to_bash_path(flutter_root)
 
     res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
     assert res.returncode == 0, f"post_install failed: {res.stderr}"
 
-    # Verify dummy git repo branch is stable
+    # Verify synthetic git repo branch is stable
     branch_res = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True)
     assert branch_res.returncode == 0
     assert branch_res.stdout.strip() == "stable"
@@ -455,7 +454,15 @@ def test_post_install_dummy_git_repo_stable_branch_and_version_json(tmp_path):
     assert tag_res.returncode == 0
     assert "3.44.0" in tag_res.stdout.splitlines()
 
-    # Verify flutter.version.json exists and is valid
+    # Verify total tag count is exactly 1
+    all_tags = subprocess.run(["git", "tag", "-l"], cwd=str(flutter_root), capture_output=True, text=True).stdout.splitlines()
+    assert len(all_tags) == 1
+
+    # Verify termux_synthetic marker
+    marker = flutter_root / ".git" / "termux_synthetic"
+    assert marker.is_file()
+
+    # Verify flutter.version.json contains authoritative canonical provenance
     version_json_file = flutter_root / "bin" / "cache" / "flutter.version.json"
     assert version_json_file.is_file(), "flutter.version.json was not created"
     data = json.loads(version_json_file.read_text(encoding="utf-8"))
@@ -463,45 +470,113 @@ def test_post_install_dummy_git_repo_stable_branch_and_version_json(tmp_path):
     assert data["frameworkVersion"] == "3.44.0"
     assert data["flutterVersion"] == "3.44.0"
     assert data["repositoryUrl"] == "https://github.com/flutter/flutter.git"
+    assert data["frameworkRevision"] == "6b182d2c7585eba26d4edce0f97630effd256c33"
+    assert data["frameworkCommitDate"] == "2026-08-05 17:04:07 +0000"
+    assert data["dartSdkVersion"] == "3.12.2"
+    assert data["devToolsVersion"] == "2.42.0"
 
-    rev_res = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True)
-    assert rev_res.returncode == 0
-    assert data["frameworkRevision"] == rev_res.stdout.strip()
 
-
-def test_post_install_repairs_existing_master_dummy_repo_to_stable(tmp_path):
-    """Verify post_install.sh upgrades an existing master dummy git repo to stable and updates tags and version.json."""
+def test_post_install_contaminated_synthetic_repo_repair(tmp_path):
+    """Verify post_install.sh cleans up tag contamination, corrupted version JSON, and bad branches on synthetic repos."""
     import json
     flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
 
-    # Initialize a mock git repository with master branch explicitly
+    # Initialize a legacy synthetic repo with master branch, 50 contaminated upstream tags, and FETCH_HEAD
     subprocess.run(["git", "init", "-q"], cwd=str(flutter_root), check=True)
-    subprocess.run(["git", "checkout", "-B", "master"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "checkout", "-B", "trunk"], cwd=str(flutter_root), check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(flutter_root), check=True)
     subprocess.run(["git", "config", "user.name", "test"], cwd=str(flutter_root), check=True)
     subprocess.run(["git", "add", "-A"], cwd=str(flutter_root), check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "old master init"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "Init framework"], cwd=str(flutter_root), check=True)
 
-    branch_before = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.strip()
-    assert branch_before == "master"
+    # Create 50 fake upstream tags
+    for i in range(50):
+        subprocess.run(["git", "tag", f"upstream-tag-{i}"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "tag", "3.48.0-0.2.pre"], cwd=str(flutter_root), check=True)
 
-    # Now run post_install.sh --apply
+    # Create fake FETCH_HEAD
+    (flutter_root / ".git" / "FETCH_HEAD").write_text("dummy upstream fetch record\n")
+
+    # Create corrupted flutter.version.json
+    corrupted_json = {
+        "frameworkVersion": "3.48.0-0.2.pre",
+        "channel": "master",
+        "repositoryUrl": "https://github.com/flutter/flutter.git",
+        "frameworkRevision": "corrupted_hash",
+        "flutterVersion": "3.48.0-0.2.pre"
+    }
+    (flutter_root / "bin" / "cache" / "flutter.version.json").write_text(json.dumps(corrupted_json))
+
+    # Run post_install.sh --apply
     res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
     assert res.returncode == 0, f"post_install failed: {res.stderr}"
 
-    # Verify branch was migrated to stable
+    # Verify branch was sanitized to stable
     branch_after = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.strip()
     assert branch_after == "stable"
 
-    # Verify tag points to HEAD
-    tag_res = subprocess.run(["git", "tag", "--points-at", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True)
-    assert tag_res.returncode == 0
-    assert "3.44.0" in tag_res.stdout.splitlines()
+    # Verify all 51 contaminated tags were purged and exactly 1 canonical tag remains
+    tags_after = subprocess.run(["git", "tag", "-l"], cwd=str(flutter_root), capture_output=True, text=True).stdout.splitlines()
+    assert tags_after == ["3.44.0"]
 
-    # Verify flutter.version.json
+    # Verify tag points at HEAD
+    tag_head = subprocess.run(["git", "tag", "--points-at", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.splitlines()
+    assert "3.44.0" in tag_head
+
+    # Verify FETCH_HEAD was removed
+    assert not (flutter_root / ".git" / "FETCH_HEAD").exists()
+
+    # Verify flutter.version.json was regenerated with canonical metadata
     version_json_file = flutter_root / "bin" / "cache" / "flutter.version.json"
-    assert version_json_file.is_file()
     data = json.loads(version_json_file.read_text(encoding="utf-8"))
-    assert data["channel"] == "stable"
     assert data["frameworkVersion"] == "3.44.0"
+    assert data["channel"] == "stable"
+    assert data["frameworkRevision"] == "6b182d2c7585eba26d4edce0f97630effd256c33"
 
+
+def test_post_install_real_user_repo_preserved_non_destructive(tmp_path):
+    """Verify post_install.sh refuses to destructively rewrite branches or tags on non-synthetic / real Git checkouts."""
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # Initialize a non-synthetic repository with multiple user commits and a user branch
+    subprocess.run(["git", "init", "-q"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "checkout", "-B", "user/feature-custom"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.email", "user@developer.com"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.name", "Developer"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "Commit 1 by developer"], cwd=str(flutter_root), check=True)
+
+    # Add second commit
+    (flutter_root / "my_custom_file.txt").write_text("custom code")
+    subprocess.run(["git", "add", "my_custom_file.txt"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "Commit 2 by developer"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "tag", "user-custom-tag-v1"], cwd=str(flutter_root), check=True)
+
+    # Run post_install.sh --apply
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0, f"post_install failed: {res.stderr}"
+
+    # Verify user branch was NOT modified or renamed to stable
+    branch_after = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.strip()
+    assert branch_after == "user/feature-custom"
+
+    # Verify user tags were NOT deleted
+    tags_after = subprocess.run(["git", "tag", "-l"], cwd=str(flutter_root), capture_output=True, text=True).stdout.splitlines()
+    assert "user-custom-tag-v1" in tags_after
+
+
+def test_post_install_dart_sdk_version_semantic_not_stamp(tmp_path):
+    """Verify dartSdkVersion in flutter.version.json is a semantic version, never engine cache stamp."""
+    import json
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # Write engine commit hash into dart-sdk.stamp
+    (flutter_root / "bin" / "cache" / "dart-sdk.stamp").write_text("5a2a6a42cce67f965cf540fcecf616faca624aa1\n")
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0
+
+    version_json = flutter_root / "bin" / "cache" / "flutter.version.json"
+    data = json.loads(version_json.read_text(encoding="utf-8"))
+    assert data["dartSdkVersion"] == "3.12.2"
+    assert "5a2a6a42" not in data["dartSdkVersion"]

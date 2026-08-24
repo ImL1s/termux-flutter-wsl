@@ -55,7 +55,8 @@ for cmd in git java javac clang clang++ pkg-config cmake ninja aapt2; do
 done
 echo ""
 
-echo -e "${BLUE}[3] Flutter SDK & Dart VM:${NC}"
+echo -e "${BLUE}[3] Flutter SDK, Dart VM & Provenance Identity:${NC}"
+FLUTTER_BASE_DIR="${PREFIX}/opt/flutter"
 if command -v flutter >/dev/null 2>&1; then
     FLUTTER_LOC="$(command -v flutter)"
     echo "  Flutter Path    : $FLUTTER_LOC"
@@ -63,6 +64,26 @@ if command -v flutter >/dev/null 2>&1; then
     echo "  Flutter Version : $FLUTTER_VER"
 else
     echo -e "  ${RED}Flutter binary not found in PATH${NC}"
+fi
+
+if [ -f "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" ]; then
+    v_sha="$(sha256sum "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" 2>/dev/null | awk '{print $1}')"
+    v_chan="$(grep -o '"channel": *"[^"]*"' "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
+    v_rev="$(grep -o '"frameworkRevision": *"[^"]*"' "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
+    echo "  Version JSON    : PRESENT (channel=$v_chan, revision=$v_rev, sha256=$v_sha)"
+else
+    echo -e "  Version JSON    : ${YELLOW}NOT FOUND${NC}"
+fi
+
+if [ -d "$FLUTTER_BASE_DIR/.git" ]; then
+    is_synth="NO"
+    [ -f "$FLUTTER_BASE_DIR/.git/termux_synthetic" ] && is_synth="YES"
+    br="$(git --git-dir="$FLUTTER_BASE_DIR/.git" symbolic-ref --short HEAD 2>/dev/null || echo "detached")"
+    tag_head="$(git --git-dir="$FLUTTER_BASE_DIR/.git" tag --points-at HEAD 2>/dev/null || echo "none")"
+    t_cnt="$(git --git-dir="$FLUTTER_BASE_DIR/.git" tag -l 2>/dev/null | wc -l)"
+    fetch_head="NO"
+    [ -f "$FLUTTER_BASE_DIR/.git/FETCH_HEAD" ] && fetch_head="YES"
+    echo "  Git Repo State  : branch=$br, tag_at_head=$tag_head, total_tags=$t_cnt, synthetic=$is_synth, FETCH_HEAD=$fetch_head"
 fi
 
 if command -v dart >/dev/null 2>&1; then
