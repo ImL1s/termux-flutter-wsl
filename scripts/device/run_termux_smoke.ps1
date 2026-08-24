@@ -13,16 +13,11 @@ param(
     [string]$VerifierCommit = "",
     [string]$ArtifactRunId = "",
     [string]$BuildRunId = "",
-    [string]$EvidencePath = "device_smoke_evidence.json",
-    [switch]$EvidenceOnly = $false,
-    [string]$MockStatus = "passed",
-    [string]$MockApkSha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    [int]$MockApkSize = 12345,
-    [string]$MockAabSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    [int]$MockAabSize = 12345
+    [string]$EvidencePath = "device_smoke_evidence.json"
 )
 
 Set-StrictMode -Version Latest
+
 $ErrorActionPreference = "Stop"
 
 function Resolve-BuildRunId {
@@ -182,34 +177,8 @@ function Write-InitialEvidence {
 
 Write-UnifiedEvidence -Status "failed" -Path $EvidencePath | Out-Null
 
-
-if ($EvidenceOnly) {
-    $script:model = "SM-X716B"
-    $script:sdk = "34"
-    $script:abi = "arm64-v8a"
-    $script:apkLaunchHost = ($MockStatus -eq "passed")
-    $script:crashFreeHost = ($MockStatus -eq "passed")
-    $script:launchPassed = ($MockStatus -eq "passed")
-    $script:exitStatus = if ($MockStatus -eq "passed") { 0 } else { 1 }
-    $script:modeA = $MockStatus
-    $script:modeB = $MockStatus
-    $script:modeAApkBuild = $MockStatus
-    $script:modeBAabBuild = $MockStatus
-    $script:apkSha256 = $MockApkSha256
-    $script:apkSize = $MockApkSize
-    $script:aabSha256 = $MockAabSha256
-    $script:aabSize = $MockAabSize
-
-    $evObj = Write-UnifiedEvidence -Status $MockStatus -Path $EvidencePath
-    $evJson = $evObj | ConvertTo-Json -Depth 5
-    Write-Host "Wrote evidence artifact to $hostEvidencePath (EvidenceOnly mode)"
-    Write-Host "Evidence JSON Content:"
-    Write-Host $evJson
-    return
-}
-
-
 function Resolve-Adb {
+
     param([string]$Value)
     if (Test-Path -LiteralPath $Value) { return (Resolve-Path -LiteralPath $Value).Path }
     $cmd = Get-Command $Value -ErrorAction SilentlyContinue
