@@ -78,18 +78,21 @@ jobs:
           $sizes = Get-ChildItem -Path ./candidate -Recurse -Filter "*.size.txt"
           $metadatas = Get-ChildItem -Path ./candidate -Recurse -Filter "build_metadata.json"
           $inventories = Get-ChildItem -Path ./candidate -Recurse -Filter "inventory.txt"
+          $buildEvidences = Get-ChildItem -Path ./candidate -Recurse -Filter "build_evidence.json"
 
           if ($debs.Count -ne 1) { throw "Error: Ambiguous or missing candidate .deb file. Expected 1, found $($debs.Count)" }
           if ($shas.Count -ne 1) { throw "Error: Ambiguous or missing candidate .sha256 file. Expected 1, found $($shas.Count)" }
           if ($sizes.Count -ne 1) { throw "Error: Ambiguous or missing candidate .size.txt file. Expected 1, found $($sizes.Count)" }
           if ($metadatas.Count -ne 1) { throw "Error: Ambiguous or missing candidate build_metadata.json file. Expected 1, found $($metadatas.Count)" }
           if ($inventories.Count -ne 1) { throw "Error: Ambiguous or missing candidate inventory.txt file. Expected 1, found $($inventories.Count)" }
+          if ($buildEvidences.Count -ne 1) { throw "Error: Ambiguous or missing candidate build_evidence.json file. Expected 1, found $($buildEvidences.Count)" }
 
           $deb = $debs[0].FullName
           $shaFile = $shas[0].FullName
           $sizeFile = $sizes[0].FullName
           $metadataFile = $metadatas[0].FullName
           $inventoryFile = $inventories[0].FullName
+          $buildEvidenceFile = $buildEvidences[0].FullName
 
           $actualSha = (Get-FileHash -Path $deb -Algorithm SHA256).Hash.ToLower().Trim()
           $actualSize = (Get-Item $deb).Length
@@ -124,6 +127,21 @@ jobs:
               throw "Error: build_metadata.json run_id ($metaRunId) != artifact_run_id ($($env:ARTIFACT_RUN_ID))"
           }
 
+          $buildEv = Get-Content $buildEvidenceFile -Raw | ConvertFrom-Json
+          $buildEvSha = $buildEv.deb_sha256.ToLower().Trim()
+          $buildEvSize = $buildEv.deb_size_bytes
+          $buildEvRunId = "$($buildEv.run_id)"
+
+          if ($buildEvSha -ne $actualSha) {
+              throw "Error: build_evidence.json deb_sha256 ($buildEvSha) != actual deb SHA256 ($actualSha)"
+          }
+          if ("$buildEvSize" -ne "$actualSize") {
+              throw "Error: build_evidence.json deb_size_bytes ($buildEvSize) != actual deb size ($actualSize)"
+          }
+          if ($env:ARTIFACT_RUN_ID -and ($buildEvRunId -ne $env:ARTIFACT_RUN_ID)) {
+              throw "Error: build_evidence.json run_id ($buildEvRunId) != artifact_run_id ($($env:ARTIFACT_RUN_ID))"
+          }
+
           $artifactSourceCommit = $metadata.source_commit.ToLower().Trim()
           $verifierCommit = (git rev-parse HEAD).Trim().ToLower()
 
@@ -142,6 +160,7 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_SIZE_FILE=$sizeFile"
           Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_METADATA=$metadataFile"
           Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_INVENTORY=$inventoryFile"
+          Add-Content -Path $env:GITHUB_ENV -Value "RESOLVED_BUILD_EVIDENCE=$buildEvidenceFile"
           Add-Content -Path $env:GITHUB_ENV -Value "ARTIFACT_SOURCE_COMMIT=$artifactSourceCommit"
           Add-Content -Path $env:GITHUB_ENV -Value "VERIFIER_COMMIT=$verifierCommit"
           Write-Host "✓ Candidate set cryptographically bound and verified: DEB=$deb, SHA256=$actualSha, COMMIT=$artifactSourceCommit"
@@ -153,6 +172,7 @@ jobs:
           INPUT_DEVICE_SERIAL: ${{ inputs.device_serial }}
           INPUT_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
           INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+          INPUT_ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
           RESOLVED_DEB: ${{ env.RESOLVED_DEB }}
           ARTIFACT_SOURCE_COMMIT: ${{ env.ARTIFACT_SOURCE_COMMIT }}
           VERIFIER_COMMIT: ${{ env.VERIFIER_COMMIT }}
@@ -165,14 +185,17 @@ jobs:
             -ExpectedSha256 $env:INPUT_EXPECTED_SHA256 `
             -TimeoutMinutes $env:INPUT_TIMEOUT_MINUTES `
             -ArtifactSourceCommit "$env:ARTIFACT_SOURCE_COMMIT" `
-            -VerifierCommit "$env:VERIFIER_COMMIT"
+            -VerifierCommit "$env:VERIFIER_COMMIT" `
+            -ArtifactRunId "$env:INPUT_ARTIFACT_RUN_ID" `
+            -BuildRunId "$env:INPUT_ARTIFACT_RUN_ID" `
+            -EvidencePath "device_smoke_evidence.json"
 
       - name: Upload evidence artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: device-smoke-evidence
-          path: evidence.json
+          path: device_smoke_evidence.json
           if-no-files-found: error
 
       - name: Promote Release
@@ -181,23 +204,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
           RESOLVED_DEB: ${{ env.RESOLVED_DEB }}
           RESOLVED_SHA_FILE: ${{ env.RESOLVED_SHA_FILE }}
           RESOLVED_SIZE_FILE: ${{ env.RESOLVED_SIZE_FILE }}
           RESOLVED_METADATA: ${{ env.RESOLVED_METADATA }}
           RESOLVED_INVENTORY: ${{ env.RESOLVED_INVENTORY }}
+          RESOLVED_BUILD_EVIDENCE: ${{ env.RESOLVED_BUILD_EVIDENCE }}
           ARTIFACT_SOURCE_COMMIT: ${{ env.ARTIFACT_SOURCE_COMMIT }}
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not $env:INPUT_RELEASE_TAG) { throw "release_tag is required for promotion" }
-          if (-not (Test-Path "evidence.json")) { throw "Error: evidence.json missing. Cannot promote." }
+          if (-not (Test-Path "device_smoke_evidence.json")) { throw "Error: device_smoke_evidence.json missing. Cannot promote." }
 
-          $ev = Get-Content "evidence.json" -Raw | ConvertFrom-Json
+          $ev = Get-Content "device_smoke_evidence.json" -Raw | ConvertFrom-Json
           if ($ev.status -ne "passed" -or $ev.mode_b_status -ne "passed") {
               throw "Error: Promotion rejected! Evidence status is '$($ev.status)' and mode_b_status is '$($ev.mode_b_status)' (both must be 'passed')"
           }
           if ($ev.artifact_source_commit -ne $ev.verifier_commit -or -not $ev.artifact_source_commit) {
               throw "Error: Promotion rejected! artifact_source_commit ($($ev.artifact_source_commit)) != verifier_commit ($($ev.verifier_commit))"
+          }
+          if ($env:INPUT_ARTIFACT_RUN_ID -and ("$($ev.build_run_id)" -ne "$($env:INPUT_ARTIFACT_RUN_ID)")) {
+              throw "Error: Promotion rejected! device evidence build_run_id ($($ev.build_run_id)) != artifact_run_id ($($env:INPUT_ARTIFACT_RUN_ID))"
           }
 
           $debSha = $ev.artifacts.deb_sha256
@@ -222,6 +250,4 @@ jobs:
           $sourceCommit = if ($env:ARTIFACT_SOURCE_COMMIT) { $env:ARTIFACT_SOURCE_COMMIT } else { $ev.artifact_source_commit }
           if (-not $sourceCommit) { throw "Error: source_commit is required" }
 
-          gh release create $tag $env:RESOLVED_DEB $env:RESOLVED_SHA_FILE $env:RESOLVED_SIZE_FILE $env:RESOLVED_METADATA $env:RESOLVED_INVENTORY evidence.json --target $sourceCommit --title "Flutter Termux $tag" @notesArg
-
-
+          gh release create $tag $env:RESOLVED_DEB $env:RESOLVED_SHA_FILE $env:RESOLVED_SIZE_FILE $env:RESOLVED_METADATA $env:RESOLVED_INVENTORY $env:RESOLVED_BUILD_EVIDENCE device_smoke_evidence.json --target $sourceCommit --title "Flutter Termux $tag" @notesArg

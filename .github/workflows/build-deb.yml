@@ -138,7 +138,7 @@ jobs:
         run: |
           DEB="${{ steps.artifact.outputs.deb }}"
           METADATA_FILE="build_metadata.json"
-          EVIDENCE_FILE="evidence.json"
+          EVIDENCE_FILE="build_evidence.json"
 
           # Generate inventory (list of files in deb)
           TZ=UTC dpkg-deb -c "$DEB" > inventory.txt
@@ -169,6 +169,7 @@ jobs:
             "version": "${FLUTTER_VERSION}",
             "arch": "${ARCH}",
             "run_id": "${{ github.run_id }}",
+            "build_number": "${{ github.run_number }}",
             "source_commit": "${{ github.sha }}",
             "tree_sha": "${TREE_SHA}",
             "deb_sha256": "$(cat ${DEB}.sha256 | awk '{print $1}')",
@@ -192,7 +193,7 @@ jobs:
             ${{ steps.artifact.outputs.deb }}.size.txt
             ${{ steps.metadata.outputs.metadata }}
             ${{ steps.metadata.outputs.inventory }}
-            evidence.json
+            build_evidence.json
           retention-days: 90
           if-no-files-found: error
 
