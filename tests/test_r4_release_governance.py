@@ -312,7 +312,7 @@ sha256 = "{computed_sha}"
 size = {computed_size}
 """, encoding="utf-8")
 
-        # Mock GitHub API release response with all 5 assets
+        # Mock GitHub API release response with all 6 companion assets
         api_data = {
             "assets": [
                 {
@@ -336,6 +336,14 @@ size = {computed_size}
                 {
                     "name": "build_metadata.json",
                     "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/build_metadata.json",
+                },
+                {
+                    "name": "build_evidence.json",
+                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/build_evidence.json",
+                },
+                {
+                    "name": "device_smoke_evidence.json",
+                    "browser_download_url": f"https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/device_smoke_evidence.json",
                 },
             ]
         }
@@ -385,12 +393,45 @@ size = {computed_size}
                     "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
-
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": computed_sha,
+                    "deb_size_bytes": computed_size,
+                    "inventory_file_count": len(file_paths),
+                    "build_duration_seconds": 120,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": computed_sha,
+                        "deb_size": computed_size,
+                        "apk_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "apk_size": 12345,
+                        "aab_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "aab_size": 12345,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
             m.__enter__.return_value = resp
             return m
+
 
         mock_urlopen.side_effect = fake_urlopen
 
@@ -1343,6 +1384,8 @@ size = {computed_size}
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
                 {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
             ]
         }
 
@@ -1398,6 +1441,40 @@ size = {computed_size}
                     "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": computed_sha,
+                    "deb_size_bytes": computed_size,
+                    "inventory_file_count": 15,
+                    "build_duration_seconds": 120,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": computed_sha,
+                        "deb_size": computed_size,
+                        "apk_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "apk_size": 12345,
+                        "aab_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "aab_size": 12345,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
+
 
             else:
                 resp.read.return_value = b"ok"
@@ -1569,6 +1646,8 @@ size = {computed_size}
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
                 {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
             ]
         }
 
@@ -1624,6 +1703,40 @@ size = {computed_size}
                     "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": computed_sha,
+                    "deb_size_bytes": computed_size,
+                    "inventory_file_count": 16,
+                    "build_duration_seconds": 120,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": computed_sha,
+                        "deb_size": computed_size,
+                        "apk_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "apk_size": 12345,
+                        "aab_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "aab_size": 12345,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
+
 
             else:
                 resp.read.return_value = b"ok"
@@ -1906,6 +2019,8 @@ size = {computed_size}
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
                 {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
             ]
         }
 
@@ -1961,6 +2076,40 @@ size = {computed_size}
                     "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": computed_sha,
+                    "deb_size_bytes": computed_size,
+                    "inventory_file_count": 15,
+                    "build_duration_seconds": 120,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": computed_sha,
+                        "deb_size": computed_size,
+                        "apk_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "apk_size": 12345,
+                        "aab_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "aab_size": 12345,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
+
 
             else:
                 resp.read.return_value = b"ok"
@@ -2452,6 +2601,8 @@ size = {computed_size}
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
                 {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
             ]
         }
 
@@ -2508,6 +2659,40 @@ size = {computed_size}
                     "build_duration_seconds": 120,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": computed_sha,
+                    "deb_size_bytes": computed_size,
+                    "inventory_file_count": 15,
+                    "build_duration_seconds": 120,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": computed_sha,
+                        "deb_size": computed_size,
+                        "apk_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "apk_size": 12345,
+                        "aab_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "aab_size": 12345,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
+
 
             else:
                 resp.read.return_value = b"ok"
@@ -2996,6 +3181,8 @@ size = {actual_size}
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
                 {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
             ]
         }
 
@@ -3037,6 +3224,40 @@ size = {actual_size}
                     "size_bytes": actual_size,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": expected_sha256,
+                    "deb_size_bytes": actual_size,
+                    "inventory_file_count": 15,
+                    "build_duration_seconds": 3600.5,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": expected_sha256,
+                        "deb_size": actual_size,
+                        "apk_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "apk_size": 12345,
+                        "aab_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "aab_size": 12345,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
+
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -3554,7 +3775,8 @@ size = 100
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
                 {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
-                {"name": "evidence.json", "browser_download_url": "https://example.com/evidence.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
             ]
         }
 
@@ -3591,6 +3813,39 @@ size = 100
                     "size_bytes": 100,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                    "deb_size_bytes": 100,
+                    "inventory_file_count": 15,
+                    "build_duration_seconds": 120,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                        "deb_size": 100,
+                        "apk_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "apk_size": 12345,
+                        "aab_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "aab_size": 12345,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -3605,8 +3860,8 @@ size = 100
 
 
     @patch("urllib.request.urlopen")
-    def test_full_mode_companion_evidence_json_mismatched_sha_fails(self, mock_urlopen, tmp_path, monkeypatch):
-        """Verify companion evidence.json with mismatched deb_sha256 fails closed."""
+    def test_full_mode_companion_build_evidence_json_mismatched_sha_fails(self, mock_urlopen, tmp_path, monkeypatch):
+        """Verify companion build_evidence.json with mismatched deb_sha256 fails closed."""
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
 
@@ -3626,7 +3881,8 @@ size = 100
                 {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
                 {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
                 {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
-                {"name": "evidence.json", "browser_download_url": "https://example.com/evidence.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
             ]
         }
 
@@ -3664,7 +3920,7 @@ size = 100
                     "size_bytes": 100,
                 }
                 resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
-            elif url.endswith("evidence.json"):
+            elif url.endswith("build_evidence.json"):
                 ev_dict = {
                     "type": "build_evidence",
                     "version": "3.44.9",
@@ -3673,6 +3929,123 @@ size = 100
                     "deb_sha256": "wrong_sha256_0000000000000000000000000000000000000000000000000000",
                 }
                 resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 12345678,
+                    "artifacts": {
+                        "deb_sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                        "deb_size": 100,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
+
+        with pytest.raises(SystemExit) as exc:
+            verify_release_asset.main()
+        assert exc.value.code == 1
+
+
+    @patch("urllib.request.urlopen")
+    def test_full_mode_companion_device_smoke_evidence_json_mismatched_run_id_fails(self, mock_urlopen, tmp_path, monkeypatch):
+        """Verify companion device_smoke_evidence.json with mismatched build_run_id fails closed."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
+
+        asset_name = "flutter_3.44.9_aarch64.deb"
+        (tmp_path / "build.toml").write_text(f"""
+[flutter]
+release_tag = "v3.44.9-termux"
+asset_name = "{asset_name}"
+sha256 = "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca"
+size = 100
+""", encoding="utf-8")
+
+        api_data = {
+            "assets": [
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": 100},
+                {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
+                {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
+                {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
+                {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
+            ]
+        }
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "/zip" in url:
+                resp.read.return_value = make_mock_artifact_zip(asset_name, b"x"*100)
+            elif "/artifacts" in url:
+                resp.read.return_value = json.dumps({"total_count": 1, "artifacts": [{"name": "flutter-termux-3.44.9-aarch64", "id": 1}]}).encode("utf-8")
+            elif "/actions/runs/12345678" in url:
+                resp.read.return_value = json.dumps({"head_sha": "101c32449a4ee65780888aeb0dc2ec5fa220be9f", "conclusion": "success", "path": ".github/workflows/build-deb.yml", "run_number": 42}).encode("utf-8")
+            elif "/git/commits/" in url:
+                resp.read.return_value = json.dumps({"tree": {"sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67"}}).encode("utf-8")
+            elif "/compare/" in url:
+                resp.read.return_value = json.dumps({"status": "identical", "ahead_by": 0, "behind_by": 0, "files": []}).encode("utf-8")
+            elif "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = b"00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca\n"
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = b"100\n"
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 file_{i}" for i in range(15)).encode("utf-8")
+            elif url.endswith("build_metadata.json"):
+                meta_dict = {
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "build_duration_seconds": 120,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                    "size_bytes": 100,
+                }
+                resp.read.return_value = json.dumps(meta_dict).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                ev_dict = {
+                    "type": "build_evidence",
+                    "version": "3.44.9",
+                    "arch": "aarch64",
+                    "run_id": 12345678,
+                    "build_number": 42,
+                    "source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "tree_sha": "2a224ff824f370f7a302970bbcf54f6dcd734c67",
+                    "deb_sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                    "deb_size_bytes": 100,
+                    "inventory_file_count": 15,
+                    "build_duration_seconds": 120,
+                }
+                resp.read.return_value = json.dumps(ev_dict).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                dev_dict = {
+                    "status": "passed",
+                    "mode_a_status": "passed",
+                    "mode_b_status": "passed",
+                    "artifact_source_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "verifier_commit": "101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+                    "build_run_id": 99999999,  # Mismatched build_run_id
+                    "artifacts": {
+                        "deb_sha256": "00e0c5053355c17fcad89f681aef8d1a5f12c48755f461c575b7f8c65e4cdfca",
+                        "deb_size": 100,
+                    }
+                }
+                resp.read.return_value = json.dumps(dev_dict).encode("utf-8")
             else:
                 resp.read.return_value = b"ok"
             m = MagicMock()
@@ -3707,7 +4080,8 @@ class TestCompanionMetadataContracts:
         size = staging / "flutter_3.44.9_aarch64.deb.size.txt"
         meta = staging / "build_metadata.json"
         inv = staging / "inventory.txt"
-        evi = staging / "evidence.json"
+        b_evi = staging / "build_evidence.json"
+        d_evi = staging / "device_smoke_evidence.json"
 
         deb.write_bytes(b"content")
         sha.write_text(f"{hashlib.sha256(b'content').hexdigest()}  {deb.name}\n", encoding="utf-8")
@@ -3720,21 +4094,24 @@ class TestCompanionMetadataContracts:
             "architecture": "aarch64",
         }), encoding="utf-8")
         inv.write_text("bin/flutter\nbin/cache/dart-sdk/bin/dart\n", encoding="utf-8")
-        evi.write_text(json.dumps({"status": "passed", "mode_b_status": "passed"}), encoding="utf-8")
+        b_evi.write_text(json.dumps({"type": "build_evidence", "deb_sha256": "xxx"}), encoding="utf-8")
+        d_evi.write_text(json.dumps({"status": "passed", "mode_b_status": "passed"}), encoding="utf-8")
 
         debs = list(staging.glob("*.deb"))
         shas = list(staging.glob("*.deb.sha256"))
         sizes = list(staging.glob("*.deb.size.txt"))
         metas = list(staging.glob("build_metadata.json"))
         invs = list(staging.glob("inventory.txt"))
-        evis = list(staging.glob("evidence.json"))
+        b_evis = list(staging.glob("build_evidence.json"))
+        d_evis = list(staging.glob("device_smoke_evidence.json"))
 
         assert len(debs) == 1, "Must have exactly 1 .deb artifact"
         assert len(shas) == 1, "Must have exactly 1 .sha256 companion"
         assert len(sizes) == 1, "Must have exactly 1 .size.txt companion"
         assert len(metas) == 1, "Must have exactly 1 build_metadata.json"
         assert len(invs) == 1, "Must have exactly 1 inventory.txt"
-        assert len(evis) == 1, "Must have exactly 1 evidence.json"
+        assert len(b_evis) == 1, "Must have exactly 1 build_evidence.json"
+        assert len(d_evis) == 1, "Must have exactly 1 device_smoke_evidence.json"
 
     def test_duplicate_artifact_violates_cardinality(self, tmp_path):
         staging = tmp_path / "staging"
@@ -3754,6 +4131,168 @@ class TestCompanionMetadataContracts:
 
         failed_evidence_2 = {"status": "passed", "mode_b_status": "failed"}
         assert failed_evidence_2["mode_b_status"] != "passed"
+
+    @patch("urllib.request.urlopen")
+    @patch("urllib.request.urlretrieve")
+    def test_exact_real_world_ps1_and_build_deb_schema_verification_succeeds(self, mock_retrieve, mock_urlopen, tmp_path, monkeypatch):
+        """Integration test: Verify exact schema output from run_termux_smoke.ps1 and build-deb.yml passes verify_release_asset."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("LIGHTWEIGHT_CHECK", raising=False)
+        monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+
+
+        file_paths = [f"data/data/com.termux/files/usr/opt/flutter/file_{i}" for i in range(15)]
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+            for p in file_paths:
+                ti = tarfile.TarInfo(name=p)
+                ti.mode = 0o755
+                ti.uname = "root"
+                ti.gname = "root"
+                ti.size = 5
+                ti.mtime = 1787486400
+                tar.addfile(ti, io.BytesIO(b"hello"))
+        data_bytes = tar_buf.getvalue()
+
+        deb_buf = io.BytesIO()
+        deb_buf.write(b"!<arch>\n")
+        deb_bin = b"2.0\n"
+        deb_buf.write(f"{'debian-binary':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(deb_bin):<10}`\n".encode("ascii"))
+        deb_buf.write(deb_bin)
+        data_hdr = f"{'data.tar.gz':<16}{'0':<12}{'0':<6}{'0':<6}{'100644':<8}{len(data_bytes):<10}`\n".encode("ascii")
+        deb_buf.write(data_hdr)
+        deb_buf.write(data_bytes)
+        if len(data_bytes) % 2 == 1:
+            deb_buf.write(b"\n")
+        deb_bytes = deb_buf.getvalue()
+        deb_sha = hashlib.sha256(deb_bytes).hexdigest()
+        deb_size = len(deb_bytes)
+        asset_name = "flutter_3.44.9_aarch64.deb"
+        source_commit = "101c32449a4ee65780888aeb0dc2ec5fa220be9f"
+        tree_sha = "2a224ff824f370f7a302970bbcf54f6dcd734c67"
+        run_id = 12345678
+        run_number = 42
+
+        (tmp_path / "build.toml").write_text(f"""
+[flutter]
+release_tag = "v3.44.9-termux"
+asset_name = "{asset_name}"
+sha256 = "{deb_sha}"
+size = {deb_size}
+""", encoding="utf-8")
+
+
+
+        api_data = {
+            "assets": [
+                {"name": asset_name, "browser_download_url": f"https://example.com/{asset_name}", "size": deb_size},
+                {"name": f"{asset_name}.sha256", "browser_download_url": f"https://example.com/{asset_name}.sha256"},
+                {"name": f"{asset_name}.size.txt", "browser_download_url": f"https://example.com/{asset_name}.size.txt"},
+                {"name": "inventory.txt", "browser_download_url": "https://example.com/inventory.txt"},
+                {"name": "build_metadata.json", "browser_download_url": "https://example.com/build_metadata.json"},
+                {"name": "build_evidence.json", "browser_download_url": "https://example.com/build_evidence.json"},
+                {"name": "device_smoke_evidence.json", "browser_download_url": "https://example.com/device_smoke_evidence.json"},
+            ]
+        }
+
+        # Exact schema produced by build-deb.yml
+        real_build_evidence = {
+            "type": "build_evidence",
+            "version": "3.44.9",
+            "arch": "aarch64",
+            "run_id": run_id,
+            "build_number": run_number,
+            "source_commit": source_commit,
+            "tree_sha": tree_sha,
+            "deb_sha256": deb_sha,
+            "deb_size_bytes": deb_size,
+            "inventory_file_count": 15,
+            "build_duration_seconds": 120,
+        }
+
+        # Exact schema produced by scripts/device/run_termux_smoke.ps1
+        real_device_smoke_evidence = {
+            "status": "passed",
+            "run_id": "87654321",
+            "build_run_id": str(run_id),
+            "mode_a_status": "passed",
+            "mode_b_status": "passed",
+            "timestamp": "2026-08-24T12:00:00Z",
+            "device_model": "SM-X716B",
+            "android_version": "16",
+            "host_runner": "WIN-BUILD-RUNNER",
+            "artifact_source_commit": source_commit,
+            "verifier_commit": source_commit,
+            "failures": [],
+            "artifacts": {
+                "deb_sha256": deb_sha,
+                "deb_size": deb_size,
+                "apk_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                "apk_size": 25000000,
+                "aab_sha256": "9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba",
+                "aab_size": 30000000,
+            }
+        }
+
+        real_build_metadata = {
+            "version": "3.44.9",
+            "arch": "aarch64",
+            "run_id": run_id,
+            "build_number": run_number,
+            "build_duration_seconds": 120,
+            "source_commit": source_commit,
+            "tree_sha": tree_sha,
+            "sha256": deb_sha,
+            "size_bytes": deb_size,
+        }
+
+        def fake_urlopen(req, *args, **kwargs):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            resp = MagicMock()
+            if "/zip" in url:
+                resp.read.return_value = make_mock_artifact_zip(asset_name, deb_bytes)
+
+            elif "/artifacts" in url:
+                resp.read.return_value = json.dumps({"total_count": 1, "artifacts": [{"name": "flutter-termux-3.44.9-aarch64", "id": 1}]}).encode("utf-8")
+            elif f"/actions/runs/{run_id}" in url:
+                resp.read.return_value = json.dumps({"head_sha": source_commit, "conclusion": "success", "path": ".github/workflows/build-deb.yml", "run_number": run_number}).encode("utf-8")
+            elif "/git/commits/" in url:
+                resp.read.return_value = json.dumps({"tree": {"sha": tree_sha}}).encode("utf-8")
+            elif "/compare/" in url:
+                resp.read.return_value = json.dumps({"status": "identical", "ahead_by": 0, "behind_by": 0, "files": []}).encode("utf-8")
+            elif "api.github.com" in url:
+                resp.read.return_value = json.dumps(api_data).encode("utf-8")
+            elif url.endswith(".sha256"):
+                resp.read.return_value = f"{deb_sha}\n".encode("utf-8")
+            elif url.endswith(".size.txt"):
+                resp.read.return_value = f"{deb_size}\n".encode("utf-8")
+            elif url.endswith("inventory.txt"):
+                resp.read.return_value = "\n".join(f"-rwxr-xr-x root/root 5 2026-08-23 12:00 data/data/com.termux/files/usr/opt/flutter/file_{i}" for i in range(15)).encode("utf-8")
+
+            elif url.endswith("build_metadata.json"):
+                resp.read.return_value = json.dumps(real_build_metadata).encode("utf-8")
+            elif url.endswith("build_evidence.json"):
+                resp.read.return_value = json.dumps(real_build_evidence).encode("utf-8")
+            elif url.endswith("device_smoke_evidence.json"):
+                resp.read.return_value = json.dumps(real_device_smoke_evidence).encode("utf-8")
+            else:
+                resp.read.return_value = b"ok"
+            m = MagicMock()
+            m.__enter__.return_value = resp
+            return m
+
+        mock_urlopen.side_effect = fake_urlopen
+
+        def fake_download(url, dest):
+            Path(dest).write_bytes(deb_bytes)
+        mock_retrieve.side_effect = fake_download
+
+        # Should verify and pass cleanly
+        verify_release_asset.main()
+
+
+
+
 
 
 # ============================================================================

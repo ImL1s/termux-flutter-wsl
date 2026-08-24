@@ -7,9 +7,11 @@ import re
 import datetime
 import tarfile
 import zipfile
+import tempfile
 import urllib.request
 import hashlib
 from pathlib import Path
+
 
 
 SHA256_HEX_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -326,11 +328,14 @@ def main():
 
     # 3. Check LIGHTWEIGHT_CHECK before published-release API lookup
     if os.environ.get("LIGHTWEIGHT_CHECK") == "1":
-        runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
-        download_path = Path(runner_temp) / expected_asset
-        if not download_path.is_file():
+        runner_temp = os.environ.get("RUNNER_TEMP")
+        download_path = None
+        if runner_temp and (Path(runner_temp) / expected_asset).is_file():
+            download_path = Path(runner_temp) / expected_asset
+        elif (Path(".") / expected_asset).is_file():
             download_path = Path(".") / expected_asset
-        if download_path.is_file():
+
+        if download_path and download_path.is_file():
             sha256_hash = hashlib.sha256()
             with open(download_path, "rb") as f:
                 for byte_block in iter(lambda: f.read(4096), b""):
@@ -348,6 +353,7 @@ def main():
         else:
             print(f"LIGHTWEIGHT_CHECK enabled (no local file present): Verified manifest structure and valid SHA256 hex syntax ({expected_sha256[:8]}...). Skipping network API lookup.")
         sys.exit(0)
+
 
     # 4. Retrieve release info from GitHub API via urllib
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -380,19 +386,23 @@ def main():
         print("Error: Could not determine download URL for asset.")
         sys.exit(1)
 
-    # 4. Validate all 5 release companion assets
+    # 4. Validate all 6 release companion assets
     aux_assets = {
         f"{expected_asset}.sha256": "sha256",
         f"{expected_asset}.size.txt": "size_txt",
         "inventory.txt": "inventory",
         "build_metadata.json": "metadata",
+        "build_evidence.json": "build_evidence",
+        "device_smoke_evidence.json": "device_smoke_evidence",
     }
+
     for aux_name in aux_assets:
         if aux_name not in assets:
             print(f"Error: Auxiliary asset '{aux_name}' not found in release '{target_tag}'.")
             print(f"Available assets: {list(assets.keys())}")
             sys.exit(1)
         print(f"  ✓ Found companion asset: {aux_name}")
+
 
     # Validate exact size if provided in manifest
     actual_size = asset.get("size")
@@ -708,36 +718,143 @@ def main():
 
             print(f"  ✓ Verified build_metadata.json full 9-field provenance schema (version={meta_ver}, arch={meta_arch}, run_id={run_id}, build_number={b_num}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size}, duration={b_dur}s)")
 
-            # If durable companion evidence.json is attached to the release, verify its contents as well
-            if "evidence.json" in assets:
-                evidence_url = assets["evidence.json"].get("browser_download_url")
-                if evidence_url:
-                    try:
-                        ev_req = urllib.request.Request(evidence_url, headers=headers)
-                        with urllib.request.urlopen(ev_req) as ev_resp:
-                            ev_data = json.loads(ev_resp.read().decode("utf-8"))
-                            if str(ev_data.get("deb_sha256", "")).lower() != expected_sha256.lower():
-                                print(f"Error: evidence.json deb_sha256 mismatch! Expected {expected_sha256}, got {ev_data.get('deb_sha256')}")
-                                sys.exit(1)
-                            if str(ev_data.get("run_id", "")) != str(run_id):
-                                print(f"Error: evidence.json run_id mismatch! Expected {run_id}, got {ev_data.get('run_id')}")
-                                sys.exit(1)
-                            print(f"  ✓ Verified companion evidence.json durable release provenance (run_id={run_id}, sha256={expected_sha256[:8]}...)")
-                    except Exception as e:
-                        print(f"Error: Failed to verify companion evidence.json asset: {e}")
-                        sys.exit(1)
-
-
-
-
-
     except Exception as e:
         print(f"Error: Failed to fetch/verify companion build_metadata.json asset: {e}")
         sys.exit(1)
 
+    # 7. Verify build_evidence.json
+    build_ev_url = assets["build_evidence.json"].get("browser_download_url")
+    if not build_ev_url:
+        print("Error: Missing download URL for companion build_evidence.json")
+        sys.exit(1)
+    try:
+        with urllib.request.urlopen(urllib.request.Request(build_ev_url, headers=headers)) as resp:
+            b_ev_data = json.loads(resp.read().decode("utf-8"))
+            if b_ev_data.get("type") != "build_evidence":
+                print(f"Error: build_evidence.json type mismatch! Expected 'build_evidence', got '{b_ev_data.get('type')}'")
+                sys.exit(1)
+            b_ev_ver = _normalize_ver(b_ev_data.get("version", ""))
+            if b_ev_ver != expected_ver:
+                print(f"Error: build_evidence.json version mismatch! Expected {expected_ver}, got {b_ev_ver}")
+                sys.exit(1)
+            b_ev_arch = str(b_ev_data.get("arch", "")).lower()
+            if b_ev_arch not in ("arm64", "aarch64") or b_ev_arch != meta_arch:
+                print(f"Error: build_evidence.json arch mismatch! Expected {meta_arch}, got {b_ev_arch}")
+                sys.exit(1)
+            b_ev_run_id = b_ev_data.get("run_id")
+            if str(b_ev_run_id) != str(run_id):
+                print(f"Error: build_evidence.json run_id mismatch! Expected {run_id}, got {b_ev_run_id}")
+                sys.exit(1)
+            b_ev_num = b_ev_data.get("build_number")
+            if str(b_ev_num) != str(b_num):
+                print(f"Error: build_evidence.json build_number mismatch! Expected {b_num}, got {b_ev_num}")
+                sys.exit(1)
+            b_ev_commit = str(b_ev_data.get("source_commit", "")).strip().lower()
+            if b_ev_commit != meta_commit:
+                print(f"Error: build_evidence.json source_commit mismatch! Expected {meta_commit}, got {b_ev_commit}")
+                sys.exit(1)
+            b_ev_tree = str(b_ev_data.get("tree_sha", "")).strip().lower()
+            if b_ev_tree != meta_tree:
+                print(f"Error: build_evidence.json tree_sha mismatch! Expected {meta_tree}, got {b_ev_tree}")
+                sys.exit(1)
+            b_ev_sha = str(b_ev_data.get("deb_sha256", "")).strip().lower()
+            if b_ev_sha != expected_sha256.lower():
+                print(f"Error: build_evidence.json deb_sha256 mismatch! Expected {expected_sha256}, got {b_ev_sha}")
+                sys.exit(1)
+            b_ev_size = b_ev_data.get("deb_size_bytes")
+            if not isinstance(b_ev_size, int) or b_ev_size != actual_size:
+                print(f"Error: build_evidence.json deb_size_bytes mismatch! Expected {actual_size}, got {b_ev_size}")
+                sys.exit(1)
+            b_ev_inv_cnt = b_ev_data.get("inventory_file_count")
+            if not isinstance(b_ev_inv_cnt, int) or b_ev_inv_cnt <= 0 or b_ev_inv_cnt != len(inventory_paths):
+                print(f"Error: build_evidence.json inventory_file_count mismatch! Expected {len(inventory_paths)}, got {b_ev_inv_cnt}")
+                sys.exit(1)
+            b_ev_dur = b_ev_data.get("build_duration_seconds")
+            if not (isinstance(b_ev_dur, (int, float)) and b_ev_dur >= 0):
+                print(f"Error: build_evidence.json build_duration_seconds is invalid: {b_ev_dur}")
+                sys.exit(1)
+            print(f"  ✓ Verified build_evidence.json full schema (run_id={b_ev_run_id}, build_number={b_ev_num}, files={b_ev_inv_cnt}, sha256={b_ev_sha[:8]}...)")
+    except Exception as e:
+        print(f"Error: Failed to fetch/verify companion build_evidence.json asset: {e}")
+        sys.exit(1)
+
+    # 8. Verify device_smoke_evidence.json
+    dev_ev_url = assets["device_smoke_evidence.json"].get("browser_download_url")
+    if not dev_ev_url:
+        print("Error: Missing download URL for companion device_smoke_evidence.json")
+        sys.exit(1)
+    try:
+        with urllib.request.urlopen(urllib.request.Request(dev_ev_url, headers=headers)) as resp:
+            dev_ev_data = json.loads(resp.read().decode("utf-8"))
+            if dev_ev_data.get("status") != "passed":
+                print(f"Error: device_smoke_evidence.json status is not 'passed' (got '{dev_ev_data.get('status')}')")
+                sys.exit(1)
+            if dev_ev_data.get("mode_a_status") != "passed":
+                print(f"Error: device_smoke_evidence.json mode_a_status is not 'passed' (got '{dev_ev_data.get('mode_a_status')}')")
+                sys.exit(1)
+            if dev_ev_data.get("mode_b_status") != "passed":
+                print(f"Error: device_smoke_evidence.json mode_b_status is not 'passed' (got '{dev_ev_data.get('mode_b_status')}')")
+                sys.exit(1)
+
+            dev_src_commit = str(dev_ev_data.get("artifact_source_commit") or dev_ev_data.get("source_commit") or "").strip().lower()
+            dev_ver_commit = str(dev_ev_data.get("verifier_commit") or "").strip().lower()
+            if dev_src_commit != meta_commit:
+                print(f"Error: device_smoke_evidence.json artifact_source_commit mismatch! Expected {meta_commit}, got {dev_src_commit}")
+                sys.exit(1)
+            if dev_ver_commit != meta_commit:
+                print(f"Error: device_smoke_evidence.json verifier_commit mismatch! Expected {meta_commit}, got {dev_ver_commit}")
+                sys.exit(1)
+
+            dev_build_run_id = dev_ev_data.get("build_run_id") or dev_ev_data.get("run_id")
+            if str(dev_build_run_id) != str(run_id):
+                print(f"Error: device_smoke_evidence.json build_run_id mismatch! Expected {run_id}, got {dev_build_run_id}")
+                sys.exit(1)
+
+            dev_artifacts = dev_ev_data.get("artifacts", {})
+            if not isinstance(dev_artifacts, dict):
+                print("Error: device_smoke_evidence.json missing 'artifacts' object")
+                sys.exit(1)
+
+            dev_deb_sha = str(dev_artifacts.get("deb_sha256", "")).strip().lower()
+            if dev_deb_sha != expected_sha256.lower():
+                print(f"Error: device_smoke_evidence.json artifacts.deb_sha256 mismatch! Expected {expected_sha256}, got {dev_deb_sha}")
+                sys.exit(1)
+
+            dev_deb_sz = dev_artifacts.get("deb_size")
+            if not isinstance(dev_deb_sz, int) or dev_deb_sz != actual_size:
+                print(f"Error: device_smoke_evidence.json artifacts.deb_size mismatch! Expected {actual_size}, got {dev_deb_sz}")
+                sys.exit(1)
+
+            apk_sha = str(dev_artifacts.get("apk_sha256", "")).strip().lower()
+            if not re.match(r"^[0-9a-f]{64}$", apk_sha):
+                print(f"Error: device_smoke_evidence.json artifacts.apk_sha256 is not a valid 64-char sha256: '{apk_sha}'")
+                sys.exit(1)
+
+            apk_sz = dev_artifacts.get("apk_size")
+            if not (isinstance(apk_sz, int) and apk_sz > 0):
+                print(f"Error: device_smoke_evidence.json artifacts.apk_size is not a positive integer: {apk_sz}")
+                sys.exit(1)
+
+            aab_sha = str(dev_artifacts.get("aab_sha256", "")).strip().lower()
+            if not re.match(r"^[0-9a-f]{64}$", aab_sha):
+                print(f"Error: device_smoke_evidence.json artifacts.aab_sha256 is not a valid 64-char sha256: '{aab_sha}'")
+                sys.exit(1)
+
+            aab_sz = dev_artifacts.get("aab_size")
+            if not (isinstance(aab_sz, int) and aab_sz > 0):
+                print(f"Error: device_smoke_evidence.json artifacts.aab_size is not a positive integer: {aab_sz}")
+                sys.exit(1)
+
+            print(f"  ✓ Verified device_smoke_evidence.json full schema (status=passed, mode_a=passed, mode_b=passed, build_run_id={dev_build_run_id}, deb_sha256={dev_deb_sha[:8]}..., apk_size={apk_sz}, aab_size={aab_sz})")
+    except Exception as e:
+        print(f"Error: Failed to fetch/verify companion device_smoke_evidence.json asset: {e}")
+        sys.exit(1)
+
+
     # 8. Download asset to RUNNER_TEMP
-    runner_temp = os.environ.get("RUNNER_TEMP", "/tmp")
+    runner_temp = os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()
     download_path = Path(runner_temp) / expected_asset
+
 
     print(f"Downloading {asset_url} to {download_path}...")
     try:

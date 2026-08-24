@@ -134,6 +134,9 @@ ORIGINAL_REQUEST.md
 PROJECT.md
 GATE_STATUS.md
 evidence.json
+build_evidence.json
+device_smoke_evidence.json
+
 
 # ----- 備份與修補狀態檔案 (#55) -----
 *.bak

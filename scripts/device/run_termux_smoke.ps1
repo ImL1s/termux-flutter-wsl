@@ -11,7 +11,9 @@ param(
     [string]$CommitSha = "",
     [string]$ArtifactSourceCommit = "",
     [string]$VerifierCommit = "",
-    [string]$EvidencePath = "evidence.json"
+    [string]$ArtifactRunId = "",
+    [string]$BuildRunId = "",
+    [string]$EvidencePath = "device_smoke_evidence.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,6 +51,13 @@ function Write-UnifiedEvidence {
     $hostPath = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path (Get-Location) $Path }
     $resolvedCommit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
     $resolvedVerifier = if ($VerifierCommit) { $VerifierCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+    $resolvedBuildRunId = if ($BuildRunId) {
+        if ("$BuildRunId" -match '^\d+$') { [int64]$BuildRunId } else { $BuildRunId }
+    } elseif ($ArtifactRunId) {
+        if ("$ArtifactRunId" -match '^\d+$') { [int64]$ArtifactRunId } else { $ArtifactRunId }
+    } else {
+        0
+    }
     $deviceModel = if ($model -and $model -ne "unknown") { $model } else { "unknown" }
     $initObj = [ordered]@{
         status = $Status
@@ -56,10 +65,13 @@ function Write-UnifiedEvidence {
         device = $deviceModel
         apk_launch = [bool]$apkLaunchHost
         crash_free = [bool]$crashFreeHost
+        build_run_id = $resolvedBuildRunId
+        run_id = $resolvedBuildRunId
         commit_sha = $resolvedCommit
         source_commit = $resolvedCommit
         artifact_source_commit = $resolvedCommit
         verifier_commit = $resolvedVerifier
+
         device_serial = "[REDACTED]"
         device_info = [ordered]@{
             model = $deviceModel
@@ -480,10 +492,13 @@ $evObj = [ordered]@{
     device = $model
     apk_launch = [bool]$apkLaunchHost
     crash_free = [bool]$crashFreeHost
+    build_run_id = $resolvedBuildRunId
+    run_id = $resolvedBuildRunId
     commit_sha = $artifactCommitMeasured
     source_commit = $artifactCommitMeasured
     artifact_source_commit = $artifactCommitMeasured
     verifier_commit = $verifierCommitMeasured
+
     device_serial = "[REDACTED]"
     device_info = [ordered]@{
         model = $model
