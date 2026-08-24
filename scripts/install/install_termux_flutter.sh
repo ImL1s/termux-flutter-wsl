@@ -70,21 +70,22 @@ record_stage post-install success
 echo -e "${GREEN}[6/${TOTAL_STEPS}]${NC} Configuring environment..."
 
 # 載入環境變數
-source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
+[ -f "$PREFIX/etc/profile.d/flutter.sh" ] && source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
 
 # 加入 .bashrc（如果還沒加入）
 if ! grep -q "flutter.sh" ~/.bashrc 2>/dev/null; then
-    echo 'source $PREFIX/etc/profile.d/flutter.sh' >> ~/.bashrc
+    echo '[ -f "$PREFIX/etc/profile.d/flutter.sh" ] && source "$PREFIX/etc/profile.d/flutter.sh"' >> ~/.bashrc
     echo "Added flutter to ~/.bashrc"
 fi
 
 # 加入 .zshrc（如果存在且還沒加入）
 if [ -f ~/.zshrc ]; then
     if ! grep -q "flutter.sh" ~/.zshrc; then
-        echo 'source $PREFIX/etc/profile.d/flutter.sh' >> ~/.zshrc
+        echo '[ -f "$PREFIX/etc/profile.d/flutter.sh" ] && source "$PREFIX/etc/profile.d/flutter.sh"' >> ~/.zshrc
         echo "Added flutter to ~/.zshrc"
     fi
 fi
+
 
 echo ""
 echo "Cleaning up..."

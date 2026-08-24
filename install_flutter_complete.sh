@@ -580,7 +580,8 @@ apt-get install -f -y "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage pack
 record_stage package success
 
 # 載入環境
-source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
+[ -f "$PREFIX/etc/profile.d/flutter.sh" ] && source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
+
 
 # 重新編譯 flutter_tools.snapshot（修復 "Unsupported operating system: android" 問題）
 FLUTTER_ROOT="$PREFIX/opt/flutter"
@@ -730,7 +731,8 @@ if ! grep -q "ANDROID_HOME" ~/.bashrc 2>/dev/null; then
     cat >> ~/.bashrc << 'EOF'
 
 # Flutter
-source $PREFIX/etc/profile.d/flutter.sh
+[ -f "$PREFIX/etc/profile.d/flutter.sh" ] && source "$PREFIX/etc/profile.d/flutter.sh"
+
 
 # Android SDK & Java
 export ANDROID_HOME=$PREFIX/opt/android-sdk
