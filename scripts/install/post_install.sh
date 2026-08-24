@@ -628,26 +628,64 @@ EOF
 echo "  ✓ engine.stamp=$(cat "$FLUTTER_ROOT/bin/cache/engine.stamp" 2>/dev/null || echo 'unknown')"
 echo "  ✓ engine.realm cleared"
 
-if ! [ -d "$FLUTTER_ROOT/.git" ]; then
-    echo "  ! Missing .git, creating dummy repository for version resolution..."
-    cd "$FLUTTER_ROOT" || true
-
-    # Extract actual version before removing the file
-    FLUTTER_VER="3.44.9"
-    if [ -f "version" ]; then
-        FLUTTER_VER=$(cat version | tr -d '\n\r')
-    fi
-
-    rm -f version
-    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" init -q >/dev/null 2>&1 || git init -q >/dev/null 2>&1 || true
-    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" config user.email "termux@example.com" >/dev/null 2>&1 || git config user.email "termux@example.com" >/dev/null 2>&1 || true
-    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" config user.name "termux" >/dev/null 2>&1 || git config user.name "termux" >/dev/null 2>&1 || true
-    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || git add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
-    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" commit -q -m "Init framework" >/dev/null 2>&1 || git commit -q -m "Init framework" >/dev/null 2>&1 || true
-    "${PREFIX:-/data/data/com.termux/files/usr}/bin/git" tag "$FLUTTER_VER" >/dev/null 2>&1 || git tag "$FLUTTER_VER" >/dev/null 2>&1 || true
-    rm -f bin/cache/flutter.version.json 2>/dev/null || true
-    echo "  ✓ Dummy tag $FLUTTER_VER created"
+GIT_BIN="${PREFIX:-/data/data/com.termux/files/usr}/bin/git"
+if ! [ -x "$GIT_BIN" ] && ! command -v "$GIT_BIN" >/dev/null 2>&1; then
+    GIT_BIN="git"
 fi
+
+FLUTTER_VER="3.44.9"
+if [ -f "$FLUTTER_ROOT/version" ]; then
+    FLUTTER_VER="$(cat "$FLUTTER_ROOT/version" | tr -d '\n\r')"
+elif [ -f "$FLUTTER_ROOT/bin/cache/flutter.version.json" ]; then
+    FLUTTER_VER="$(grep -o '"frameworkVersion": *"[^"]*"' "$FLUTTER_ROOT/bin/cache/flutter.version.json" 2>/dev/null | cut -d'"' -f4 || echo "3.44.9")"
+    [ -n "$FLUTTER_VER" ] || FLUTTER_VER="3.44.9"
+fi
+
+if ! [ -d "$FLUTTER_ROOT/.git" ]; then
+    echo "  ! Missing .git, creating dummy repository on stable branch for version resolution..."
+    cd "$FLUTTER_ROOT" || true
+    rm -f version
+    "$GIT_BIN" init -q -b stable >/dev/null 2>&1 || "$GIT_BIN" init -q >/dev/null 2>&1 || true
+    "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1 || true
+    "$GIT_BIN" config user.email "termux@example.com" >/dev/null 2>&1 || true
+    "$GIT_BIN" config user.name "termux" >/dev/null 2>&1 || true
+    "$GIT_BIN" add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
+    "$GIT_BIN" commit -q -m "Init framework" >/dev/null 2>&1 || true
+    "$GIT_BIN" branch -M stable >/dev/null 2>&1 || true
+    "$GIT_BIN" tag -f "$FLUTTER_VER" >/dev/null 2>&1 || true
+    echo "  ✓ Dummy tag $FLUTTER_VER created on stable branch"
+else
+    cd "$FLUTTER_ROOT" || true
+    rm -f version
+    CURRENT_BRANCH="$("$GIT_BIN" symbolic-ref --short HEAD 2>/dev/null || echo "")"
+    if [ "$CURRENT_BRANCH" = "master" ] || [ "$CURRENT_BRANCH" = "main" ]; then
+        "$GIT_BIN" branch -M stable >/dev/null 2>&1 || "$GIT_BIN" checkout -B stable >/dev/null 2>&1 || "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1 || true
+    fi
+    "$GIT_BIN" tag -f "$FLUTTER_VER" HEAD >/dev/null 2>&1 || true
+    echo "  ✓ Git repository branch verified as stable with tag $FLUTTER_VER"
+fi
+
+FRAMEWORK_REV="$("$GIT_BIN" rev-parse HEAD 2>/dev/null || echo "6b182d2c7585eba26d4edce0f97630effd256c33")"
+DART_VERSION_VAL=""
+if [ -f "$FLUTTER_ROOT/bin/cache/dart-sdk.stamp" ]; then
+    DART_VERSION_VAL="$(cat "$FLUTTER_ROOT/bin/cache/dart-sdk.stamp" 2>/dev/null | tr -d '\n\r')"
+fi
+[ -n "$DART_VERSION_VAL" ] || DART_VERSION_VAL="3.12.2"
+
+cat > "$FLUTTER_ROOT/bin/cache/flutter.version.json" << EOF
+{
+  "frameworkVersion": "$FLUTTER_VER",
+  "channel": "stable",
+  "repositoryUrl": "https://github.com/flutter/flutter.git",
+  "frameworkRevision": "$FRAMEWORK_REV",
+  "frameworkCommitDate": "2026-06-09 00:00:00 -0700",
+  "engineRevision": "$local_eng_ver",
+  "dartSdkVersion": "$DART_VERSION_VAL",
+  "devToolsVersion": "2.42.0",
+  "flutterVersion": "$FLUTTER_VER"
+}
+EOF
+echo "  ✓ flutter.version.json generated ($FLUTTER_VER stable)"
 
 # Get engine version for downloads
 ENGINE_VERSION=$(cat $FLUTTER_ROOT/bin/internal/engine.version 2>/dev/null || echo "77e2e94772b6eb43759e34ed1ad7da4674e19cab")
