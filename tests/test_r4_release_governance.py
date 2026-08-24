@@ -12,6 +12,8 @@ import io
 import json
 import os
 import sys
+import shutil
+import subprocess
 import tarfile
 import tempfile
 import urllib.error
@@ -19,6 +21,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import zipfile
+
 
 import pytest
 import yaml
@@ -4063,11 +4066,83 @@ size = 100
 
 
 
+def _execute_powershell_evidence_producer(
+    ev_file,
+    build_run_id=None,
+    artifact_run_id=None,
+    status="passed",
+    source_commit="101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+    verifier_commit="101c32449a4ee65780888aeb0dc2ec5fa220be9f",
+    deb_path=None,
+    apk_sha256="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    apk_size=25000000,
+    aab_sha256="9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba",
+    aab_size=30000000,
+):
+    ps_exe = shutil.which("pwsh") or shutil.which("powershell")
+    if not ps_exe:
+        pytest.skip("PowerShell (pwsh or powershell) is not installed in this environment")
+
+    smoke_script = Path(__file__).resolve().parent.parent / "scripts" / "device" / "run_termux_smoke.ps1"
+    content = smoke_script.read_text(encoding="utf-8")
+    assert "Set-StrictMode -Version Latest" in content
+    assert "$ResolvedBuildRunId = Resolve-BuildRunId" in content
+    assert "function Write-UnifiedEvidence" in content
+
+    # Extract function declarations and initializations before Resolve-Adb
+    producer_core = content.split("function Resolve-Adb")[0]
+
+    ps_code = f"""{producer_core}
+
+$script:model = 'SM-X716B'
+$script:sdk = '34'
+$script:abi = 'arm64-v8a'
+$script:apkLaunchHost = ('{status}' -eq 'passed')
+$script:crashFreeHost = ('{status}' -eq 'passed')
+$script:launchPassed = ('{status}' -eq 'passed')
+$script:exitStatus = if ('{status}' -eq 'passed') {{ 0 }} else {{ 1 }}
+$script:modeA = '{status}'
+$script:modeB = '{status}'
+$script:modeAApkBuild = '{status}'
+$script:modeBAabBuild = '{status}'
+$script:apkSha256 = '{apk_sha256}'
+$script:apkSize = {apk_size}
+$script:aabSha256 = '{aab_sha256}'
+$script:aabSize = {aab_size}
+if ('{source_commit}') {{ $script:ResolvedSourceCommit = '{source_commit}' }}
+if ('{verifier_commit}') {{ $script:ResolvedVerifierCommit = '{verifier_commit}' }}
+
+$null = Write-UnifiedEvidence -Status '{status}' -Path $EvidencePath
+"""
+    tmp_ps = ev_file.parent / "driver_test.ps1"
+    tmp_ps.write_text(ps_code, encoding="utf-8")
+    cmd = [
+        ps_exe,
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy", "Bypass",
+        "-File", str(tmp_ps),
+        "-EvidencePath", str(ev_file),
+        "-BuildRunId", str(build_run_id or ""),
+        "-ArtifactRunId", str(artifact_run_id or ""),
+        "-ArtifactSourceCommit", str(source_commit or ""),
+        "-VerifierCommit", str(verifier_commit or ""),
+        "-DebPath", str(deb_path or ""),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    assert ev_file.exists(), f"PowerShell driver did not create {ev_file}. Stderr: {proc.stderr}"
+    return json.loads(ev_file.read_text(encoding="utf-8-sig"))
+
+
+
+
+
 # ============================================================================
 # Issue #56: Companion Metadata Contracts & Cardinality Validation
 # ============================================================================
 
 class TestCompanionMetadataContracts:
+
     """Test companion metadata structure and 1:1 cardinality constraints."""
 
     def test_companion_artifact_cardinality_rules(self, tmp_path):
@@ -4195,6 +4270,33 @@ size = {deb_size}
             ]
         }
 
+        # Write the local deb file
+        deb_file = tmp_path / asset_name
+        deb_file.write_bytes(deb_bytes)
+
+        ev_file = tmp_path / "device_smoke_evidence.json"
+        real_device_smoke_evidence = _execute_powershell_evidence_producer(
+            ev_file=ev_file,
+            build_run_id=run_id,
+            status="passed",
+            source_commit=source_commit,
+            verifier_commit=source_commit,
+            deb_path=deb_file,
+            apk_sha256="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+            apk_size=25000000,
+            aab_sha256="9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba",
+            aab_size=30000000,
+        )
+
+        # Verify critical producer invariants directly from the PowerShell output
+        assert real_device_smoke_evidence["build_run_id"] == run_id, f"build_run_id was null or wrong: {real_device_smoke_evidence.get('build_run_id')}"
+        assert real_device_smoke_evidence["run_id"] == run_id, f"run_id was null or wrong: {real_device_smoke_evidence.get('run_id')}"
+        assert real_device_smoke_evidence["status"] == "passed"
+        assert real_device_smoke_evidence["mode_a_status"] == "passed"
+        assert real_device_smoke_evidence["mode_b_status"] == "passed"
+        assert real_device_smoke_evidence["artifacts"]["deb_sha256"] == deb_sha
+        assert real_device_smoke_evidence["artifacts"]["deb_size"] == deb_size
+
         # Exact schema produced by build-deb.yml
         real_build_evidence = {
             "type": "build_evidence",
@@ -4210,30 +4312,6 @@ size = {deb_size}
             "build_duration_seconds": 120,
         }
 
-        # Exact schema produced by scripts/device/run_termux_smoke.ps1
-        real_device_smoke_evidence = {
-            "status": "passed",
-            "run_id": "87654321",
-            "build_run_id": str(run_id),
-            "mode_a_status": "passed",
-            "mode_b_status": "passed",
-            "timestamp": "2026-08-24T12:00:00Z",
-            "device_model": "SM-X716B",
-            "android_version": "16",
-            "host_runner": "WIN-BUILD-RUNNER",
-            "artifact_source_commit": source_commit,
-            "verifier_commit": source_commit,
-            "failures": [],
-            "artifacts": {
-                "deb_sha256": deb_sha,
-                "deb_size": deb_size,
-                "apk_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-                "apk_size": 25000000,
-                "aab_sha256": "9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba",
-                "aab_size": 30000000,
-            }
-        }
-
         real_build_metadata = {
             "version": "3.44.9",
             "arch": "aarch64",
@@ -4245,6 +4323,7 @@ size = {deb_size}
             "sha256": deb_sha,
             "size_bytes": deb_size,
         }
+
 
         def fake_urlopen(req, *args, **kwargs):
             url = req.full_url if hasattr(req, "full_url") else str(req)
@@ -4289,6 +4368,42 @@ size = {deb_size}
 
         # Should verify and pass cleanly
         verify_release_asset.main()
+
+    def test_powershell_producer_failure_preserves_build_run_id(self, tmp_path):
+        """Verify that a failed smoke run still writes build_run_id and run_id to evidence."""
+        ev_file = tmp_path / "failed_device_smoke_evidence.json"
+        ev_data = _execute_powershell_evidence_producer(
+            ev_file=ev_file,
+            build_run_id="987654321",
+            status="failed",
+            source_commit="abcdef123456",
+            verifier_commit="abcdef123456",
+        )
+        assert ev_data["status"] == "failed"
+        assert ev_data["build_run_id"] == 987654321
+        assert ev_data["run_id"] == 987654321
+        assert ev_data["artifact_source_commit"] == "abcdef123456"
+
+    def test_powershell_producer_uses_artifact_run_id_fallback(self, tmp_path):
+        """Verify that ArtifactRunId is used if BuildRunId is not supplied."""
+        ev_file = tmp_path / "fallback_evidence.json"
+        ev_data = _execute_powershell_evidence_producer(
+            ev_file=ev_file,
+            artifact_run_id="1122334455",
+            status="passed",
+            source_commit="fedcba654321",
+            verifier_commit="fedcba654321",
+        )
+        assert ev_data["build_run_id"] == 1122334455
+        assert ev_data["run_id"] == 1122334455
+
+    def test_powershell_script_enforces_strict_mode(self):
+        """Ensure run_termux_smoke.ps1 starts with Set-StrictMode -Version Latest to prevent scope bugs."""
+        smoke_script = Path(__file__).resolve().parent.parent / "scripts" / "device" / "run_termux_smoke.ps1"
+        content = smoke_script.read_text(encoding="utf-8")
+        assert "Set-StrictMode -Version Latest" in content
+
+
 
 
 

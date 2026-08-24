@@ -16,7 +16,54 @@ param(
     [string]$EvidencePath = "device_smoke_evidence.json"
 )
 
+Set-StrictMode -Version Latest
+
 $ErrorActionPreference = "Stop"
+
+function Resolve-BuildRunId {
+    if ($BuildRunId) {
+        if ("$BuildRunId" -notmatch '^\d+$') {
+            throw "BuildRunId must be numeric"
+        }
+        return [int64]$BuildRunId
+    }
+
+    if ($ArtifactRunId) {
+        if ("$ArtifactRunId" -notmatch '^\d+$') {
+            throw "ArtifactRunId must be numeric"
+        }
+        return [int64]$ArtifactRunId
+    }
+
+    return 0
+}
+
+$ResolvedBuildRunId = Resolve-BuildRunId
+$ResolvedSourceCommit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+$ResolvedVerifierCommit = if ($VerifierCommit) { $VerifierCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+
+# State variables initialized for strict mode
+$model = "unknown"
+$sdk = "unknown"
+$abi = "unknown"
+$apkLaunchHost = $false
+$crashFreeHost = $false
+$hasCrash = $false
+$initialPid = ""
+$launchPassed = $false
+$exitStatus = 1
+$modeA = "failed"
+$modeB = "failed"
+$modeAApkBuild = "failed"
+$modeBAabBuild = "failed"
+$apkSha256 = "unknown"
+$apkSize = 0
+$aabSha256 = "unknown"
+$aabSize = 0
+$rawEv = $null
+$log = ""
+$KeepAwakeEnabled = $false
+$hostEvidencePath = if ([System.IO.Path]::IsPathRooted($EvidencePath)) { $EvidencePath } else { Join-Path (Get-Location) $EvidencePath }
 
 function Get-Sha256Hex {
     param([Parameter(Mandatory=$true)][string]$Path)
@@ -49,24 +96,27 @@ function Write-UnifiedEvidence {
         [string]$FailedStage = ""
     )
     $hostPath = if ([System.IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path (Get-Location) $Path }
-    $resolvedCommit = if ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
-    $resolvedVerifier = if ($VerifierCommit) { $VerifierCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
-    $resolvedBuildRunId = if ($BuildRunId) {
-        if ("$BuildRunId" -match '^\d+$') { [int64]$BuildRunId } else { $BuildRunId }
-    } elseif ($ArtifactRunId) {
-        if ("$ArtifactRunId" -match '^\d+$') { [int64]$ArtifactRunId } else { $ArtifactRunId }
-    } else {
-        0
-    }
-    $deviceModel = if ($model -and $model -ne "unknown") { $model } else { "unknown" }
+    $resolvedCommit = if ($script:ResolvedSourceCommit -and $script:ResolvedSourceCommit -ne "unknown") { $script:ResolvedSourceCommit } elseif ($ArtifactSourceCommit) { $ArtifactSourceCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+    $resolvedVerifier = if ($script:ResolvedVerifierCommit -and $script:ResolvedVerifierCommit -ne "unknown") { $script:ResolvedVerifierCommit } elseif ($VerifierCommit) { $VerifierCommit } elseif ($CommitSha) { $CommitSha } else { "unknown" }
+
+    $deviceModel = if ($script:model -and $script:model -ne "unknown") { $script:model } else { "unknown" }
+    $debFileExists = if ($DebPath) { Test-Path -LiteralPath $DebPath } else { $false }
+    $calculatedDebSha = if ($debFileExists) { Get-Sha256Hex -Path $DebPath } else { "unknown" }
+    $calculatedDebSize = if ($debFileExists) { (Get-Item -LiteralPath $DebPath).Length } else { 0 }
+
+    $resolvedApkSha = if ($script:apkSha256 -and $script:apkSha256 -ne "unknown") { $script:apkSha256 } elseif ($script:rawEv -and $script:rawEv.artifacts -and $script:rawEv.artifacts.apk_sha256) { $script:rawEv.artifacts.apk_sha256 } else { "unknown" }
+    $resolvedApkSize = if ($script:apkSize -gt 0) { $script:apkSize } elseif ($script:rawEv -and $script:rawEv.artifacts -and $script:rawEv.artifacts.apk_size) { $script:rawEv.artifacts.apk_size } else { 0 }
+    $resolvedAabSha = if ($script:aabSha256 -and $script:aabSha256 -ne "unknown") { $script:aabSha256 } elseif ($script:rawEv -and $script:rawEv.artifacts -and $script:rawEv.artifacts.aab_sha256) { $script:rawEv.artifacts.aab_sha256 } else { "unknown" }
+    $resolvedAabSize = if ($script:aabSize -gt 0) { $script:aabSize } elseif ($script:rawEv -and $script:rawEv.artifacts -and $script:rawEv.artifacts.aab_size) { $script:rawEv.artifacts.aab_size } else { 0 }
+
     $initObj = [ordered]@{
         status = $Status
         timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         device = $deviceModel
-        apk_launch = [bool]$apkLaunchHost
-        crash_free = [bool]$crashFreeHost
-        build_run_id = $resolvedBuildRunId
-        run_id = $resolvedBuildRunId
+        apk_launch = [bool]$script:apkLaunchHost
+        crash_free = [bool]$script:crashFreeHost
+        build_run_id = $script:ResolvedBuildRunId
+        run_id = $script:ResolvedBuildRunId
         commit_sha = $resolvedCommit
         source_commit = $resolvedCommit
         artifact_source_commit = $resolvedCommit
@@ -75,38 +125,38 @@ function Write-UnifiedEvidence {
         device_serial = "[REDACTED]"
         device_info = [ordered]@{
             model = $deviceModel
-            sdk = if ($sdk) { $sdk } else { "unknown" }
-            abi = if ($abi) { $abi } else { "unknown" }
+            sdk = if ($script:sdk) { $script:sdk } else { "unknown" }
+            abi = if ($script:abi) { $script:abi } else { "unknown" }
             serial = "[REDACTED]"
         }
         artifacts = [ordered]@{
-            deb_sha256 = if (Test-Path -LiteralPath $DebPath) { Get-Sha256Hex -Path $DebPath } else { "unknown" }
-            deb_size = if (Test-Path -LiteralPath $DebPath) { (Get-Item -LiteralPath $DebPath).Length } else { 0 }
-            apk_sha256 = if ($apkSha256) { $apkSha256 } else { "unknown" }
-            apk_size = if ($apkSize) { $apkSize } else { 0 }
-            aab_sha256 = if ($aabSha256) { $aabSha256 } else { "unknown" }
-            aab_size = if ($aabSize) { $aabSize } else { 0 }
+            deb_sha256 = $calculatedDebSha
+            deb_size = $calculatedDebSize
+            apk_sha256 = $resolvedApkSha
+            apk_size = $resolvedApkSize
+            aab_sha256 = $resolvedAabSha
+            aab_size = $resolvedAabSize
         }
         verification_details = [ordered]@{
             package_name = "com.example.flutter_ci_smoke"
             component = "com.example.flutter_ci_smoke/.MainActivity"
-            initial_pid = if ($initialPid) { $initialPid } else { "" }
-            app_pid = if ($initialPid) { $initialPid } else { "" }
+            initial_pid = if ($script:initialPid) { $script:initialPid } else { "" }
+            app_pid = if ($script:initialPid) { $script:initialPid } else { "" }
             same_pid_observations = if ($Status -eq "passed") { 3 } else { 0 }
             observation_duration_seconds = if ($Status -eq "passed") { 6 } else { 0 }
-            scoped_crash_free = [bool](-not $hasCrash -and $Status -eq "passed")
+            scoped_crash_free = [bool](-not $script:hasCrash -and $Status -eq "passed")
         }
-        launch_result = if ($launchPassed) { "passed" } else { "failed" }
-        exit_status = if ($exitStatus -ne $null -and $exitStatus -ne "") { [int]$exitStatus } else { 1 }
-        mode_a_status = if ($modeA) { $modeA } else { "failed" }
-        mode_b_status = if ($modeB) { $modeB } else { "failed" }
+        launch_result = if ($script:launchPassed) { "passed" } else { "failed" }
+        exit_status = if ($script:exitStatus -ne $null -and $script:exitStatus -ne "") { [int]$script:exitStatus } else { 1 }
+        mode_a_status = if ($script:modeA) { $script:modeA } else { "failed" }
+        mode_b_status = if ($script:modeB) { $script:modeB } else { "failed" }
         mode_a = [ordered]@{
-            status = if ($modeA) { $modeA } else { "failed" }
-            apk_build = if ($modeAApkBuild) { $modeAApkBuild } else { "failed" }
+            status = if ($script:modeA) { $script:modeA } else { "failed" }
+            apk_build = if ($script:modeAApkBuild) { $script:modeAApkBuild } else { "failed" }
         }
         mode_b = [ordered]@{
-            status = if ($modeB) { $modeB } else { "failed" }
-            aab_build = if ($modeBAabBuild) { $modeBAabBuild } else { "failed" }
+            status = if ($script:modeB) { $script:modeB } else { "failed" }
+            aab_build = if ($script:modeBAabBuild) { $script:modeBAabBuild } else { "failed" }
         }
     }
     if ($ErrorMessage) {
@@ -115,17 +165,20 @@ function Write-UnifiedEvidence {
     if ($FailedStage) {
         $initObj["failed_stage"] = $FailedStage
     }
-    $initObj | ConvertTo-Json -Depth 5 | Set-Content -Path $hostPath -Encoding UTF8
+    $json = $initObj | ConvertTo-Json -Depth 5
+    Set-Content -Path $hostPath -Value $json -Encoding UTF8
+    return $initObj
 }
 
 function Write-InitialEvidence {
     param([string]$Status = "failed", [string]$Path = $EvidencePath, [string]$Commit = "")
-    Write-UnifiedEvidence -Status $Status -Path $Path
+    Write-UnifiedEvidence -Status $Status -Path $Path | Out-Null
 }
 
-Write-UnifiedEvidence -Status "failed" -Path $EvidencePath
+Write-UnifiedEvidence -Status "failed" -Path $EvidencePath | Out-Null
 
 function Resolve-Adb {
+
     param([string]$Value)
     if (Test-Path -LiteralPath $Value) { return (Resolve-Path -LiteralPath $Value).Path }
     $cmd = Get-Command $Value -ErrorAction SilentlyContinue
@@ -484,65 +537,32 @@ $overallStatus = if ($launchPassed -and $modeA -eq "passed" -and $modeB -eq "pas
 $apkSha256 = if ($apkSha256 -and $apkSha256 -ne "unknown") { $apkSha256 } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_sha256) { $rawEv.artifacts.apk_sha256 } else { "unknown" }
 $apkSize = if ($apkSize -gt 0) { $apkSize } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.apk_size) { $rawEv.artifacts.apk_size } else { 0 }
 $aabSha256 = if ($aabSha256 -and $aabSha256 -ne "unknown") { $aabSha256 } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_sha256) { $rawEv.artifacts.aab_sha256 } else { "unknown" }
-$aabSize = if ($aabSize -gt 0) { $aabSize } elseif ($rawEv -and $rawEv.artifacts -and $rawEv.artifacts.aab_size) { $rawEv.artifacts.aab_size } else { 0 }
+$script:model = $model
+$script:sdk = $sdk
+$script:abi = $abi
+$script:apkLaunchHost = $apkLaunchHost
+$script:crashFreeHost = $crashFreeHost
+$script:hasCrash = $hasCrash
+$script:initialPid = $initialPid
+$script:launchPassed = $launchPassed
+$script:exitStatus = $exitStatus
+$script:modeA = $modeA
+$script:modeB = $modeB
+$script:modeAApkBuild = $modeAApkBuild
+$script:modeBAabBuild = $modeBAabBuild
+$script:apkSha256 = $apkSha256
+$script:apkSize = $apkSize
+$script:aabSha256 = $aabSha256
+$script:aabSize = $aabSize
+$script:ResolvedSourceCommit = $artifactCommitMeasured
+$script:ResolvedVerifierCommit = $verifierCommitMeasured
 
-$evObj = [ordered]@{
-    status = $overallStatus
-    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    device = $model
-    apk_launch = [bool]$apkLaunchHost
-    crash_free = [bool]$crashFreeHost
-    build_run_id = $resolvedBuildRunId
-    run_id = $resolvedBuildRunId
-    commit_sha = $artifactCommitMeasured
-    source_commit = $artifactCommitMeasured
-    artifact_source_commit = $artifactCommitMeasured
-    verifier_commit = $verifierCommitMeasured
-
-    device_serial = "[REDACTED]"
-    device_info = [ordered]@{
-        model = $model
-        sdk = $sdk
-        abi = $abi
-        serial = "[REDACTED]"
-    }
-    artifacts = [ordered]@{
-        deb_sha256 = if (Test-Path $DebPath) { Get-Sha256Hex -Path $DebPath } else { "unknown" }
-        deb_size = if (Test-Path $DebPath) { (Get-Item $DebPath).Length } else { 0 }
-        apk_sha256 = $apkSha256
-        apk_size = $apkSize
-        aab_sha256 = $aabSha256
-        aab_size = $aabSize
-    }
-    verification_details = [ordered]@{
-        package_name = "com.example.flutter_ci_smoke"
-        component = "com.example.flutter_ci_smoke/.MainActivity"
-        initial_pid = $initialPid
-        app_pid = $initialPid
-        same_pid_observations = 3
-        observation_duration_seconds = 6
-        scoped_crash_free = [bool](-not $hasCrash)
-    }
-    launch_result = if ($launchPassed) { "passed" } else { "failed" }
-    exit_status = $exitStatus
-    mode_a_status = $modeA
-    mode_b_status = $modeB
-    mode_a = [ordered]@{
-        status = $modeA
-        apk_build = $modeAApkBuild
-    }
-    mode_b = [ordered]@{
-        status = $modeB
-        aab_build = $modeBAabBuild
-    }
-}
-
-
+$evObj = Write-UnifiedEvidence -Status $overallStatus -Path $EvidencePath
 $evJson = $evObj | ConvertTo-Json -Depth 5
-Set-Content -Path $hostEvidencePath -Value $evJson -Encoding UTF8
 Write-Host "Wrote evidence artifact to $hostEvidencePath"
 Write-Host "Evidence JSON Content:"
 Write-Host $evJson
+
 
 if (-not $apkLaunchHost) {
     throw "APK launch verification failed on host"
