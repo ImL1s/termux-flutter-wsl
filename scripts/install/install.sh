@@ -55,7 +55,8 @@ fi
 
 # Source profile
 echo "[5/5] Setting up environment..."
-source "$PREFIX/etc/profile.d/flutter.sh"
+[ -f "$PREFIX/etc/profile.d/flutter.sh" ] && source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
+
 
 echo ""
 echo "========================================"

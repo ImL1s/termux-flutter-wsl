@@ -385,3 +385,52 @@ def test_post_install_fresh_shell_unset_dart_sdk(tmp_path):
     assert res.returncode == 0, f"post_install failed in fresh shell with unset DART_SDK:\nstdout: {res.stdout}\nstderr: {res.stderr}"
     assert "Dart compiler missing at /bin/dart" not in res.stderr
     assert (flutter_root / "bin" / "cache" / "flutter_tools.stamp").exists()
+
+
+def test_post_install_ensures_profile_env_flutter_sh(tmp_path):
+    """Verify post_install.sh creates $PREFIX/etc/profile.d/flutter.sh if missing."""
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+    post_install_path = to_bash_path(POST_INSTALL)
+    flut_path = to_bash_path(flutter_root)
+    sdk_path = to_bash_path(android_sdk)
+    pref_path = to_bash_path(prefix)
+
+    profile_sh = prefix / "etc" / "profile.d" / "flutter.sh"
+    assert not profile_sh.exists()
+
+    cmd = (
+        f"export FLUTTER_ROOT='{flut_path}' && "
+        f"export ANDROID_SDK='{sdk_path}' && "
+        f"export PREFIX='{pref_path}' && "
+        f"bash '{post_install_path}' --apply"
+    )
+    res = subprocess.run(["bash", "-c", cmd], cwd=str(REPO_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0, f"post_install failed: {res.stderr}"
+    assert profile_sh.exists(), "post_install.sh failed to create $PREFIX/etc/profile.d/flutter.sh"
+    profile_content = profile_sh.read_text(encoding="utf-8")
+    assert "export PATH=${PREFIX}/opt/flutter/bin:${PATH}" in profile_content
+    assert "export ANDROID_NDK_HOME=" in profile_content
+
+
+def test_post_install_preserves_existing_flutter_sh(tmp_path):
+    """Verify post_install.sh does not overwrite an existing $PREFIX/etc/profile.d/flutter.sh."""
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+    post_install_path = to_bash_path(POST_INSTALL)
+    flut_path = to_bash_path(flutter_root)
+    sdk_path = to_bash_path(android_sdk)
+    pref_path = to_bash_path(prefix)
+
+    profile_sh = prefix / "etc" / "profile.d" / "flutter.sh"
+    profile_sh.parent.mkdir(parents=True, exist_ok=True)
+    custom_content = "# Custom user flutter.sh profile\nexport CUSTOM_FLAG=1\n"
+    profile_sh.write_text(custom_content, encoding="utf-8")
+
+    cmd = (
+        f"export FLUTTER_ROOT='{flut_path}' && "
+        f"export ANDROID_SDK='{sdk_path}' && "
+        f"export PREFIX='{pref_path}' && "
+        f"bash '{post_install_path}' --apply"
+    )
+    res = subprocess.run(["bash", "-c", cmd], cwd=str(REPO_ROOT), capture_output=True, text=True)
+    assert res.returncode == 0, f"post_install failed: {res.stderr}"
+    assert profile_sh.read_text(encoding="utf-8") == custom_content

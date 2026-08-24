@@ -86,7 +86,8 @@ apt --fix-broken install -y >/dev/null 2>&1 || true
 
 run_step "Run post_install.sh" bash "$PREFIX/share/flutter/post_install.sh"
 
-source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
+[ -f "$PREFIX/etc/profile.d/flutter.sh" ] && source "$PREFIX/etc/profile.d/flutter.sh" 2>/dev/null || true
+
 export PATH=$PREFIX/opt/flutter/bin:$PATH
 export ANDROID_HOME=$PREFIX/opt/android-sdk
 export JAVA_HOME=$(find $PREFIX/lib/jvm -maxdepth 1 -type d -name 'java-*-openjdk' | sort -V | tail -1)

@@ -1135,9 +1135,37 @@ finalize_flutter_tools_cache() {
     return 0
 }
 
+ensure_profile_env() {
+    local profile_dir="${PREFIX:-/data/data/com.termux/files/usr}/etc/profile.d"
+    local profile_file="$profile_dir/flutter.sh"
+    mkdir -p "$profile_dir" 2>/dev/null || true
+    if [ ! -f "$profile_file" ]; then
+        echo "Creating environment profile script at $profile_file..."
+        cat > "$profile_file" << 'EOF'
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+export PATH=${PREFIX}/opt/flutter/bin:${PATH}
+export TMPDIR="${PREFIX}/tmp"
+if [ -z "${ANDROID_NDK_HOME:-}" ]; then
+  for ndk in ${PREFIX}/opt/android-sdk/ndk/*/; do
+    [ -d "$ndk" ] && export ANDROID_NDK_HOME="${ndk%/}" && break
+  done
+fi
+if [ -z "${JAVA_HOME:-}" ] && [ -d "${PREFIX}/lib/jvm" ]; then
+  _jvm=$(find "${PREFIX}/lib/jvm" -maxdepth 1 -type d -name 'java-*-openjdk' 2>/dev/null | sort -V | tail -1)
+  [ -n "$_jvm" ] && export JAVA_HOME="$_jvm"
+  unset _jvm
+fi
+EOF
+        chmod 755 "$profile_file" 2>/dev/null || true
+        echo "  ✓ Generated $profile_file"
+    fi
+}
+
 finalize_flutter_tools_cache || { echo "❌ Failed to finalize flutter_tools cache" >&2; exit 1; }
+ensure_profile_env
 
 echo ""
+
 echo "=========================================="
 echo "Post-install configuration complete!"
 echo "=========================================="

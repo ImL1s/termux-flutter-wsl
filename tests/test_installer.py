@@ -404,3 +404,22 @@ def test_installer_has_openjdk17_and_java_home_configured():
     assert "openjdk-17" in content, "install_flutter_complete.sh must include openjdk-17 to satisfy android-sdk dependency"
     assert "export JAVA_HOME=" in content, "install_flutter_complete.sh must export JAVA_HOME"
     assert "java-*-openjdk" in content, "install_flutter_complete.sh must resolve java-*-openjdk dynamically"
+
+
+def test_all_installers_guard_profile_script_sourcing():
+    """Verify install scripts and bashrc_fix guard profile.d/flutter.sh sourcing to prevent missing file errors."""
+    scripts = [
+        REPO_ROOT / "install_flutter_complete.sh",
+        REPO_ROOT / "scripts" / "install" / "install_termux_flutter.sh",
+        REPO_ROOT / "scripts" / "install" / "install.sh",
+        REPO_ROOT / "scripts" / "install" / "post_install.sh",
+        REPO_ROOT / "scripts" / "fix" / "bashrc_fix.sh",
+        REPO_ROOT / "scripts" / "test" / "gh_e2e_test.sh",
+    ]
+    for s in scripts:
+        content = s.read_text(encoding="utf-8")
+        # Ensure no unguarded raw source $PREFIX/etc/profile.d/flutter.sh execution
+        lines = [line.strip() for line in content.splitlines()]
+        for idx, line in enumerate(lines, 1):
+            if line.startswith("source \"$PREFIX/etc/profile.d/flutter.sh\"") or line.startswith("source $PREFIX/etc/profile.d/flutter.sh"):
+                assert False, f"{s.name}:{idx} has unguarded profile source: '{line}'. Should be guarded with [ -f ... ]."
