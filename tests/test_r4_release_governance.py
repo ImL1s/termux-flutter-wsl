@@ -4131,7 +4131,8 @@ $null = Write-UnifiedEvidence -Status '{status}' -Path $EvidencePath
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     assert ev_file.exists(), f"PowerShell driver did not create {ev_file}. Stderr: {proc.stderr}"
-    return json.loads(ev_file.read_text(encoding="utf-8"))
+    return json.loads(ev_file.read_text(encoding="utf-8-sig"))
+
 
 
 

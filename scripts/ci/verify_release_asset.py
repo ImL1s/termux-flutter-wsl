@@ -431,7 +431,7 @@ def main():
         sys.exit(1)
     try:
         with urllib.request.urlopen(urllib.request.Request(sha_url, headers=headers)) as resp:
-            sha_content = resp.read().decode("utf-8").strip().split()[0]
+            sha_content = resp.read().decode("utf-8-sig").strip().split()[0]
             if sha_content.lower() != expected_sha256.lower():
                 print(f"Error: .sha256 asset content mismatch! Expected {expected_sha256}, got {sha_content}")
                 sys.exit(1)
@@ -447,7 +447,7 @@ def main():
         sys.exit(1)
     try:
         with urllib.request.urlopen(urllib.request.Request(size_url, headers=headers)) as resp:
-            size_content = resp.read().decode("utf-8").strip()
+            size_content = resp.read().decode("utf-8-sig").strip()
             if not size_content.isdigit():
                 print(f"Error: Companion .size.txt asset content is not a valid integer: '{size_content}'")
                 sys.exit(1)
@@ -471,7 +471,7 @@ def main():
     inventory_paths = set()
     try:
         with urllib.request.urlopen(urllib.request.Request(inv_url, headers=headers)) as resp:
-            inv_content = resp.read().decode("utf-8")
+            inv_content = resp.read().decode("utf-8-sig")
             if not inv_content.strip():
                 print("Error: Companion inventory.txt is empty!")
                 sys.exit(1)
@@ -491,7 +491,8 @@ def main():
         sys.exit(1)
     try:
         with urllib.request.urlopen(urllib.request.Request(meta_url, headers=headers)) as resp:
-            meta_data = json.loads(resp.read().decode("utf-8"))
+            meta_data = json.loads(resp.read().decode("utf-8-sig"))
+
             if not isinstance(meta_data, dict):
                 print("Error: build_metadata.json is not a valid JSON dictionary")
                 sys.exit(1)
@@ -729,7 +730,7 @@ def main():
         sys.exit(1)
     try:
         with urllib.request.urlopen(urllib.request.Request(build_ev_url, headers=headers)) as resp:
-            b_ev_data = json.loads(resp.read().decode("utf-8"))
+            b_ev_data = json.loads(resp.read().decode("utf-8-sig"))
             if b_ev_data.get("type") != "build_evidence":
                 print(f"Error: build_evidence.json type mismatch! Expected 'build_evidence', got '{b_ev_data.get('type')}'")
                 sys.exit(1)
@@ -785,7 +786,8 @@ def main():
         sys.exit(1)
     try:
         with urllib.request.urlopen(urllib.request.Request(dev_ev_url, headers=headers)) as resp:
-            dev_ev_data = json.loads(resp.read().decode("utf-8"))
+            dev_ev_data = json.loads(resp.read().decode("utf-8-sig"))
+
             if dev_ev_data.get("status") != "passed":
                 print(f"Error: device_smoke_evidence.json status is not 'passed' (got '{dev_ev_data.get('status')}')")
                 sys.exit(1)
