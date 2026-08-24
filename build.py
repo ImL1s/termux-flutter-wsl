@@ -259,9 +259,6 @@ class Build:
         release = cfg.get('package', {}).get('path', '.')
         patches = cfg.get('patch')
 
-        if not tag:
-            raise ValueError('require flutter tag in config')
-
         framework_revision = cfg.get('flutter', {}).get('framework_revision', '6b182d2c7585eba26d4edce0f97630effd256c33')
         framework_commit_date = cfg.get('flutter', {}).get('framework_commit_date', '2026-08-05 17:04:07 +0000')
         devtools_version = cfg.get('flutter', {}).get('devtools_version', '2.42.0')
@@ -1406,10 +1403,10 @@ class Build:
             release_tag=self.release_tag,
             revision=self.revision,
             dart_version=self.dart_version,
-            framework_revision=getattr(self, 'framework_revision', '6b182d2c7585eba26d4edce0f97630effd256c33'),
-            framework_commit_date=getattr(self, 'framework_commit_date', '2026-08-05 17:04:07 +0000'),
-            devtools_version=getattr(self, 'devtools_version', '2.42.0'),
-            engine_commit=getattr(self, 'engine_commit', '5a2a6a42cce67f965cf540fcecf616faca624aa1'),
+            framework_revision=self.framework_revision,
+            framework_commit_date=self.framework_commit_date,
+            devtools_version=self.devtools_version,
+            engine_commit=self.engine_commit,
             **conf
         )
         pkg.debuild(output=output)

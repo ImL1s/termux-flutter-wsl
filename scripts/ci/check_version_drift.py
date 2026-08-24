@@ -59,6 +59,12 @@ def load_build_config(root_path: Path | None = None) -> dict[str, str]:
         fail("build.toml [flutter] missing 'release_tag'")
     if not dart_version:
         fail("build.toml [flutter] missing 'dart_version'")
+    if not framework_revision:
+        fail("build.toml [flutter] missing 'framework_revision'")
+    if not framework_commit_date:
+        fail("build.toml [flutter] missing 'framework_commit_date'")
+    if not devtools_version:
+        fail("build.toml [flutter] missing 'devtools_version'")
 
     return {
         "tag": str(tag),

@@ -55,8 +55,17 @@ for cmd in git java javac clang clang++ pkg-config cmake ninja aapt2; do
 done
 echo ""
 
-echo -e "${BLUE}[3] Flutter SDK, Dart VM & Provenance Identity:${NC}"
-FLUTTER_BASE_DIR="${PREFIX}/opt/flutter"
+CHECK_ONLY=0
+for arg in "$@"; do
+    if [ "$arg" = "--check" ] || [ "$arg" = "--strict" ]; then
+        CHECK_ONLY=1
+    fi
+done
+
+VALIDATION_FAILED=0
+
+echo -e "${BLUE}[3] Flutter SDK, Dart VM & Provenance Validation:${NC}"
+FLUTTER_BASE_DIR="${FLUTTER_ROOT:-${PREFIX}/opt/flutter}"
 if command -v flutter >/dev/null 2>&1; then
     FLUTTER_LOC="$(command -v flutter)"
     echo "  Flutter Path    : $FLUTTER_LOC"
@@ -66,13 +75,50 @@ else
     echo -e "  ${RED}Flutter binary not found in PATH${NC}"
 fi
 
-if [ -f "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" ]; then
-    v_sha="$(sha256sum "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" 2>/dev/null | awk '{print $1}')"
-    v_chan="$(grep -o '"channel": *"[^"]*"' "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
-    v_rev="$(grep -o '"frameworkRevision": *"[^"]*"' "$FLUTTER_BASE_DIR/bin/cache/flutter.version.json" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
-    echo "  Version JSON    : PRESENT (channel=$v_chan, revision=$v_rev, sha256=$v_sha)"
+# Load Manifest
+MANIFEST_PATH="$PREFIX/share/flutter/manifest.json"
+if [ ! -f "$MANIFEST_PATH" ] && [ -f "$FLUTTER_BASE_DIR/bin/cache/canonical_manifest.json" ]; then
+    MANIFEST_PATH="$FLUTTER_BASE_DIR/bin/cache/canonical_manifest.json"
+fi
+
+EXP_VER="3.44.9"
+EXP_REV="6b182d2c7585eba26d4edce0f97630effd256c33"
+EXP_DART="3.12.2"
+if [ -f "$MANIFEST_PATH" ]; then
+    m_v="$(grep -o '"flutter_version": *"[^"]*"' "$MANIFEST_PATH" 2>/dev/null | cut -d'"' -f4 || echo "")"
+    m_r="$(grep -o '"framework_revision": *"[^"]*"' "$MANIFEST_PATH" 2>/dev/null | cut -d'"' -f4 || echo "")"
+    m_d="$(grep -o '"dart_version": *"[^"]*"' "$MANIFEST_PATH" 2>/dev/null | cut -d'"' -f4 || echo "")"
+    [ -n "$m_v" ] && EXP_VER="$m_v"
+    [ -n "$m_r" ] && EXP_REV="$m_r"
+    [ -n "$m_d" ] && EXP_DART="$m_d"
+fi
+
+VER_FILE="$FLUTTER_BASE_DIR/bin/cache/flutter.version.json"
+if [ -f "$VER_FILE" ]; then
+    v_sha="$(sha256sum "$VER_FILE" 2>/dev/null | awk '{print $1}')"
+    v_chan="$(grep -o '"channel": *"[^"]*"' "$VER_FILE" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
+    v_rev="$(grep -o '"frameworkRevision": *"[^"]*"' "$VER_FILE" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
+    v_fver="$(grep -o '"frameworkVersion": *"[^"]*"' "$VER_FILE" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
+    v_dver="$(grep -o '"dartSdkVersion": *"[^"]*"' "$VER_FILE" 2>/dev/null | cut -d'"' -f4 || echo "unknown")"
+
+    ver_errs=()
+    [ "$v_chan" != "stable" ] && ver_errs+=("channel='$v_chan'(expected 'stable')")
+    [ "$v_rev" != "$EXP_REV" ] && ver_errs+=("revision='$v_rev'(expected '$EXP_REV')")
+    [ "$v_fver" != "$EXP_VER" ] && ver_errs+=("version='$v_fver'(expected '$EXP_VER')")
+    [ "$v_dver" != "$EXP_DART" ] && ver_errs+=("dartSdk='$v_dver'(expected '$EXP_DART')")
+
+    if [ ${#ver_errs[@]} -eq 0 ]; then
+        echo -e "  Version JSON    : ${GREEN}PRESENT (channel=$v_chan, version=$v_fver, rev=$v_rev, sha256=$v_sha)${NC}"
+        echo -e "  VERSION_JSON_STATUS=${GREEN}PASSED${NC}"
+    else
+        echo -e "  Version JSON    : ${RED}INVALID (${ver_errs[*]})${NC}"
+        echo -e "  VERSION_JSON_STATUS=${RED}FAILED${NC}"
+        VALIDATION_FAILED=1
+    fi
 else
-    echo -e "  Version JSON    : ${YELLOW}NOT FOUND${NC}"
+    echo -e "  Version JSON    : ${RED}NOT FOUND${NC}"
+    echo -e "  VERSION_JSON_STATUS=${RED}FAILED${NC}"
+    VALIDATION_FAILED=1
 fi
 
 if [ -d "$FLUTTER_BASE_DIR/.git" ]; then
@@ -84,6 +130,23 @@ if [ -d "$FLUTTER_BASE_DIR/.git" ]; then
     fetch_head="NO"
     [ -f "$FLUTTER_BASE_DIR/.git/FETCH_HEAD" ] && fetch_head="YES"
     echo "  Git Repo State  : branch=$br, tag_at_head=$tag_head, total_tags=$t_cnt, synthetic=$is_synth, FETCH_HEAD=$fetch_head"
+
+    if [ "$is_synth" = "YES" ]; then
+        synth_errs=()
+        [ "$br" != "stable" ] && synth_errs+=("branch='$br'(expected 'stable')")
+        ! echo "$tag_head" | grep -qx "$EXP_VER" && synth_errs+=("tag_at_head='$tag_head'(expected '$EXP_VER')")
+        [ "$t_cnt" -ne 1 ] && synth_errs+=("tag_count=$t_cnt(expected 1)")
+        [ "$fetch_head" = "YES" ] && synth_errs+=("FETCH_HEAD present")
+
+        if [ ${#synth_errs[@]} -eq 0 ]; then
+            echo -e "  SYNTHETIC_REPO_STATUS=${GREEN}PASSED${NC}"
+        else
+            echo -e "  SYNTHETIC_REPO_STATUS=${RED}FAILED (${synth_errs[*]})${NC}"
+            VALIDATION_FAILED=1
+        fi
+    else
+        echo -e "  SYNTHETIC_REPO_STATUS=${YELLOW}SKIPPED (non-synthetic user repository)${NC}"
+    fi
 fi
 
 if command -v dart >/dev/null 2>&1; then
@@ -126,3 +189,8 @@ echo ""
 echo -e "${CYAN}======================================================${NC}"
 echo -e "${CYAN}             End of Diagnostic Report                 ${NC}"
 echo -e "${CYAN}======================================================${NC}"
+
+if [ "$CHECK_ONLY" -eq 1 ] && [ "$VALIDATION_FAILED" -ne 0 ]; then
+    exit 1
+fi
+exit 0

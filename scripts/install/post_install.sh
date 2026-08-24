@@ -643,6 +643,7 @@ CANONICAL_DEVTOOLS_VER="2.42.0"
 CANONICAL_CHANNEL="stable"
 CANONICAL_REPO_URL="https://github.com/flutter/flutter.git"
 
+MANIFEST_LOADED=0
 MANIFEST_FILE="$PREFIX/share/flutter/manifest.json"
 if [ ! -f "$MANIFEST_FILE" ] && [ -f "$FLUTTER_ROOT/bin/cache/canonical_manifest.json" ]; then
     MANIFEST_FILE="$FLUTTER_ROOT/bin/cache/canonical_manifest.json"
@@ -655,7 +656,10 @@ if [ -f "$MANIFEST_FILE" ]; then
     m_eng=$(grep -o '"engine_revision": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
     m_dart=$(grep -o '"dart_version": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
     m_dev=$(grep -o '"devtools_version": *"[^"]*"' "$MANIFEST_FILE" 2>/dev/null | cut -d'"' -f4 || echo "")
-    [ -n "$m_ver" ] && CANONICAL_FLUTTER_VER="$m_ver"
+    if [ -n "$m_ver" ]; then
+        CANONICAL_FLUTTER_VER="$m_ver"
+        MANIFEST_LOADED=1
+    fi
     [ -n "$m_rev" ] && CANONICAL_FRAMEWORK_REV="$m_rev"
     [ -n "$m_date" ] && CANONICAL_FRAMEWORK_DATE="$m_date"
     [ -n "$m_eng" ] && CANONICAL_ENGINE_REV="$m_eng"
@@ -663,16 +667,18 @@ if [ -f "$MANIFEST_FILE" ]; then
     [ -n "$m_dev" ] && CANONICAL_DEVTOOLS_VER="$m_dev"
 fi
 
-# Fallback: if legacy $FLUTTER_ROOT/version is present in test fixtures, allow tag override but maintain canonical framework provenance
-if [ -f "$FLUTTER_ROOT/version" ]; then
-    fixture_ver="$(cat "$FLUTTER_ROOT/version" | tr -d '\n\r')"
-    if [ -n "$fixture_ver" ] && echo "$fixture_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-        CANONICAL_FLUTTER_VER="$fixture_ver"
-    fi
-elif [ -f "$FLUTTER_ROOT/.git/termux_synthetic" ]; then
-    saved_synth_ver=$(grep -o '"version": *"[^"]*"' "$FLUTTER_ROOT/.git/termux_synthetic" 2>/dev/null | cut -d'"' -f4 || echo "")
-    if [ -n "$saved_synth_ver" ] && echo "$saved_synth_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-        CANONICAL_FLUTTER_VER="$saved_synth_ver"
+# Fallback ONLY when package manifest is NOT present (e.g. legacy installation without manifest)
+if [ "$MANIFEST_LOADED" -eq 0 ]; then
+    if [ -f "$FLUTTER_ROOT/version" ]; then
+        fixture_ver="$(cat "$FLUTTER_ROOT/version" | tr -d '\n\r')"
+        if [ -n "$fixture_ver" ] && echo "$fixture_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            CANONICAL_FLUTTER_VER="$fixture_ver"
+        fi
+    elif [ -f "$FLUTTER_ROOT/.git/termux_synthetic" ]; then
+        saved_synth_ver=$(grep -o '"version": *"[^"]*"' "$FLUTTER_ROOT/.git/termux_synthetic" 2>/dev/null | cut -d'"' -f4 || echo "")
+        if [ -n "$saved_synth_ver" ] && echo "$saved_synth_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            CANONICAL_FLUTTER_VER="$saved_synth_ver"
+        fi
     fi
 fi
 
@@ -762,14 +768,21 @@ if is_synthetic_repo "$FLUTTER_ROOT"; then
     fi
 fi
 
-# Determine semantic Dart SDK version (never engine cache stamp)
+# Determine and verify semantic Dart SDK version (never engine cache stamp)
 EFFECTIVE_DART_VER=""
 if [ -x "$DART_SDK/bin/dart" ]; then
     EFFECTIVE_DART_VER="$("$DART_SDK/bin/dart" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")"
 elif command -v dart >/dev/null 2>&1; then
     EFFECTIVE_DART_VER="$(dart --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")"
 fi
-if [ -z "$EFFECTIVE_DART_VER" ] || ! echo "$EFFECTIVE_DART_VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+
+if [ -n "$EFFECTIVE_DART_VER" ]; then
+    if [ "$EFFECTIVE_DART_VER" != "$CANONICAL_DART_VER" ]; then
+        echo "Error: Installed Dart SDK version mismatch: expected '$CANONICAL_DART_VER', got '$EFFECTIVE_DART_VER'" >&2
+        exit 1
+    fi
+else
+    # Fallback to canonical when Dart binary is not executable in minimal mock fixtures
     EFFECTIVE_DART_VER="$CANONICAL_DART_VER"
 fi
 
