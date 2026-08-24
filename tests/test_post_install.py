@@ -580,3 +580,168 @@ def test_post_install_dart_sdk_version_semantic_not_stamp(tmp_path):
     data = json.loads(version_json.read_text(encoding="utf-8"))
     assert data["dartSdkVersion"] == "3.12.2"
     assert "5a2a6a42" not in data["dartSdkVersion"]
+
+
+def test_post_install_upgrade_manifest_precedence_over_old_marker(tmp_path):
+    """P1 Regression test: New package manifest must take precedence over old synthetic marker upon upgrade."""
+    import json
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # Pre-seed an older synthetic repository (e.g. 3.44.8)
+    subprocess.run(["git", "init", "-q", "-b", "stable"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "Init framework"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "tag", "3.44.8"], cwd=str(flutter_root), check=True)
+    (flutter_root / ".git" / "termux_synthetic").write_text('{"synthetic":true,"package":"termux-flutter-wsl","version":"3.44.8"}')
+
+    # Install new package manifest for 3.44.9
+    manifest_dir = prefix / "share" / "flutter"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_file = manifest_dir / "manifest.json"
+    manifest_data = {
+        "flutter_version": "3.44.9",
+        "package_version": "3.44.9-0",
+        "framework_revision": "6b182d2c7585eba26d4edce0f97630effd256c33",
+        "framework_commit_date": "2026-08-05 17:04:07 +0000",
+        "engine_revision": "5a2a6a42cce67f965cf540fcecf616faca624aa1",
+        "dart_version": "3.12.2",
+        "devtools_version": "2.42.0",
+        "channel": "stable",
+        "repository_url": "https://github.com/flutter/flutter.git"
+    }
+    manifest_file.write_text(json.dumps(manifest_data))
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0, f"post_install failed: {res.stderr}"
+
+    # Verify synthetic repo tag was updated to 3.44.9, NOT retained as 3.44.8
+    tag_head = subprocess.run(["git", "tag", "--points-at", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.splitlines()
+    assert "3.44.9" in tag_head
+    assert "3.44.8" not in tag_head
+
+    # Verify marker is updated
+    marker_data = json.loads((flutter_root / ".git" / "termux_synthetic").read_text())
+    assert marker_data["version"] == "3.44.9"
+
+    # Verify flutter.version.json is updated
+    v_json = json.loads((flutter_root / "bin" / "cache" / "flutter.version.json").read_text())
+    assert v_json["frameworkVersion"] == "3.44.9"
+    assert v_json["flutterVersion"] == "3.44.9"
+
+
+def test_post_install_future_upgrade_manifest_precedence(tmp_path):
+    """P1 Regression test: Future upgrade (e.g. 3.44.9 -> 3.45.0) honors manifest over existing 3.44.9 marker."""
+    import json
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # Pre-seed existing 3.44.9 synthetic repo
+    subprocess.run(["git", "init", "-q", "-b", "stable"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "Init framework"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "tag", "3.44.9"], cwd=str(flutter_root), check=True)
+    (flutter_root / ".git" / "termux_synthetic").write_text('{"synthetic":true,"package":"termux-flutter-wsl","version":"3.44.9"}')
+
+    # Install newer package manifest for 3.45.0
+    manifest_dir = prefix / "share" / "flutter"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_file = manifest_dir / "manifest.json"
+    manifest_data = {
+        "flutter_version": "3.45.0",
+        "package_version": "3.45.0-0",
+        "framework_revision": "future_framework_revision_hash_12345",
+        "framework_commit_date": "2026-09-01 12:00:00 +0000",
+        "engine_revision": "future_engine_revision_hash_67890",
+        "dart_version": "3.12.2",
+        "devtools_version": "2.43.0",
+        "channel": "stable",
+        "repository_url": "https://github.com/flutter/flutter.git"
+    }
+    manifest_file.write_text(json.dumps(manifest_data))
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0, f"post_install failed: {res.stderr}"
+
+    tag_head = subprocess.run(["git", "tag", "--points-at", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.splitlines()
+    assert "3.45.0" in tag_head
+    assert "3.44.9" not in tag_head
+
+    v_json = json.loads((flutter_root / "bin" / "cache" / "flutter.version.json").read_text())
+    assert v_json["frameworkVersion"] == "3.45.0"
+    assert v_json["frameworkRevision"] == "future_framework_revision_hash_12345"
+
+
+def test_post_install_dart_sdk_version_mismatch_fails_closed(tmp_path):
+    """Verify post_install.sh fails closed when actual Dart binary version does not match canonical Dart version."""
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # Set mock dart executable in dart-sdk to return mismatched 3.13.0 with LF newlines
+    mock_dart = flutter_root / "bin" / "cache" / "dart-sdk" / "bin" / "dart"
+    mock_dart_script = (
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"--version\" ]; then\n"
+        "  echo 'Dart SDK version: 3.13.0 (stable) (Wed Jan 1 00:00:00 2026 +0000) on \"linux_arm64\"'\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    mock_dart.write_text(mock_dart_script, newline="\n")
+    mock_dart.chmod(0o755)
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode != 0
+    assert "Installed Dart SDK version mismatch" in res.stderr
+
+
+def test_flutter_termux_doctor_validation_modes(tmp_path):
+    """Verify flutter_termux_doctor.sh validates version JSON and synthetic repo, and fails when tampered."""
+    import json
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # Install canonical manifest for 3.44.9
+    manifest_dir = prefix / "share" / "flutter"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_file = manifest_dir / "manifest.json"
+    manifest_data = {
+        "flutter_version": "3.44.9",
+        "package_version": "3.44.9-0",
+        "framework_revision": "6b182d2c7585eba26d4edce0f97630effd256c33",
+        "framework_commit_date": "2026-08-05 17:04:07 +0000",
+        "engine_revision": "5a2a6a42cce67f965cf540fcecf616faca624aa1",
+        "dart_version": "3.12.2",
+        "devtools_version": "2.42.0",
+        "channel": "stable",
+        "repository_url": "https://github.com/flutter/flutter.git"
+    }
+    manifest_file.write_text(json.dumps(manifest_data), newline="\n")
+
+    # Apply valid setup
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0
+
+    doctor_script = REPO_ROOT / "scripts" / "install" / "flutter_termux_doctor.sh"
+    pref_bash = to_bash_path(prefix)
+    flut_bash = to_bash_path(flutter_root)
+    doc_bash = to_bash_path(doctor_script)
+
+    # Run doctor in --check mode on valid installation -> should exit 0
+    cmd_pass = f"export FLUTTER_ROOT='{flut_bash}' && export PREFIX='{pref_bash}' && bash '{doc_bash}' --check"
+    res_pass = subprocess.run(["bash", "-c", cmd_pass], capture_output=True, text=True)
+    assert res_pass.returncode == 0
+    assert "VERSION_JSON_STATUS=" in res_pass.stdout
+    assert "SYNTHETIC_REPO_STATUS=" in res_pass.stdout
+
+    # Tamper version JSON (change channel to master)
+    v_file = flutter_root / "bin" / "cache" / "flutter.version.json"
+    data = json.loads(v_file.read_text(encoding="utf-8"))
+    data["channel"] = "master"
+    v_file.write_text(json.dumps(data), newline="\n")
+
+    # Run doctor in --check mode on tampered installation -> should exit 1
+    cmd_fail = f"export FLUTTER_ROOT='{flut_bash}' && export PREFIX='{pref_bash}' && bash '{doc_bash}' --check"
+    res_fail = subprocess.run(["bash", "-c", cmd_fail], capture_output=True, text=True)
+    assert res_fail.returncode != 0
+    assert "FAILED" in res_fail.stdout

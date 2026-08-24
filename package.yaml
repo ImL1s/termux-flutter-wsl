@@ -353,6 +353,8 @@ resource:
     output: $distro/bin/cache/flutter.version.json
     binary: true
     mode: 0o644
+    replace: true
+    replace_scope: $distro/bin/cache
 
   canonical_manifest:
     source: |-
@@ -372,3 +374,5 @@ resource:
       - $prefix/share/flutter/manifest.json
     binary: true
     mode: 0o644
+    replace: true
+    replace_scope: $prefix

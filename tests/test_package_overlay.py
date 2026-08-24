@@ -262,3 +262,59 @@ def test_hermetic_package_fixture_dart_sdk_overlay_debuild(tmp_path):
     deb_out = tmp_path / "flutter_3.44.9_aarch64.deb"
     pkg.debuild(output=deb_out)
     assert deb_out.exists()
+
+
+def test_hermetic_package_fixture_version_json_overlay_debuild(tmp_path):
+    """Regression test for P2: version_json and canonical_manifest correctly overlay source tree cache files."""
+    root = tmp_path / "flutter"
+    root.mkdir()
+    (root / "bin" / "cache").mkdir(parents=True)
+    (root / "bin" / "flutter").write_text("#!/bin/sh\necho flutter")
+    (root / "bin" / "cache" / "flutter.version.json").write_text('{"frameworkVersion": "stale_version"}')
+
+    resource = {
+        "flutter_tree": {
+            "source": str(root),
+            "output": "$distro",
+        },
+        "version_json": {
+            "source": '{\n  "frameworkVersion": "$tag",\n  "channel": "stable"\n}',
+            "output": "$distro/bin/cache/flutter.version.json",
+            "binary": True,
+            "replace": True,
+            "replace_scope": "$distro/bin/cache",
+            "mode": 0o644
+        },
+        "canonical_manifest": {
+            "source": '{\n  "flutter_version": "$tag"\n}',
+            "output": [
+                "$distro/bin/cache/canonical_manifest.json",
+                "$prefix/share/flutter/manifest.json"
+            ],
+            "binary": True,
+            "replace": True,
+            "replace_scope": "$prefix",
+            "mode": 0o644
+        }
+    }
+    control = {
+        "Package": "flutter",
+        "Version": "3.44.9",
+        "Architecture": "arm64",
+        "Maintainer": "test",
+        "Description": "test"
+    }
+    pkg = Package(
+        root=root,
+        arch="arm64",
+        control=control,
+        resource=resource,
+        tag="3.44.9",
+        framework_revision="6b182d2c7585eba26d4edce0f97630effd256c33",
+        framework_commit_date="2026-08-05 17:04:07 +0000",
+        devtools_version="2.42.0",
+        dart_version="3.12.2"
+    )
+    deb_out = tmp_path / "flutter_3.44.9_aarch64.deb"
+    pkg.debuild(output=deb_out)
+    assert deb_out.exists()

@@ -274,6 +274,9 @@ tag = '3.44.9'
 release_tag = 'v3.44.9-termux'
 dart_version = '3.12.2'
 engine_commit = '11223344556677889900aabbccddeeff00112233'
+framework_revision = '6b182d2c7585eba26d4edce0f97630effd256c33'
+framework_commit_date = '2026-08-05 17:04:07 +0000'
+devtools_version = '2.42.0'
 sha256 = 'f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e'
 asset_name = 'flutter_3.44.9_aarch64.deb'
 size = 52428800
@@ -351,7 +354,7 @@ RELEASE_TAG="v3.44.9-termux"
 EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
 """, encoding="utf-8")
 
-        (root / "scripts" / "install").mkdir(parents=True)
+        (root / "scripts" / "install").mkdir(parents=True, exist_ok=True)
         (root / "scripts" / "install" / "install.sh").write_text("""#!/bin/bash
 FLUTTER_VERSION="3.44.9"
 RELEASE_TAG="v3.44.9-termux"
@@ -362,6 +365,14 @@ EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9
 FLUTTER_VERSION="3.44.9"
 RELEASE_TAG="v3.44.9-termux"
 EXPECTED_SHA256="f706406253586a5586f8a1e7ff0a09b5a7f029a8ea9f2e1225ce682f10550c9e"
+""", encoding="utf-8")
+
+        (root / "scripts" / "install" / "post_install.sh").write_text("""#!/bin/bash
+CANONICAL_FLUTTER_VER="3.44.9"
+CANONICAL_FRAMEWORK_REV="6b182d2c7585eba26d4edce0f97630effd256c33"
+CANONICAL_FRAMEWORK_DATE="2026-08-05 17:04:07 +0000"
+CANONICAL_DART_VER="3.12.2"
+CANONICAL_DEVTOOLS_VER="2.42.0"
 """, encoding="utf-8")
 
         (root / "scripts" / "test").mkdir(parents=True)
