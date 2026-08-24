@@ -434,3 +434,74 @@ def test_post_install_preserves_existing_flutter_sh(tmp_path):
     res = subprocess.run(["bash", "-c", cmd], cwd=str(REPO_ROOT), capture_output=True, text=True)
     assert res.returncode == 0, f"post_install failed: {res.stderr}"
     assert profile_sh.read_text(encoding="utf-8") == custom_content
+
+
+def test_post_install_dummy_git_repo_stable_branch_and_version_json(tmp_path):
+    """Verify post_install.sh initializes dummy git repository on stable branch with tag and flutter.version.json."""
+    import json
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+    flut_path = to_bash_path(flutter_root)
+
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0, f"post_install failed: {res.stderr}"
+
+    # Verify dummy git repo branch is stable
+    branch_res = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True)
+    assert branch_res.returncode == 0
+    assert branch_res.stdout.strip() == "stable"
+
+    # Verify git tag points at HEAD
+    tag_res = subprocess.run(["git", "tag", "--points-at", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True)
+    assert tag_res.returncode == 0
+    assert "3.44.0" in tag_res.stdout.splitlines()
+
+    # Verify flutter.version.json exists and is valid
+    version_json_file = flutter_root / "bin" / "cache" / "flutter.version.json"
+    assert version_json_file.is_file(), "flutter.version.json was not created"
+    data = json.loads(version_json_file.read_text(encoding="utf-8"))
+    assert data["channel"] == "stable"
+    assert data["frameworkVersion"] == "3.44.0"
+    assert data["flutterVersion"] == "3.44.0"
+    assert data["repositoryUrl"] == "https://github.com/flutter/flutter.git"
+
+    rev_res = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True)
+    assert rev_res.returncode == 0
+    assert data["frameworkRevision"] == rev_res.stdout.strip()
+
+
+def test_post_install_repairs_existing_master_dummy_repo_to_stable(tmp_path):
+    """Verify post_install.sh upgrades an existing master dummy git repo to stable and updates tags and version.json."""
+    import json
+    flutter_root, android_sdk, prefix, files = create_mock_env(tmp_path)
+
+    # Initialize a mock git repository with master branch explicitly
+    subprocess.run(["git", "init", "-q"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "checkout", "-B", "master"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(flutter_root), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "old master init"], cwd=str(flutter_root), check=True)
+
+    branch_before = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.strip()
+    assert branch_before == "master"
+
+    # Now run post_install.sh --apply
+    res = run_post_install(flutter_root, android_sdk, prefix, ["--apply"])
+    assert res.returncode == 0, f"post_install failed: {res.stderr}"
+
+    # Verify branch was migrated to stable
+    branch_after = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True).stdout.strip()
+    assert branch_after == "stable"
+
+    # Verify tag points to HEAD
+    tag_res = subprocess.run(["git", "tag", "--points-at", "HEAD"], cwd=str(flutter_root), capture_output=True, text=True)
+    assert tag_res.returncode == 0
+    assert "3.44.0" in tag_res.stdout.splitlines()
+
+    # Verify flutter.version.json
+    version_json_file = flutter_root / "bin" / "cache" / "flutter.version.json"
+    assert version_json_file.is_file()
+    data = json.loads(version_json_file.read_text(encoding="utf-8"))
+    assert data["channel"] == "stable"
+    assert data["frameworkVersion"] == "3.44.0"
+
