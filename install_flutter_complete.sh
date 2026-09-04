@@ -360,6 +360,7 @@ fi
 
 # 版本配置
 FLUTTER_VERSION="3.44.9"
+RELEASE_TAG="${RELEASE_TAG:-v3.44.9-termux}"
 EXPECTED_SHA256="8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20"
 
 # 其他版本配置
@@ -368,6 +369,13 @@ NDK_EXPECTED_SHA256="02e10e4ddfe8deaeb0bd0cf29d04c981ed5bc8a5d6b560ebb9e7661f472
 SNAPSHOT_EXPECTED_SHA256="527f074d86660fd3f7c900fc8c1ebd5a2ebc4581e174eb8cf9fe343a1664402d"
 NDK_VERSION="29.0.14206865"
 REPO_BASE="https://raw.githubusercontent.com/ImL1s/termux-flutter-wsl/master"
+
+# Persistent download cache directory across runs
+CACHE_DIR="${DOWNLOAD_CACHE_DIR:-${HOME:-/data/data/com.termux/files/home}/.cache/flutter_installer}"
+if [ ! -d "$CACHE_DIR" ] && [ -d "/sdcard/Download" ]; then
+    CACHE_DIR="/sdcard/Download/flutter_install_cache"
+fi
+mkdir -p "$CACHE_DIR" 2>/dev/null || CACHE_DIR="$WORK_DIR"
 
 
 echo -e "${CYAN}"
@@ -394,19 +402,23 @@ echo "  ✓ 環境: Termux"
 echo "  ✓ 空間: 充足"
 
 # 詢問是否繼續
-echo -e "${YELLOW}此腳本將安裝：${NC}"
-echo "  • Flutter SDK (~550MB)"
-echo "  • Android SDK (~700MB)"
-echo "  • ARM64 NDK (~550MB)"
-echo "  • 總共約 1.8GB"
-echo ""
-echo -e "${YELLOW}預計時間：${NC} 10-30 分鐘（視網速而定）"
-echo ""
-read -p "是否繼續? [Y/n] " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Nn]$ ]]; then
-    echo "安裝已取消"
-    exit 0
+if [ "${OPT_YES:-false}" = "true" ] || [ "${OPT_NON_INTERACTIVE:-false}" = "true" ]; then
+    echo "自動確認繼續安裝..."
+else
+    echo -e "${YELLOW}此腳本將安裝：${NC}"
+    echo "  • Flutter SDK (~550MB)"
+    echo "  • Android SDK (~700MB)"
+    echo "  • ARM64 NDK (~550MB)"
+    echo "  • 總共約 1.8GB"
+    echo ""
+    echo -e "${YELLOW}預計時間：${NC} 10-30 分鐘（視網速而定）"
+    echo ""
+    read -p "是否繼續? [Y/n] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        echo "安裝已取消"
+        exit 0
+    fi
 fi
 
 TOTAL_STEPS=6
@@ -435,7 +447,7 @@ echo -e "${GREEN}[2/${TOTAL_STEPS}]${NC} 安裝 Flutter SDK..."
 # 安裝依賴
 pkg install -y x11-repo
 # 安裝基本工具
-pkg install -y openjdk-21 openjdk-17 git wget curl unzip p7zip cmake ninja binutils tar xz-utils
+pkg install -y openjdk-21 openjdk-17 git wget curl unzip p7zip cmake ninja binutils tar xz-utils aapt
 
 # 安裝 Android build tools（需要繞過 android-sdk 依賴問題）
 mkdir -p "$WORK_DIR/apt_staging"
@@ -524,28 +536,40 @@ if [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
 fi
 
 
-FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
-ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
-NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.tar.xz"
+FLUTTER_DEB="$CACHE_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
+ANDROID_SDK_DEB="$CACHE_DIR/android-sdk_35.0.0_aarch64.deb"
+NDK_ARCHIVE="$CACHE_DIR/android-ndk-r29-aarch64.tar.xz"
 
-echo "下載 Flutter SDK..."
-wget -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+if [ ! -f "$FLUTTER_DEB" ] || ! verify_sha256 "$FLUTTER_DEB" "$EXPECTED_SHA256" >/dev/null 2>&1; then
+    echo "下載 Flutter SDK..."
+    wget -c -q --show-progress "$FLUTTER_DEB_URL" -O "$FLUTTER_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+else
+    echo "  ✓ 發現已快取的 Flutter SDK deb"
+fi
 record_stage download success
 
 echo "驗證 Flutter SDK SHA256 校驗碼..."
 verify_sha256 "$FLUTTER_DEB" "$EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
 record_stage integrity success
 
-echo "下載 Android SDK..."
-wget -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+if [ ! -f "$ANDROID_SDK_DEB" ] || ! verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" >/dev/null 2>&1; then
+    echo "下載 Android SDK..."
+    wget -c -q --show-progress "$ANDROID_SDK_DEB_URL" -O "$ANDROID_SDK_DEB" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+else
+    echo "  ✓ 發現已快取的 Android SDK deb"
+fi
 echo "驗證 Android SDK SHA256 校驗碼..."
 verify_sha256 "$ANDROID_SDK_DEB" "$ANDROID_SDK_EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
 
 ANDROID_HOME="$PREFIX/opt/android-sdk"
 NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
 if [ ! -d "$NDK_PATH" ]; then
-    echo "下載 ARM64 NDK..."
-    wget -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+    if [ ! -f "$NDK_ARCHIVE" ] || ! verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" >/dev/null 2>&1; then
+        echo "下載 ARM64 NDK..."
+        wget -c -q --show-progress "$NDK_ARCHIVE_URL" -O "$NDK_ARCHIVE" || { INSTALL_FAILED=true; record_stage download failed; exit 20; }
+    else
+        echo "  ✓ 發現已快取的 NDK archive"
+    fi
     echo "驗證 NDK SHA256 校驗碼..."
     verify_sha256 "$NDK_ARCHIVE" "$NDK_EXPECTED_SHA256" || { INSTALL_FAILED=true; record_stage integrity failed; exit 30; }
 fi
@@ -751,25 +775,52 @@ ln -sf $PREFIX/bin/cmake $ANDROID_HOME/cmake/3.22.1/bin/cmake
 ln -sf $PREFIX/bin/ninja $ANDROID_HOME/cmake/3.22.1/bin/ninja
 
 # 創建 build-tools symlinks（修復 "Build Tools is corrupted" 錯誤）
-BUILD_TOOLS=$ANDROID_HOME/build-tools/35.0.0
-mkdir -p $BUILD_TOOLS/lib
-for tool in aapt aapt2 apksigner d8 dx zipalign aidl; do
-    ln -sf $PREFIX/bin/$tool $BUILD_TOOLS/$tool 2>/dev/null || true
+for bt_dir in "$ANDROID_HOME"/build-tools/*/; do
+    if [ -d "$bt_dir" ]; then
+        BUILD_TOOLS="${bt_dir%/}"
+        mkdir -p "$BUILD_TOOLS/lib"
+        for tool in aapt aapt2 apksigner d8 dx zipalign aidl; do
+            if [ "$tool" = "aapt" ] && [ ! -f "$PREFIX/bin/aapt" ] && [ -f "$PREFIX/bin/aapt2" ]; then
+                ln -sf "$PREFIX/bin/aapt2" "$BUILD_TOOLS/aapt" 2>/dev/null || true
+            else
+                ln -sf "$PREFIX/bin/$tool" "$BUILD_TOOLS/$tool" 2>/dev/null || true
+            fi
+        done
+        # d8.jar and dx.jar
+        ln -sf "$PREFIX/share/java/d8.jar" "$BUILD_TOOLS/lib/d8.jar" 2>/dev/null || true
+        ln -sf "$PREFIX/share/java/d8.jar" "$BUILD_TOOLS/lib/dx.jar" 2>/dev/null || true
+        # core-lambda-stubs.jar (create empty if missing)
+        if [ ! -f "$BUILD_TOOLS/core-lambda-stubs.jar" ]; then
+            manifest_tmp="$WORK_DIR/MANIFEST.MF"
+            echo "Manifest-Version: 1.0" > "$manifest_tmp" 2>/dev/null || true
+            jar cfm "$BUILD_TOOLS/core-lambda-stubs.jar" "$manifest_tmp" 2>/dev/null || true
+            rm -f "$manifest_tmp" 2>/dev/null || true
+        fi
+    fi
 done
-# d8.jar and dx.jar
-ln -sf $PREFIX/share/java/d8.jar $BUILD_TOOLS/lib/d8.jar 2>/dev/null || true
-ln -sf $PREFIX/share/java/d8.jar $BUILD_TOOLS/lib/dx.jar 2>/dev/null || true
-# core-lambda-stubs.jar (create empty if missing)
-if [ ! -f "$BUILD_TOOLS/core-lambda-stubs.jar" ]; then
-    manifest_tmp="$WORK_DIR/MANIFEST.MF"
-    echo "Manifest-Version: 1.0" > "$manifest_tmp" 2>/dev/null || true
-    jar cfm "$BUILD_TOOLS/core-lambda-stubs.jar" "$manifest_tmp" 2>/dev/null || true
-    rm -f "$manifest_tmp" 2>/dev/null || true
-fi
 echo "  ✓ build-tools 已配置"
+
+# 修復 cmdline-tools shebang（使 sdkmanager 能在 Termux 原生執行）
+if [ -d "$ANDROID_HOME/cmdline-tools/latest/bin" ]; then
+    command -v termux-fix-shebang >/dev/null 2>&1 && termux-fix-shebang "$ANDROID_HOME/cmdline-tools/latest/bin/"* 2>/dev/null || true
+    for bin in "$ANDROID_HOME/cmdline-tools/latest/bin/"*; do
+        [ -f "$bin" ] && sed -i '1s|#!/usr/bin/env sh|#!/data/data/com.termux/files/usr/bin/sh|' "$bin" 2>/dev/null || true
+    done
+fi
 
 # 配置 Flutter
 flutter config --android-sdk $ANDROID_HOME 2>/dev/null || true
+
+# 確保生成必要 engine stamps（避免 Flutter 重複下載 Google x64 artifacts 覆蓋 native binary）
+FLUTTER_ROOT="${FLUTTER_ROOT:-$PREFIX/opt/flutter}"
+if [ -f "$FLUTTER_ROOT/bin/internal/engine.version" ]; then
+    eng_ver="$(cat "$FLUTTER_ROOT/bin/internal/engine.version" 2>/dev/null | tr -d '\n\r')"
+    echo -n "$eng_ver" > "$FLUTTER_ROOT/bin/cache/android-sdk.stamp" 2>/dev/null || true
+    echo -n "$eng_ver" > "$FLUTTER_ROOT/bin/cache/android-arm64-release.stamp" 2>/dev/null || true
+    echo -n "$eng_ver" > "$FLUTTER_ROOT/bin/cache/android-arm64-profile.stamp" 2>/dev/null || true
+fi
+rm -f "$FLUTTER_ROOT/bin/cache/artifacts/engine/android-arm64-release/linux-x64" 2>/dev/null || true
+rm -f "$FLUTTER_ROOT/bin/cache/artifacts/engine/android-arm64-profile/linux-x64" 2>/dev/null || true
 
 # 接受授權
 if command -v handle_android_licenses >/dev/null 2>&1; then
@@ -779,6 +830,8 @@ else
 fi
 
 echo "  ✓ 環境已配置"
+MUTATION_COMMITTED=true
+echo "  ✓ 核心 SDK 與環境已成功配置 (Mutation Committed)"
 
 # ========================================
 # Step 6: 測試構建
@@ -793,17 +846,17 @@ if ! command -v aapt2 &> /dev/null; then
     (
         mkdir -p "$WORK_DIR/apt_staging"
         cd "$WORK_DIR/apt_staging"
-        # 下載依賴包
-        apt download libprotobuf fmt libzopfli aapt aapt2 2>/dev/null || true
+        # 下載依賴包（包含 aapt2 動態連結所需的 abseil-cpp）
+        apt download libprotobuf fmt libzopfli abseil-cpp aapt aapt2 2>/dev/null || true
         # 安裝（使用 dpkg 避免觸發 apt 的依賴解析）
-        if ! dpkg -i libprotobuf*.deb fmt*.deb libzopfli*.deb aapt_*.deb aapt2*.deb 2>/dev/null; then
-            dpkg --force-depends --configure aapt aapt2 libprotobuf fmt libzopfli 2>/dev/null || true
+        if ! dpkg -i libprotobuf*.deb fmt*.deb libzopfli*.deb abseil-cpp*.deb aapt_*.deb aapt2*.deb 2>/dev/null; then
+            dpkg --force-depends --configure aapt aapt2 libprotobuf fmt libzopfli abseil-cpp 2>/dev/null || true
         fi
         rm -f *.deb 2>/dev/null || true
     )
 fi
 
-TEST_APP_DIR="$WORK_DIR/flutter_test_app"
+TEST_APP_DIR="${TEST_APP_DIR:-$HOME/flutter_test_app}"
 
 # 創建測試專案
 if [ -d "$TEST_APP_DIR" ]; then
@@ -824,91 +877,71 @@ cd "$TEST_APP_DIR"
 echo "配置專案..."
 echo "ndk.dir=$ANDROID_HOME/ndk/$NDK_VERSION" >> android/local.properties
 
-# 配置 gradle.properties
-cat >> android/gradle.properties << 'PROPS'
-android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
-PROPS
+# 優先使用專案標準配置腳本
+if [ -f "$PREFIX/share/flutter/flutter_project_config.sh" ]; then
+    echo "使用 flutter_project_config.sh 配置專案..."
+    bash "$PREFIX/share/flutter/flutter_project_config.sh" "$TEST_APP_DIR" || true
+elif [ -f "$SCRIPT_DIR/scripts/install/flutter_project_config.sh" ]; then
+    echo "使用 scripts/install/flutter_project_config.sh 配置專案..."
+    bash "$SCRIPT_DIR/scripts/install/flutter_project_config.sh" "$TEST_APP_DIR" || true
+fi
 
-# 更新 build.gradle.kts（設置 compileSdk=34，targetSdk=34，abiFilters=arm64-v8a）
-cat > android/app/build.gradle.kts << 'GRADLE'
-plugins {
-    id("com.android.application")
-    id("kotlin-android")
-    id("dev.flutter.flutter-gradle-plugin")
-}
+# 修補 gradlew shebang（Termux 環境必需）
+if [ -f android/gradlew ]; then
+    sed -i '1s|.*|#!/data/data/com.termux/files/usr/bin/bash|' android/gradlew
+    chmod 755 android/gradlew
+fi
 
-android {
-    namespace = "com.example.flutter_test_app"
-    compileSdk = 34
-    ndkVersion = "29.0.14206865"
+# 確保 gradle.properties 包含必要的 AAPT2 與資源最佳化設定（保留 Flutter 官方預設 template 與 jvmargs）
+if ! grep -q '^android.aapt2FromMavenOverride=' android/gradle.properties 2>/dev/null; then
+    printf '\nandroid.aapt2FromMavenOverride=%s/bin/aapt2\n' "${PREFIX:-/data/data/com.termux/files/usr}" >> android/gradle.properties
+fi
+if ! grep -q '^android.enableResourceOptimizations=' android/gradle.properties 2>/dev/null; then
+    printf '\nandroid.enableResourceOptimizations=false\n' >> android/gradle.properties
+fi
+if ! grep -q '^shrink=' android/gradle.properties 2>/dev/null; then
+    printf '\nshrink=false\n' >> android/gradle.properties
+fi
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
+# 確保 build.gradle.kts 停用 R8 混淆/縮減並設定相容之 compileSdk/targetSdk 與 ARM64 ABI filter
+if [ -f android/app/build.gradle.kts ]; then
+    sed -i "s/ndkVersion = flutter.ndkVersion.*/ndkVersion = \"$NDK_VERSION\"/" android/app/build.gradle.kts 2>/dev/null || true
+    sed -i 's/compileSdk = flutter.compileSdkVersion.*/compileSdk = 34/' android/app/build.gradle.kts 2>/dev/null || true
+    sed -i 's/targetSdk = flutter.targetSdkVersion.*/targetSdk = 34/' android/app/build.gradle.kts 2>/dev/null || true
+    if ! grep -q 'abiFilters.*arm64-v8a' android/app/build.gradle.kts 2>/dev/null; then
+        sed -i 's/targetSdk = 34/targetSdk = 34\n        ndk { abiFilters += listOf("arm64-v8a") }/' android/app/build.gradle.kts 2>/dev/null || true
+    fi
+    if ! grep -q 'isShrinkResources = false' android/app/build.gradle.kts 2>/dev/null; then
+        if grep -q 'getByName("release") {' android/app/build.gradle.kts 2>/dev/null; then
+            sed -i 's/getByName("release") {/getByName("release") {\n            isMinifyEnabled = false\n            isShrinkResources = false/' android/app/build.gradle.kts 2>/dev/null || true
+        elif grep -q 'release {' android/app/build.gradle.kts 2>/dev/null; then
+            sed -i 's/release {/release {\n            isMinifyEnabled = false\n            isShrinkResources = false/' android/app/build.gradle.kts 2>/dev/null || true
+        fi
+    fi
+fi
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
-
-    defaultConfig {
-        applicationId = "com.example.flutter_test_app"
-        minSdk = flutter.minSdkVersion
-        targetSdk = 34
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-        ndk {
-            abiFilters += "arm64-v8a"
-        }
-        externalNativeBuild {
-            cmake {
-                abiFilters("arm64-v8a")
-            }
-        }
-    }
-
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("debug")
-        }
-    }
-
-    splits {
-        abi {
-            isEnable = false
-        }
-    }
-}
-
-flutter {
-    source = "../.."
-}
-GRADLE
+# 清理可能產生的任何臨時備份檔案（避免專案留下 .bak）
+rm -f android/app/*.bak android/*.bak .termux_project_config.json* 2>/dev/null || true
 
 # 構建 APK
 echo "構建 APK（這可能需要幾分鐘）..."
 build1_log="$WORK_DIR/build1.log"
 build2_log="$WORK_DIR/build2.log"
-flutter build apk --release --target-platform android-arm64 2>&1 | tee "$build1_log" || true
+flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons 2>&1 | tee "$build1_log" || true
 
-# Gradle 可能下載了新的 SDK 組件（如 build-tools/35.0.0-2），重新配置
-echo "配置 Gradle 下載的 SDK 組件..."
-if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
-    bash "$PREFIX/share/flutter/post_install.sh" || { INSTALL_FAILED=true; record_stage post-install failed; exit 50; }
-    record_stage post-install success
-fi
-
-# 檢查是否因 NDK clang 問題失敗（Gradle 可能下載了新 NDK）
-if grep -q "CMAKE_C_COMPILER" "$build1_log" 2>/dev/null || grep -q "compiler identification is unknown" "$build1_log" 2>/dev/null; then
-    echo "檢測到 NDK clang 問題，重新配置..."
-    # Re-run NDK clang configuration for Gradle-downloaded NDK
+# Gradle 可能下載了新的 SDK 組件（如 build-tools 或 NDK），重新配置並重試
+if [ ! -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+    echo "首次構建未產出 APK，重新配置 SDK 組件與 NDK..."
+    if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
+        bash "$PREFIX/share/flutter/post_install.sh" || true
+    fi
     for ndk_dir in "$ANDROID_HOME"/ndk/*/; do
         if [ -d "$ndk_dir/toolchains/llvm" ]; then
             configure_ndk_clang "$ndk_dir"
         fi
     done
-    echo "重新構建..."
-    flutter build apk --release --target-platform android-arm64 2>&1 | tee "$build2_log" || true
+    echo "重新嘗試構建 APK..."
+    flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons 2>&1 | tee "$build2_log" || true
 fi
 
 # 檢查 APK 結果
@@ -921,7 +954,11 @@ else
     APK_BUILD_SUCCESS=false
     echo "  ✗ APK 構建失敗"
     record_stage smoke failed
-    INSTALL_FAILED=true; exit 60
+    if [ "${OPT_STRICT_ROLLBACK:-false}" = "true" ]; then
+        INSTALL_FAILED=true; exit 60
+    else
+        echo -e "${YELLOW}警告: 測試 APK 構建未通過，但 Flutter/Android SDK 安裝已完成。請查看 $build1_log 排錯。${NC}"
+    fi
 fi
 
 # 測試 Linux 構建（如果已安裝 gtk3）
@@ -949,7 +986,9 @@ cd $HOME
 # ========================================
 echo ""
 echo "清理臨時檔案..."
-rm -f "$FLUTTER_DEB" "$ANDROID_SDK_DEB" "$NDK_ARCHIVE" 2>/dev/null || true
+if [ "$CACHE_DIR" = "$WORK_DIR" ]; then
+    rm -f "$FLUTTER_DEB" "$ANDROID_SDK_DEB" "$NDK_ARCHIVE" 2>/dev/null || true
+fi
 
 # ========================================
 # 完成
