@@ -9,8 +9,8 @@ This revision keeps the verified 3.44.9 engine/runtime bytes and ships the post-
 | Item | Value |
 |------|-------|
 | Package | `flutter_3.44.9-1_aarch64.deb` |
-| Size | 178,482,192 bytes (~170.2 MiB) |
-| SHA256 | `d8fec711e71e471566c6bf1f0cad5be510cdda133cdafb829ec594ab3aff62ae` |
+| Size | 178,490,900 bytes (~170.2 MiB) |
+| SHA256 | `ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0` |
 | Flutter | 3.44.9 |
 | Flutter Tools Dart | 3.12.2 |
 | Dart VM | post-install `dartvm` resolves to Dart 3.12.2 (`android_arm64`) |
@@ -32,7 +32,7 @@ flutter doctor -v
 
 ## Verified
 
-Candidate package `flutter_3.44.9-1_aarch64.deb` (SHA256 `d8fec711…`) passed physical Termux device smoke on SM-G9960: online/offline `flutter --version` / `flutter-termux --check`, APK+AAB release builds, and scoped crash-free APK launch (`device_smoke_evidence.json`). Historical `v3.44.9-termux` was not modified.
+Candidate package `flutter_3.44.9-1_aarch64.deb` (SHA256 `ca2cb4de…`) passed physical Termux device smoke on SM-G9960: online/offline `flutter --version` / `flutter-termux --check`, APK+AAB release builds, and scoped crash-free APK launch (`device_smoke_evidence.json`). Historical `v3.44.9-termux` was not modified.
 
 | Command | Expected |
 |---------|----------|

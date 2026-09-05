@@ -144,7 +144,7 @@ Default input tests the published v3.44.9-termux-1 release asset:
 
 ```text
 deb_url: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb
-expected_sha256: 66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
+expected_sha256: ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0
 ```
 
 Required self-hosted environment:
@@ -241,5 +241,6 @@ Manual Windows-to-tablet smoke:
 ```powershell
 scripts/device/run_termux_smoke.ps1 `
   -AdbPath "C:\Users\aa223\AppData\Local\Android\Sdk\platform-tools\adb.exe" `
-  -DebUrl "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb"
+  -DebUrl "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb" `
+  -ExpectedSha256 "ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0"
 ```

@@ -4428,7 +4428,7 @@ class TestVersionDriftGovernance:
         assert cfg["release_tag"] == "v3.44.9-termux-1"
         assert cfg["dart_version"] == "3.12.2"
         assert cfg["engine_commit"] == "5a2a6a42cce67f965cf540fcecf616faca624aa1"
-        assert cfg["sha256"] == "d8fec711e71e471566c6bf1f0cad5be510cdda133cdafb829ec594ab3aff62ae"
+        assert cfg["sha256"] == "ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0"
         assert cfg["asset_name"] == "flutter_3.44.9-1_aarch64.deb"
 
     def test_drift_detected_when_build_py_hardcodes_stale_dart(self, tmp_path):

@@ -649,9 +649,22 @@ def main():
                 and provenance_mode in ("repack_device_smoke", "repack_deb_revision")
             )
             if allow_repack_smoke:
+                # Bind to the published immutable r0 package this revision may repack.
+                known_source = "8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20"
+                claimed_source = str(meta_data.get("source_deb_sha256") or "").strip().lower()
+                if claimed_source != known_source:
+                    print(
+                        "Error: repack provenance requires source_deb_sha256 to equal "
+                        f"published r0 sha256 {known_source}, got '{claimed_source}'"
+                    )
+                    sys.exit(1)
+                if meta_sha == known_source:
+                    print("Error: repack output sha256 must differ from source_deb_sha256")
+                    sys.exit(1)
                 print(
-                    "  ✓ Accepted run_id=0 local/repack provenance "
-                    f"(mode={provenance_mode}); requiring device_smoke_evidence binding"
+                    "  ✓ Accepted run_id=0 repack provenance "
+                    f"(mode={provenance_mode}, source_deb={claimed_source[:8]}...); "
+                    "requiring device_smoke_evidence binding"
                 )
             else:
                 run_api_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"

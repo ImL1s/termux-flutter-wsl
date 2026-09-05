@@ -733,17 +733,24 @@ purge_noncanonical_tags() {
 # revision/URL. Do NOT checkout files — the packaged worktree must stay intact.
 try_shallow_canonical_checkout() {
     ensure_origin_remote
-    local fetch_cmd=( "$GIT_BIN" fetch --depth 1 origin tag "$CANONICAL_FLUTTER_VER" )
-    local alt_fetch_cmd=( "$GIT_BIN" fetch --depth 1 origin "refs/tags/${CANONICAL_FLUTTER_VER}:refs/tags/${CANONICAL_FLUTTER_VER}" )
+    # Drop any local synthetic tag so fetch can bind the canonical object.
+    "$GIT_BIN" tag -d "$CANONICAL_FLUTTER_VER" >/dev/null 2>&1 || true
+    local fetch_ok=1
     if command -v timeout >/dev/null 2>&1; then
-        fetch_cmd=( timeout 20 "${fetch_cmd[@]}" )
-        alt_fetch_cmd=( timeout 20 "${alt_fetch_cmd[@]}" )
-    fi
-    if ! "${fetch_cmd[@]}" >/dev/null 2>&1; then
-        if ! "${alt_fetch_cmd[@]}" >/dev/null 2>&1; then
-            return 1
+        # One shared deadline for both fetch variants (avoid 20s+20s offline stalls).
+        if timeout 20 bash -c "
+            '$GIT_BIN' fetch --depth 1 origin tag '$CANONICAL_FLUTTER_VER' >/dev/null 2>&1 ||
+            '$GIT_BIN' fetch --depth 1 -f origin 'refs/tags/${CANONICAL_FLUTTER_VER}:refs/tags/${CANONICAL_FLUTTER_VER}' >/dev/null 2>&1
+        "; then
+            fetch_ok=0
+        fi
+    else
+        if "$GIT_BIN" fetch --depth 1 origin tag "$CANONICAL_FLUTTER_VER" >/dev/null 2>&1 ||
+           "$GIT_BIN" fetch --depth 1 -f origin "refs/tags/${CANONICAL_FLUTTER_VER}:refs/tags/${CANONICAL_FLUTTER_VER}" >/dev/null 2>&1; then
+            fetch_ok=0
         fi
     fi
+    [ "$fetch_ok" -eq 0 ] || return 1
     local tag_rev
     tag_rev=$("$GIT_BIN" rev-parse "refs/tags/${CANONICAL_FLUTTER_VER}" 2>/dev/null || echo "")
     if [ -z "$tag_rev" ] || [ "$tag_rev" != "$CANONICAL_FRAMEWORK_REV" ]; then
@@ -763,12 +770,14 @@ try_shallow_canonical_checkout() {
 }
 
 init_fallback_synthetic_commit() {
+    # Offline fallback must stay remote-less so a later network fetch cannot
+    # pull a newer upstream tag into the synthetic repo and mis-identify version.
     rm -f version
+    "$GIT_BIN" remote remove origin >/dev/null 2>&1 || true
     "$GIT_BIN" add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
     "$GIT_BIN" commit -q -m "Init framework" >/dev/null 2>&1 || true
     "$GIT_BIN" branch -M stable >/dev/null 2>&1 || true
     "$GIT_BIN" tag -f "$CANONICAL_FLUTTER_VER" HEAD >/dev/null 2>&1
-    ensure_origin_remote
     purge_noncanonical_tags
     mark_synthetic_repo
 }
@@ -1441,8 +1450,12 @@ cat > "$TMP_VER_JSON" << EOF
 EOF
 mv -f "$TMP_VER_JSON" "$FLUTTER_ROOT/bin/cache/flutter.version.json"
 chmod 644 "$FLUTTER_ROOT/bin/cache/flutter.version.json"
-rm -f "$FLUTTER_ROOT/.git/FETCH_HEAD"
-echo "  ✓ Re-asserted canonical flutter.version.json and cleared FETCH_HEAD after tool finalize"
+if is_synthetic_repo "$FLUTTER_ROOT"; then
+    rm -f "$FLUTTER_ROOT/.git/FETCH_HEAD"
+    echo "  ✓ Re-asserted canonical flutter.version.json and cleared synthetic FETCH_HEAD after tool finalize"
+else
+    echo "  ✓ Re-asserted canonical flutter.version.json after tool finalize"
+fi
 
 echo ""
 

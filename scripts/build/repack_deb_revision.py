@@ -62,7 +62,7 @@ def build_deb(tree: Path, out_deb: Path) -> None:
     if out_deb.exists():
         out_deb.unlink()
     subprocess.run(
-        ["dpkg-deb", "-Zxz", "-b", str(tree), str(out_deb)],
+        ["dpkg-deb", "-Zxz", "--root-owner-group", "-b", str(tree), str(out_deb)],
         check=True,
     )
 
