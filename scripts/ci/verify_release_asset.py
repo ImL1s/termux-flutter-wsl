@@ -515,13 +515,12 @@ def main():
                     sys.exit(1)
 
 
-            # Validate version (strip at most one leading 'v' and one trailing '-termux')
+            # Validate version (strip leading 'v' and trailing '-termux' / '-termux-N')
             def _normalize_ver(v_str: str) -> str:
                 s = str(v_str).strip()
                 if s.startswith("v"):
                     s = s[1:]
-                if s.endswith("-termux"):
-                    s = s[:-len("-termux")]
+                s = re.sub(r"-termux(-\d+)?$", "", s)
                 return s
 
             expected_ver = _normalize_ver(expected_tag)
