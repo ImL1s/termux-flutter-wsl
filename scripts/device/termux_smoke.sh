@@ -144,6 +144,8 @@ EXPECTED_ARCH=$(dpkg-deb -f "$DEB" Architecture 2>/dev/null || echo "aarch64")
 
 echo "Expected candidate package metadata: Name=$EXPECTED_PACKAGE, Version=$EXPECTED_VERSION, Arch=$EXPECTED_ARCH"
 
+echo "Purging previous flutter package/tree to avoid stale dart-sdk residue..."
+DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge flutter >/dev/null 2>&1 || dpkg --purge flutter >/dev/null 2>&1 || true
 if command -v su >/dev/null 2>&1; then
     su -c "chmod -R 777 '$PREFIX/opt/flutter' '$PREFIX/share/flutter' 2>/dev/null || true"
     su -c "rm -rf '$PREFIX/opt/flutter' '$PREFIX/share/flutter' 2>/dev/null || true"
@@ -151,6 +153,8 @@ fi
 chmod -R u+rwx "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 chmod -R 777 "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 find "$PREFIX/opt/flutter" "$PREFIX/share/flutter" -exec chmod 777 {} + 2>/dev/null || true
+rm -rf "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
+mkdir -p "$PREFIX/opt" "$PREFIX/share"
 echo "Updating apt package index..."
 apt-get update -y || true
 
@@ -216,6 +220,14 @@ echo "$ONLINE_VERSION_OUT" | grep -Eqi 'channel[[:space:]]+stable' || {
     echo "❌ Online flutter --version did not report channel stable" >&2
     record_status VERSION_IDENTITY_ONLINE_STATUS 1
 }
+echo "$ONLINE_VERSION_OUT" | grep -Fq 'https://github.com/flutter/flutter.git' || {
+    echo "❌ Online flutter --version did not report canonical repository URL" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
+echo "$ONLINE_VERSION_OUT" | grep -Eq '6b182d2c75' || {
+    echo "❌ Online flutter --version did not report framework revision 6b182d2c75" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
 if [ "${status_VERSION_IDENTITY_ONLINE_STATUS:-}" != "1" ]; then
     record_status VERSION_IDENTITY_ONLINE_STATUS 0
 fi
@@ -258,9 +270,11 @@ if [ -d "$SYNTH_ROOT/.git" ]; then
     [ "$BRANCH" = "stable" ] || record_status SYNTHETIC_REPO_STATUS 1
     [ "$TAG_COUNT" = "1" ] || record_status SYNTHETIC_REPO_STATUS 1
     echo "$TAG_AT_HEAD" | grep -Eq '(^|[[:space:]])3\.44\.9([[:space:]]|$)' || record_status SYNTHETIC_REPO_STATUS 1
-    if [ -f "$SYNTH_ROOT/.git/FETCH_HEAD" ]; then
+    if [ -f "$SYNTH_ROOT/.git/FETCH_HEAD" ] && [ -s "$SYNTH_ROOT/.git/FETCH_HEAD" ]; then
         echo "❌ Unexpected FETCH_HEAD after version checks" >&2
         record_status SYNTHETIC_REPO_STATUS 1
+    else
+        rm -f "$SYNTH_ROOT/.git/FETCH_HEAD" 2>/dev/null || true
     fi
     if [ "${status_SYNTHETIC_REPO_STATUS:-}" != "1" ]; then
         record_status SYNTHETIC_REPO_STATUS 0
