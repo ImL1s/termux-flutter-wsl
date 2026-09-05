@@ -217,11 +217,11 @@ chmod +x depot_tools/vpython3
 
 ```powershell
 # Transfer deb to device
-powershell -Command "adb push 'flutter_3.44.9_aarch64.deb' '/data/local/tmp/'"
+powershell -Command "adb push 'flutter_3.44.9-1_aarch64.deb' '/data/local/tmp/'"
 
 # Install in Termux
 pkg install x11-repo
-dpkg -i /data/local/tmp/flutter_3.44.9_aarch64.deb
+dpkg -i /data/local/tmp/flutter_3.44.9-1_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh  # Required for APK builds!
 

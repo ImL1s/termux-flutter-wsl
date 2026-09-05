@@ -13,7 +13,7 @@ source "$(dirname "$0")/lib_common.sh" || {
 parse_installer_args "$@"
 
 trap print_summary EXIT
-DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
+DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/${ASSET_NAME}"
 
 echo "========================================"
 echo "Flutter ${FLUTTER_VERSION} for Termux ARM64"
@@ -27,7 +27,7 @@ echo "[1/5] Installing x11-repo..."
 pkg install -y x11-repo
 
 # Download deb
-echo "[2/5] Downloading flutter_${FLUTTER_VERSION}_aarch64.deb..."
+echo "[2/5] Downloading ${ASSET_NAME}..."
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"; print_summary' EXIT

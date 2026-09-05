@@ -113,9 +113,9 @@ python3 build.py debuild --arch=arm64
 
 It uploads:
 
-- `flutter_3.44.9_aarch64.deb`
-- `flutter_3.44.9_aarch64.deb.sha256`
-- `flutter_3.44.9_aarch64.deb.size.txt`
+- `flutter_3.44.9-1_aarch64.deb`
+- `flutter_3.44.9-1_aarch64.deb.sha256`
+- `flutter_3.44.9-1_aarch64.deb.size.txt`
 
 If `publish_release=true`, it creates or updates `release_tag` and uploads the deb with `--clobber`.
 
@@ -140,10 +140,10 @@ explicit maintainer action.
 
 Manual workflow: **Device smoke (self-hosted)**
 
-Default input tests the published v3.44.9-termux release asset:
+Default input tests the published v3.44.9-termux-1 release asset:
 
 ```text
-deb_url: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
+deb_url: https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb
 expected_sha256: 66a7099324c0d7094d604aa92abeec87b7a29b8e0bc697b819e0cd91fc706000
 ```
 
@@ -241,5 +241,5 @@ Manual Windows-to-tablet smoke:
 ```powershell
 scripts/device/run_termux_smoke.ps1 `
   -AdbPath "C:\Users\aa223\AppData\Local\Android\Sdk\platform-tools\adb.exe" `
-  -DebUrl "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb"
+  -DebUrl "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb"
 ```

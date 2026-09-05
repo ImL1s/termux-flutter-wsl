@@ -360,7 +360,7 @@ fi
 
 # 版本配置
 FLUTTER_VERSION="3.44.9"
-EXPECTED_SHA256="8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20"
+EXPECTED_SHA256="85bd9037718a23d33089c1e1cb9ca15546912927bc38c3534ec776565f44eeca"
 
 # 其他版本配置
 ANDROID_SDK_EXPECTED_SHA256="fc727c848b8ca4e3011515850702adc1bf98ceae7205d7acc82d026bc94d2601"
@@ -454,7 +454,7 @@ mkdir -p "$WORK_DIR/apt_staging"
 
 # 預先下載並驗證所有套件（Staging Phase）
 echo "預先下載並驗證所有套件..."
-FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/flutter_${FLUTTER_VERSION}_aarch64.deb"
+FLUTTER_DEB_URL="https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/${ASSET_NAME}"
 ANDROID_SDK_DEB_URL="https://github.com/mumumusuc/termux-android-sdk/releases/download/35.0.0/android-sdk_35.0.0_aarch64.deb"
 NDK_ARCHIVE_URL="https://github.com/lzhiyong/termux-ndk/releases/download/android-ndk/android-ndk-r29-aarch64.tar.xz"
 
@@ -524,7 +524,7 @@ if [ "$ANDROID_SDK_WAS_INSTALLED" = true ]; then
 fi
 
 
-FLUTTER_DEB="$WORK_DIR/flutter_${FLUTTER_VERSION}_aarch64.deb"
+FLUTTER_DEB="$WORK_DIR/${ASSET_NAME}"
 ANDROID_SDK_DEB="$WORK_DIR/android-sdk_35.0.0_aarch64.deb"
 NDK_ARCHIVE="$WORK_DIR/android-ndk-r29-aarch64.tar.xz"
 
@@ -588,7 +588,7 @@ FLUTTER_ROOT="$PREFIX/opt/flutter"
 DART_SDK=$FLUTTER_ROOT/bin/cache/dart-sdk
 if [ ! -x "$DART_SDK/bin/dartvm" ]; then
     echo -e "${RED}錯誤: Dart VM binary missing: $DART_SDK/bin/dartvm${NC}"
-    echo "Dart 3.10+ requires dartvm next to dart. Re-download the fixed flutter_${FLUTTER_VERSION}_aarch64.deb release."
+    echo "Dart 3.10+ requires dartvm next to dart. Re-download the fixed ${ASSET_NAME} release."
     INSTALL_FAILED=true; record_stage integrity failed; exit 30
 fi
 if [ -f "$DART_SDK/bin/dart" ] && [ -f "$FLUTTER_ROOT/packages/flutter_tools/bin/flutter_tools.dart" ]; then

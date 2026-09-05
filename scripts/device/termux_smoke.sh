@@ -205,10 +205,79 @@ record_status DART_VERSION_STATUS $?
 "$PREFIX/opt/flutter/bin/cache/dart-sdk/bin/dartvm" --version
 record_status DARTVM_VERSION_STATUS $?
 
+echo SECTION=VERSION_IDENTITY_ONLINE
+ONLINE_VERSION_OUT="$(flutter --version 2>&1 || true)"
+echo "$ONLINE_VERSION_OUT"
+echo "$ONLINE_VERSION_OUT" | grep -Eq 'Flutter[[:space:]]+3\.44\.9' || {
+    echo "❌ Online flutter --version did not report Flutter 3.44.9" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
+echo "$ONLINE_VERSION_OUT" | grep -Eqi 'channel[[:space:]]+stable' || {
+    echo "❌ Online flutter --version did not report channel stable" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
+if [ "${status_VERSION_IDENTITY_ONLINE_STATUS:-}" != "1" ]; then
+    record_status VERSION_IDENTITY_ONLINE_STATUS 0
+fi
+
+echo SECTION=FLUTTER_TERMUX_DOCTOR
+if command -v flutter-termux >/dev/null 2>&1; then
+    flutter-termux --check
+    record_status FLUTTER_TERMUX_DOCTOR_STATUS $?
+else
+    echo "❌ flutter-termux not found on PATH" >&2
+    record_status FLUTTER_TERMUX_DOCTOR_STATUS 1
+fi
+
+echo SECTION=VERSION_IDENTITY_OFFLINE
+# Prove identity remains stable when network tag fetches cannot succeed.
+OFFLINE_VERSION_OUT="$(
+    GIT_TERMINAL_PROMPT=0 \
+    GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=url.https://127.0.0.1:1/.insteadOf \
+    GIT_CONFIG_VALUE_0=https://github.com/ \
+    flutter --version 2>&1 || true
+)"
+echo "$OFFLINE_VERSION_OUT"
+echo "$OFFLINE_VERSION_OUT" | grep -Eq 'Flutter[[:space:]]+3\.44\.9' || {
+    echo "❌ Offline/blocked-network flutter --version did not report Flutter 3.44.9" >&2
+    record_status VERSION_IDENTITY_OFFLINE_STATUS 1
+}
+if [ "${status_VERSION_IDENTITY_OFFLINE_STATUS:-}" != "1" ]; then
+    record_status VERSION_IDENTITY_OFFLINE_STATUS 0
+fi
+
+SYNTH_ROOT="$PREFIX/opt/flutter"
+if [ -d "$SYNTH_ROOT/.git" ]; then
+    BRANCH="$(git -C "$SYNTH_ROOT" symbolic-ref --short HEAD 2>/dev/null || true)"
+    TAG_COUNT="$(git -C "$SYNTH_ROOT" tag 2>/dev/null | wc -l | tr -d ' ')"
+    TAG_AT_HEAD="$(git -C "$SYNTH_ROOT" tag --points-at HEAD 2>/dev/null | tr '\n' ' ')"
+    echo "SYNTHETIC_BRANCH=$BRANCH"
+    echo "SYNTHETIC_TAG_COUNT=$TAG_COUNT"
+    echo "SYNTHETIC_TAGS_AT_HEAD=$TAG_AT_HEAD"
+    [ "$BRANCH" = "stable" ] || record_status SYNTHETIC_REPO_STATUS 1
+    [ "$TAG_COUNT" = "1" ] || record_status SYNTHETIC_REPO_STATUS 1
+    echo "$TAG_AT_HEAD" | grep -Eq '(^|[[:space:]])3\.44\.9([[:space:]]|$)' || record_status SYNTHETIC_REPO_STATUS 1
+    if [ -f "$SYNTH_ROOT/.git/FETCH_HEAD" ]; then
+        echo "❌ Unexpected FETCH_HEAD after version checks" >&2
+        record_status SYNTHETIC_REPO_STATUS 1
+    fi
+    if [ "${status_SYNTHETIC_REPO_STATUS:-}" != "1" ]; then
+        record_status SYNTHETIC_REPO_STATUS 0
+    fi
+else
+    echo "❌ Missing synthetic/packaged flutter git metadata" >&2
+    record_status SYNTHETIC_REPO_STATUS 1
+fi
+
 echo SECTION=DOCTOR
 flutter doctor -v
 record_status DOCTOR_STATUS $?
-
+DOCTOR_OUT="$(flutter doctor -v 2>&1 || true)"
+echo "$DOCTOR_OUT" | grep -qi 'Unknown upstream repository' && {
+    echo "❌ flutter doctor reported Unknown upstream repository" >&2
+    record_status DOCTOR_STATUS 1
+}
 echo SECTION=CREATE_PROJECT
 cd "$TMPDIR" || exit 3
 rm -rf "$PROJECT"

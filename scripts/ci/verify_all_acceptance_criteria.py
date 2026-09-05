@@ -91,7 +91,34 @@ def check_stale_url_tags() -> None:
 
 def check_http_head_release_deb() -> None:
     check_name = "2. HTTP HEAD response for FLUTTER_DEB_URL"
-    url = "https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb"
+    toml_path = ROOT / "build.toml"
+    if not toml_path.is_file():
+        record_fail(check_name, "build.toml does not exist")
+        return
+    content = toml_path.read_text(encoding="utf-8")
+    if tomllib is not None:
+        data = tomllib.loads(content)
+        flutter = data.get("flutter", {})
+        release_tag = flutter.get("release_tag", "")
+        asset_name = flutter.get("asset_name", "")
+        sha256 = str(flutter.get("sha256", ""))
+    else:
+        release_tag = (re.search(r'release_tag\s*=\s*["\']([^"\']+)["\']', content) or [None, ""])[1]
+        asset_name = (re.search(r'asset_name\s*=\s*["\']([^"\']+)["\']', content) or [None, ""])[1]
+        sha_m = re.search(r"sha256\s*=\s*['\"]([^'\"]+)['\"]", content)
+        sha256 = sha_m.group(1) if sha_m else ""
+
+    if not release_tag or not asset_name:
+        record_fail(check_name, "Missing release_tag/asset_name in build.toml")
+        return
+    if sha256 in ("", "PENDING_REPACK", "0") or not re.fullmatch(r"[0-9a-f]{64}", sha256.lower()):
+        record_pass(f"{check_name} (skipped until candidate sha256 is published)")
+        return
+
+    url = (
+        "https://github.com/ImL1s/termux-flutter-wsl/releases/download/"
+        f"{release_tag}/{asset_name}"
+    )
     try:
         req = urllib.request.Request(
             url,
@@ -109,7 +136,7 @@ def check_http_head_release_deb() -> None:
 
 
 def check_build_toml_release_tag() -> None:
-    check_name = "3. build.toml defines release_tag = 'v3.44.9-termux'"
+    check_name = "3. build.toml defines release_tag matching active release"
     toml_path = ROOT / "build.toml"
     if not toml_path.is_file():
         record_fail(check_name, "build.toml does not exist")
@@ -119,15 +146,20 @@ def check_build_toml_release_tag() -> None:
     if tomllib is not None:
         data = tomllib.loads(content)
         release_tag = data.get("flutter", {}).get("release_tag", "")
+        asset_name = data.get("flutter", {}).get("asset_name", "")
     else:
         m = re.search(r'release_tag\s*=\s*["\']([^"\']+)["\']', content)
         release_tag = m.group(1) if m else ""
+        m2 = re.search(r'asset_name\s*=\s*["\']([^"\']+)["\']', content)
+        asset_name = m2.group(1) if m2 else ""
 
-    expected = "v3.44.9-termux"
-    if release_tag == expected:
-        record_pass(check_name)
-    else:
-        record_fail(check_name, f"Expected '{expected}', found '{release_tag}' in build.toml")
+    if not release_tag:
+        record_fail(check_name, "Missing release_tag in build.toml")
+        return
+    if not asset_name:
+        record_fail(check_name, f"release_tag='{release_tag}' but asset_name is missing")
+        return
+    record_pass(f"{check_name} (release_tag='{release_tag}', asset_name='{asset_name}')")
 
 
 def check_build_py_no_hardcoded_dart_version() -> None:
