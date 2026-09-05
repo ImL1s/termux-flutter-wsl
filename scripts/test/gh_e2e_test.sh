@@ -13,7 +13,7 @@ export TMPDIR=$PREFIX/tmp
 export RELEASE_TAG=${RELEASE_TAG:-v3.44.9-termux-1}
 export FLUTTER_VERSION=${FLUTTER_VERSION:-3.44.9}
 export ASSET_NAME=${ASSET_NAME:-flutter_3.44.9-1_aarch64.deb}
-export EXPECTED_SHA256=${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-c888b305ac1ddbe06aa0f98ce3b1cfb24f3906e40fbb966ae5a487e122897901}}
+export EXPECTED_SHA256=${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-d8fec711e71e471566c6bf1f0cad5be510cdda133cdafb829ec594ab3aff62ae}}
 export DEB_NAME="${ASSET_NAME}"
 export DEB_URL=${DEB_URL:-"https://github.com/ImL1s/termux-flutter-wsl/releases/download/${RELEASE_TAG}/${DEB_NAME}"}
 

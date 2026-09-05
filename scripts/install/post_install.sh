@@ -1242,24 +1242,36 @@ else
     echo "  ✓ VM snapshots present"
 fi
 
-# 12. Create linux-x64 -> linux-arm64 symlinks for host platform detection
-# Flutter's getCurrentHostPlatform() in build_info.dart doesn't recognize
-# Termux as Linux (Platform.operatingSystem returns 'android'), so it falls
-# back to HostPlatform.linux_x64, causing gen_snapshot lookup to search
-# linux-x64/ instead of linux-arm64/. Create symlinks to resolve this.
+# 12. Create linux-x64 host aliases that point at linux-arm64 binaries.
+# Flutter's getCurrentHostPlatform() may look up linux-x64/ on Termux.
+# IMPORTANT: never symlink the directory itself — Flutter artifact downloads
+# write into linux-x64/ and would overwrite the real ARM64 gen_snapshot.
 echo "[12.5/13] Creating host platform symlinks..."
 ENG_ART=$FLUTTER_ROOT/bin/cache/artifacts/engine
-for dir in android-arm64-release android-arm64-profile; do
-    if [ -d "$ENG_ART/$dir/linux-arm64" ] && [ ! -e "$ENG_ART/$dir/linux-x64" ]; then
-        ln -sf linux-arm64 "$ENG_ART/$dir/linux-x64"
-        echo "  ✓ $dir/linux-x64 -> linux-arm64"
+
+link_host_platform_files() {
+    local parent="$1"
+    local arm_dir="$parent/linux-arm64"
+    local x64_dir="$parent/linux-x64"
+    [ -d "$arm_dir" ] || return 0
+    if [ -L "$x64_dir" ]; then
+        rm -f "$x64_dir"
     fi
+    mkdir -p "$x64_dir"
+    local f base
+    for f in "$arm_dir"/*; do
+        [ -e "$f" ] || continue
+        base=$(basename "$f")
+        rm -f "$x64_dir/$base"
+        ln -sf "../linux-arm64/$base" "$x64_dir/$base"
+    done
+    echo "  ✓ $(basename "$parent")/linux-x64/* -> ../linux-arm64/*"
+}
+
+for dir in android-arm64-release android-arm64-profile; do
+    link_host_platform_files "$ENG_ART/$dir"
 done
-# Also create top-level linux-x64 -> linux-arm64 symlink for general artifacts
-if [ -d "$ENG_ART/linux-arm64" ] && [ ! -e "$ENG_ART/linux-x64" ]; then
-    ln -sf linux-arm64 "$ENG_ART/linux-x64"
-    echo "  ✓ linux-x64 -> linux-arm64"
-fi
+link_host_platform_files "$ENG_ART"
 
 # 12.7c. Create api-level.h for CMake system detection
 # CMake's CMakeDetermineSystem.cmake reads $PREFIX/include/android/api-level.h

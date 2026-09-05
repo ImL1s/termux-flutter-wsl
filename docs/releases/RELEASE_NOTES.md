@@ -9,8 +9,8 @@ This revision keeps the verified 3.44.9 engine/runtime bytes and ships the post-
 | Item | Value |
 |------|-------|
 | Package | `flutter_3.44.9-1_aarch64.deb` |
-| Size | 178,481,252 bytes (~170.2 MiB) |
-| SHA256 | `c888b305ac1ddbe06aa0f98ce3b1cfb24f3906e40fbb966ae5a487e122897901` |
+| Size | 178,482,192 bytes (~170.2 MiB) |
+| SHA256 | `d8fec711e71e471566c6bf1f0cad5be510cdda133cdafb829ec594ab3aff62ae` |
 | Flutter | 3.44.9 |
 | Flutter Tools Dart | 3.12.2 |
 | Dart VM | post-install `dartvm` resolves to Dart 3.12.2 (`android_arm64`) |

@@ -18,7 +18,7 @@
 
 | 測試設備 | Samsung SM-X716B / Android 16 / ARM64 |
 | deb size | 177,161,976 bytes（約 169 MiB） |
-| SHA256 | `c888b305ac1ddbe06aa0f98ce3b1cfb24f3906e40fbb966ae5a487e122897901` |
+| SHA256 | `d8fec711e71e471566c6bf1f0cad5be510cdda133cdafb829ec594ab3aff62ae` |
 
 ## 系統需求
 
@@ -48,7 +48,7 @@ pkg install -y x11-repo git wget curl unzip openjdk-21 aapt2 android-tools cmake
 cd ~
 wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb
 sha256sum flutter_3.44.9-1_aarch64.deb
-# 確認輸出為：c888b305ac1ddbe06aa0f98ce3b1cfb24f3906e40fbb966ae5a487e122897901
+# 確認輸出為：d8fec711e71e471566c6bf1f0cad5be510cdda133cdafb829ec594ab3aff62ae
 
 dpkg -i flutter_3.44.9-1_aarch64.deb
 apt --fix-broken install -y

@@ -370,6 +370,26 @@ grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride\|enableResour
 head -3 linux/CMakeLists.txt
 
 echo SECTION=BUILD_APK_RELEASE
+# Re-assert ARM64 host aliases in case a prior Flutter download replaced them.
+if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
+    bash -c '
+      ENG_ART="$PREFIX/opt/flutter/bin/cache/artifacts/engine"
+      link_one() {
+        local parent="$1"; local arm="$parent/linux-arm64"; local x64="$parent/linux-x64"
+        [ -d "$arm" ] || return 0
+        [ -L "$x64" ] && rm -f "$x64"
+        mkdir -p "$x64"
+        for f in "$arm"/*; do
+          [ -e "$f" ] || continue
+          b=$(basename "$f")
+          rm -f "$x64/$b"
+          ln -sf "../linux-arm64/$b" "$x64/$b"
+        done
+      }
+      for d in android-arm64-release android-arm64-profile; do link_one "$ENG_ART/$d"; done
+      link_one "$ENG_ART"
+    '
+fi
 flutter build apk --release --target-platform android-arm64 --no-pub --no-tree-shake-icons
 record_status BUILD_APK_STATUS $?
 ls -lh build/app/outputs/flutter-apk/*.apk 2>/dev/null || true
