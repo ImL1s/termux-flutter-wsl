@@ -1,6 +1,6 @@
 # Termux Flutter 3.44.9 安裝指南
 
-本指南適用於 `flutter_3.44.9_aarch64.deb`，目標是在 ARM64 Termux 上執行：
+本指南適用於 `flutter_3.44.9-1_aarch64.deb`，目標是在 ARM64 Termux 上執行：
 
 - `flutter doctor -v`
 - `flutter create`
@@ -18,7 +18,7 @@
 
 | 測試設備 | Samsung SM-X716B / Android 16 / ARM64 |
 | deb size | 177,161,976 bytes（約 169 MiB） |
-| SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
+| SHA256 | `ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0` |
 
 ## 系統需求
 
@@ -46,11 +46,11 @@ pkg update -y
 pkg install -y x11-repo git wget curl unzip openjdk-21 aapt2 android-tools cmake ninja clang
 
 cd ~
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
-sha256sum flutter_3.44.9_aarch64.deb
-# 確認輸出為：8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb
+sha256sum flutter_3.44.9-1_aarch64.deb
+# 確認輸出為：ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0
 
-dpkg -i flutter_3.44.9_aarch64.deb
+dpkg -i flutter_3.44.9-1_aarch64.deb
 apt --fix-broken install -y
 
 # 必跑：dpkg 只安裝檔案；這一步才會修補 Termux runtime。

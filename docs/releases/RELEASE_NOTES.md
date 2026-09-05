@@ -1,28 +1,29 @@
-# Flutter 3.44.9 for Termux ARM64
+# Flutter 3.44.9-1 for Termux ARM64
 
-**Flutter 3.44.9 / Dart 3.12.2 for Android-bionic ARM64 hosts.**
+**Flutter 3.44.9 / Dart 3.12.2 for Android-bionic ARM64 hosts (package revision 1).**
 
-This release updates the Termux Flutter SDK package to Flutter 3.44.9. It incorporates all post-v3.44.2 installer hardening, dynamic JAVA_HOME auto-detection, robust PREFIX quoting under `set -euo pipefail`, and refreshed Termux toolchain sysroot packages.
+This revision keeps the verified 3.44.9 engine/runtime bytes and ships the post-install identity fix for #82/#83: synthetic Git repo on `stable`, canonical `flutter.version.json`, and safe repair of contaminated installs. Historical `v3.44.9-termux` assets are unchanged.
 
 ## Package
 
 | Item | Value |
 |------|-------|
-| Package | `flutter_3.44.9_aarch64.deb` |
-| Size | 174,157,728 bytes (~166.1 MiB) |
-| SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
+| Package | `flutter_3.44.9-1_aarch64.deb` |
+| Size | 178,490,900 bytes (~170.2 MiB) |
+| SHA256 | `ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0` |
 | Flutter | 3.44.9 |
 | Flutter Tools Dart | 3.12.2 |
 | Dart VM | post-install `dartvm` resolves to Dart 3.12.2 (`android_arm64`) |
 | Target host | Termux / Android bionic / ARM64 |
+| Supersedes | `v3.44.9-termux` / `flutter_3.44.9_aarch64.deb` (identity bug under network) |
 
 ## Install
 
 ```bash
 pkg update -y
 pkg install -y x11-repo wget openjdk-21 openjdk-17
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
-dpkg -i flutter_3.44.9_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb
+dpkg -i flutter_3.44.9-1_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source $PREFIX/etc/profile.d/flutter.sh
@@ -31,18 +32,15 @@ flutter doctor -v
 
 ## Verified
 
-Device smoke on Samsung SM-X716B / Android 16 / ARM64 Termux:
+Candidate package `flutter_3.44.9-1_aarch64.deb` (SHA256 `ca2cb4de…`) passed physical Termux device smoke on SM-G9960: online/offline `flutter --version` / `flutter-termux --check`, APK+AAB release builds, and scoped crash-free APK launch (`device_smoke_evidence.json`). Historical `v3.44.9-termux` was not modified.
 
-| Command | Result |
-|---------|--------|
-| `flutter --version` | ✅ Flutter 3.44.9 |
-| `dart --version` | ✅ Dart 3.12.2 on `android_arm64` |
-| `dartvm --version` | ✅ Dart 3.12.2 on `linux_arm64` |
-| `flutter doctor -v` | ✅ completes; unknown channel / no connected device are expected warnings |
-| `flutter create --platforms=android,linux` | ✅ |
-| `flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons` | ✅ ARM64 APK produced |
-| `flutter build linux --release` | ✅ ARM64 Linux bundle produced |
-| deb artifact validator | ✅ `dart`, `dartvm`, `dartaotruntime` executable |
+| Command | Expected |
+|---------|----------|
+| `flutter --version` (online + offline) | Flutter 3.44.9 · channel stable |
+| `flutter-termux --check` | VERSION_JSON + SYNTHETIC_REPO pass |
+| `flutter doctor -v` | no `Unknown upstream repository` |
+| `flutter build apk --release --target-platform android-arm64` | ARM64 APK |
+| `flutter build linux --release` | ARM64 Linux bundle |
 
 ## Highlights
 

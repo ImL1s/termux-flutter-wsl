@@ -144,6 +144,8 @@ EXPECTED_ARCH=$(dpkg-deb -f "$DEB" Architecture 2>/dev/null || echo "aarch64")
 
 echo "Expected candidate package metadata: Name=$EXPECTED_PACKAGE, Version=$EXPECTED_VERSION, Arch=$EXPECTED_ARCH"
 
+echo "Purging previous flutter package/tree to avoid stale dart-sdk residue..."
+DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge flutter >/dev/null 2>&1 || dpkg --purge flutter >/dev/null 2>&1 || true
 if command -v su >/dev/null 2>&1; then
     su -c "chmod -R 777 '$PREFIX/opt/flutter' '$PREFIX/share/flutter' 2>/dev/null || true"
     su -c "rm -rf '$PREFIX/opt/flutter' '$PREFIX/share/flutter' 2>/dev/null || true"
@@ -151,6 +153,8 @@ fi
 chmod -R u+rwx "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 chmod -R 777 "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
 find "$PREFIX/opt/flutter" "$PREFIX/share/flutter" -exec chmod 777 {} + 2>/dev/null || true
+rm -rf "$PREFIX/opt/flutter" "$PREFIX/share/flutter" 2>/dev/null || true
+mkdir -p "$PREFIX/opt" "$PREFIX/share"
 echo "Updating apt package index..."
 apt-get update -y || true
 
@@ -205,10 +209,89 @@ record_status DART_VERSION_STATUS $?
 "$PREFIX/opt/flutter/bin/cache/dart-sdk/bin/dartvm" --version
 record_status DARTVM_VERSION_STATUS $?
 
+echo SECTION=VERSION_IDENTITY_ONLINE
+ONLINE_VERSION_OUT="$(flutter --version 2>&1 || true)"
+echo "$ONLINE_VERSION_OUT"
+echo "$ONLINE_VERSION_OUT" | grep -Eq 'Flutter[[:space:]]+3\.44\.9' || {
+    echo "❌ Online flutter --version did not report Flutter 3.44.9" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
+echo "$ONLINE_VERSION_OUT" | grep -Eqi 'channel[[:space:]]+stable' || {
+    echo "❌ Online flutter --version did not report channel stable" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
+echo "$ONLINE_VERSION_OUT" | grep -Fq 'https://github.com/flutter/flutter.git' || {
+    echo "❌ Online flutter --version did not report canonical repository URL" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
+echo "$ONLINE_VERSION_OUT" | grep -Eq '6b182d2c75' || {
+    echo "❌ Online flutter --version did not report framework revision 6b182d2c75" >&2
+    record_status VERSION_IDENTITY_ONLINE_STATUS 1
+}
+if [ "${status_VERSION_IDENTITY_ONLINE_STATUS:-}" != "1" ]; then
+    record_status VERSION_IDENTITY_ONLINE_STATUS 0
+fi
+
+echo SECTION=FLUTTER_TERMUX_DOCTOR
+if command -v flutter-termux >/dev/null 2>&1; then
+    flutter-termux --check
+    record_status FLUTTER_TERMUX_DOCTOR_STATUS $?
+else
+    echo "❌ flutter-termux not found on PATH" >&2
+    record_status FLUTTER_TERMUX_DOCTOR_STATUS 1
+fi
+
+echo SECTION=VERSION_IDENTITY_OFFLINE
+# Prove identity remains stable when network tag fetches cannot succeed.
+OFFLINE_VERSION_OUT="$(
+    GIT_TERMINAL_PROMPT=0 \
+    GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=url.https://127.0.0.1:1/.insteadOf \
+    GIT_CONFIG_VALUE_0=https://github.com/ \
+    flutter --version 2>&1 || true
+)"
+echo "$OFFLINE_VERSION_OUT"
+echo "$OFFLINE_VERSION_OUT" | grep -Eq 'Flutter[[:space:]]+3\.44\.9' || {
+    echo "❌ Offline/blocked-network flutter --version did not report Flutter 3.44.9" >&2
+    record_status VERSION_IDENTITY_OFFLINE_STATUS 1
+}
+if [ "${status_VERSION_IDENTITY_OFFLINE_STATUS:-}" != "1" ]; then
+    record_status VERSION_IDENTITY_OFFLINE_STATUS 0
+fi
+
+SYNTH_ROOT="$PREFIX/opt/flutter"
+if [ -d "$SYNTH_ROOT/.git" ]; then
+    BRANCH="$(git -C "$SYNTH_ROOT" symbolic-ref --short HEAD 2>/dev/null || true)"
+    TAG_COUNT="$(git -C "$SYNTH_ROOT" tag 2>/dev/null | wc -l | tr -d ' ')"
+    TAG_AT_HEAD="$(git -C "$SYNTH_ROOT" tag --points-at HEAD 2>/dev/null | tr '\n' ' ')"
+    echo "SYNTHETIC_BRANCH=$BRANCH"
+    echo "SYNTHETIC_TAG_COUNT=$TAG_COUNT"
+    echo "SYNTHETIC_TAGS_AT_HEAD=$TAG_AT_HEAD"
+    [ "$BRANCH" = "stable" ] || record_status SYNTHETIC_REPO_STATUS 1
+    [ "$TAG_COUNT" = "1" ] || record_status SYNTHETIC_REPO_STATUS 1
+    echo "$TAG_AT_HEAD" | grep -Eq '(^|[[:space:]])3\.44\.9([[:space:]]|$)' || record_status SYNTHETIC_REPO_STATUS 1
+    if [ -f "$SYNTH_ROOT/.git/FETCH_HEAD" ] && [ -s "$SYNTH_ROOT/.git/FETCH_HEAD" ]; then
+        echo "❌ Unexpected FETCH_HEAD after version checks" >&2
+        record_status SYNTHETIC_REPO_STATUS 1
+    else
+        rm -f "$SYNTH_ROOT/.git/FETCH_HEAD" 2>/dev/null || true
+    fi
+    if [ "${status_SYNTHETIC_REPO_STATUS:-}" != "1" ]; then
+        record_status SYNTHETIC_REPO_STATUS 0
+    fi
+else
+    echo "❌ Missing synthetic/packaged flutter git metadata" >&2
+    record_status SYNTHETIC_REPO_STATUS 1
+fi
+
 echo SECTION=DOCTOR
 flutter doctor -v
 record_status DOCTOR_STATUS $?
-
+DOCTOR_OUT="$(flutter doctor -v 2>&1 || true)"
+echo "$DOCTOR_OUT" | grep -qi 'Unknown upstream repository' && {
+    echo "❌ flutter doctor reported Unknown upstream repository" >&2
+    record_status DOCTOR_STATUS 1
+}
 echo SECTION=CREATE_PROJECT
 cd "$TMPDIR" || exit 3
 rm -rf "$PROJECT"
@@ -287,6 +370,26 @@ grep -R 'compileSdk\|targetSdk\|abiFilters\|aapt2FromMavenOverride\|enableResour
 head -3 linux/CMakeLists.txt
 
 echo SECTION=BUILD_APK_RELEASE
+# Re-assert ARM64 host aliases in case a prior Flutter download replaced them.
+if [ -f "$PREFIX/share/flutter/post_install.sh" ]; then
+    bash -c '
+      ENG_ART="$PREFIX/opt/flutter/bin/cache/artifacts/engine"
+      link_one() {
+        local parent="$1"; local arm="$parent/linux-arm64"; local x64="$parent/linux-x64"
+        [ -d "$arm" ] || return 0
+        [ -L "$x64" ] && rm -f "$x64"
+        mkdir -p "$x64"
+        for f in "$arm"/*; do
+          [ -e "$f" ] || continue
+          b=$(basename "$f")
+          rm -f "$x64/$b"
+          ln -sf "../linux-arm64/$b" "$x64/$b"
+        done
+      }
+      for d in android-arm64-release android-arm64-profile; do link_one "$ENG_ART/$d"; done
+      link_one "$ENG_ART"
+    '
+fi
 flutter build apk --release --target-platform android-arm64 --no-pub --no-tree-shake-icons
 record_status BUILD_APK_STATUS $?
 ls -lh build/app/outputs/flutter-apk/*.apk 2>/dev/null || true

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.44.9-termux-1] - 2026-09-05
+
+### Fixed
+- Synthetic post-install Git repo now initializes on branch `stable` and writes canonical `flutter.version.json`, preventing network-connected `flutter --version` from fetching upstream tags and misreporting `3.48.0-0.2.pre` (#82, #83).
+- Contaminated synthetic repos are repaired safely; unknown/user-owned checkouts are not destructively rewritten.
+- Device smoke now asserts online/offline Flutter 3.44.9 identity, `flutter-termux --check`, and synthetic-repo invariants.
+
+### Changed
+- Published package revision `3.44.9-1` as immutable release `v3.44.9-termux-1` (`flutter_3.44.9-1_aarch64.deb`).
+- Left historical `v3.44.9-termux` assets untouched.
+
 ## [3.44.9-termux] - 2026-07-04
 
 ### Added

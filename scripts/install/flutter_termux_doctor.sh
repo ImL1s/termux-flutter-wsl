@@ -128,7 +128,12 @@ if [ -d "$FLUTTER_BASE_DIR/.git" ]; then
     tag_head="$(git --git-dir="$FLUTTER_BASE_DIR/.git" tag --points-at HEAD 2>/dev/null || echo "none")"
     t_cnt="$(git --git-dir="$FLUTTER_BASE_DIR/.git" tag -l 2>/dev/null | wc -l)"
     fetch_head="NO"
-    [ -f "$FLUTTER_BASE_DIR/.git/FETCH_HEAD" ] && fetch_head="YES"
+    if [ -f "$FLUTTER_BASE_DIR/.git/FETCH_HEAD" ] && [ -s "$FLUTTER_BASE_DIR/.git/FETCH_HEAD" ]; then
+        fetch_head="YES"
+    elif [ -f "$FLUTTER_BASE_DIR/.git/FETCH_HEAD" ]; then
+        # Empty FETCH_HEAD is leftover noise from git plumbing; treat as absent.
+        rm -f "$FLUTTER_BASE_DIR/.git/FETCH_HEAD" 2>/dev/null || true
+    fi
     echo "  Git Repo State  : branch=$br, tag_at_head=$tag_head, total_tags=$t_cnt, synthetic=$is_synth, FETCH_HEAD=$fetch_head"
 
     if [ "$is_synth" = "YES" ]; then

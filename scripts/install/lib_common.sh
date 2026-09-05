@@ -11,8 +11,9 @@ export NC='\033[0m'
 
 # Version info
 export FLUTTER_VERSION="3.44.9"
-export RELEASE_TAG="v3.44.9-termux"
-export EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20}}"
+export RELEASE_TAG="v3.44.9-termux-1"
+export ASSET_NAME="flutter_3.44.9-1_aarch64.deb"
+export EXPECTED_SHA256="${EXPECTED_SHA256:-${FLUTTER_DEB_SHA256:-ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0}}"
 
 declare -A STAGE_STATUS
 

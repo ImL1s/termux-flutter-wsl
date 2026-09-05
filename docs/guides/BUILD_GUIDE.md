@@ -8,9 +8,9 @@
 |------|----|
 | Flutter tag | `3.44.9` |
 | Engine revision | `5a2a6a42cce67f965cf540fcecf616faca624aa1` |
-| Package | `flutter_3.44.9_aarch64.deb` |
+| Package | `flutter_3.44.9-1_aarch64.deb` |
 | Package size | 666,366,556 bytes（約 636 MiB） |
-| SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
+| SHA256 | `ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0` |
 | Device smoke | Samsung SM-X716B / Android 16 / Termux |
 
 3.44.9 需要特別注意三個新點：
@@ -199,7 +199,7 @@ python3 build.py debuild --arch=arm64
 
 構建完成後，deb 包位於：
 ```
-release/flutter_3.44.9_aarch64.deb
+release/flutter_3.44.9-1_aarch64.deb
 ```
 
 ## deb 包內容
@@ -281,7 +281,7 @@ Flutter Engine 源碼約 30GB，編譯產物約 20GB，至少需要 60GB 空間�
 deb 安裝後要在 Termux 內執行：
 
 ```bash
-dpkg -i flutter_3.44.9_aarch64.deb
+dpkg -i flutter_3.44.9-1_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source $PREFIX/etc/profile.d/flutter.sh

@@ -53,7 +53,7 @@ Flutter's ARM64 target support does not mean the official SDK can be used as an 
 This repository packages a Flutter SDK for Termux ARM64:
 
 - Cross-compiles Flutter Engine, Dart runtime, and required host tools from WSL/Linux.
-- Assembles an installable `flutter_3.44.9_aarch64.deb` package for Termux.
+- Assembles an installable `flutter_3.44.9-1_aarch64.deb` package for Termux.
 - Runs `post_install.sh` to patch Flutter Tools, the Gradle plugin, NDK/build-tools wrappers, Android SDK constraints, and Termux shebangs.
 - Enables `flutter doctor`, `flutter create`, `flutter build apk`, `flutter build linux`, and hot reload through Termux:X11.
 
@@ -64,9 +64,9 @@ This repository packages a Flutter SDK for Termux ARM64:
 | Flutter | `3.44.9` |
 | Dart | `3.12.2` |
 | Architecture | `aarch64` / `arm64-v8a` |
-| Release asset | [`flutter_3.44.9_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.9-termux) |
-| Size | `174,157,728` bytes (~166 MiB) |
-| SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
+| Release asset | [`flutter_3.44.9-1_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.9-termux-1) |
+| Size | `178,490,900` bytes (~170 MiB) |
+| SHA256 | `ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0` |
 
 ### Device smoke test
 
@@ -105,10 +105,10 @@ bash install_flutter_complete.sh
 
 ```bash
 pkg update && pkg install -y wget
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
-sha256sum flutter_3.44.9_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb
+sha256sum flutter_3.44.9-1_aarch64.deb
 
-dpkg -i flutter_3.44.9_aarch64.deb
+dpkg -i flutter_3.44.9-1_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source ~/.bashrc

@@ -53,7 +53,7 @@ Flutter 官方 SDK 支援 ARM64 target，不代表可以直接把 Flutter SDK �
 本專案提供一套針對 Termux ARM64 的 Flutter SDK 打包流程：
 
 - 從 WSL/Linux 交叉編譯 Flutter Engine、Dart runtime 與必要工具。
-- 將產物整理成 Termux 可安裝的 `flutter_3.44.9_aarch64.deb`。
+- 將產物整理成 Termux 可安裝的 `flutter_3.44.9-1_aarch64.deb`。
 - 安裝後透過 `post_install.sh` 修補 Flutter Tools、Gradle plugin、NDK/build-tools wrappers、Android SDK 限制與 Termux shebang。
 - 讓 Termux 內可以執行 `flutter doctor`、`flutter create`、`flutter build apk`、`flutter build linux`，並可搭配 Termux:X11 進行 hot reload。
 
@@ -64,9 +64,9 @@ Flutter 官方 SDK 支援 ARM64 target，不代表可以直接把 Flutter SDK �
 | Flutter | `3.44.9` |
 | Dart | `3.12.2` |
 | 架構 | `aarch64` / `arm64-v8a` |
-| Release asset | [`flutter_3.44.9_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.9-termux) |
-| Size | `174,157,728` bytes (~166 MiB) |
-| SHA256 | `8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20` |
+| Release asset | [`flutter_3.44.9-1_aarch64.deb`](https://github.com/ImL1s/termux-flutter-wsl/releases/tag/v3.44.9-termux-1) |
+| Size | `178,490,900` bytes (~170 MiB) |
+| SHA256 | `ca2cb4de90e657db5445ea3142bfdc71e6be511da8f56b8cdfd9eb49d71ac6b0` |
 
 ### 實機 smoke test
 
@@ -105,10 +105,10 @@ bash install_flutter_complete.sh
 
 ```bash
 pkg update && pkg install -y wget
-wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux/flutter_3.44.9_aarch64.deb
-sha256sum flutter_3.44.9_aarch64.deb
+wget https://github.com/ImL1s/termux-flutter-wsl/releases/download/v3.44.9-termux-1/flutter_3.44.9-1_aarch64.deb
+sha256sum flutter_3.44.9-1_aarch64.deb
 
-dpkg -i flutter_3.44.9_aarch64.deb
+dpkg -i flutter_3.44.9-1_aarch64.deb
 apt --fix-broken install -y
 bash $PREFIX/share/flutter/post_install.sh
 source ~/.bashrc

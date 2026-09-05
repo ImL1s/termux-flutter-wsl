@@ -388,6 +388,10 @@ $required = @(
     "FLUTTER_VERSION_STATUS=0",
     "DART_VERSION_STATUS=0",
     "DARTVM_VERSION_STATUS=0",
+    "VERSION_IDENTITY_ONLINE_STATUS=0",
+    "FLUTTER_TERMUX_DOCTOR_STATUS=0",
+    "VERSION_IDENTITY_OFFLINE_STATUS=0",
+    "SYNTHETIC_REPO_STATUS=0",
     "DOCTOR_STATUS=0",
     "CREATE_STATUS=0",
     "CONFIG_VERIFY_STATUS=0",
@@ -437,12 +441,13 @@ Write-Host "Pulled APK SHA-256: $apkSha256, Size: $apkSize bytes"
 Write-Host "Pulled AAB SHA-256: $aabSha256, Size: $aabSize bytes"
 
 Write-Host "Removing stale package state..."
+Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "--user", "0", "com.example.flutter_ci_smoke") | Out-Null
 Invoke-AdbAllowFail -Args @("shell", "pm", "uninstall", "com.example.flutter_ci_smoke") | Out-Null
 
 Write-Host "Installing pulled APK from host..."
-Invoke-Adb -Args @("install", "-r", $localApk)
+Invoke-Adb -Args @("install", "-r", "--user", "0", $localApk)
 
-$pkgList = (& $Adb @AdbArgs shell "pm list packages | grep com.example.flutter_ci_smoke 2>/dev/null || true") -join ""
+$pkgList = (& $Adb @AdbArgs shell "pm list packages --user 0 | grep com.example.flutter_ci_smoke 2>/dev/null || pm list packages | grep com.example.flutter_ci_smoke 2>/dev/null || true") -join ""
 if (-not ($pkgList -match "com.example.flutter_ci_smoke")) {
     throw "Package com.example.flutter_ci_smoke is not installed on target device."
 }
@@ -452,7 +457,7 @@ Write-Host "Clearing ADB logcat buffer before launch..."
 Invoke-AdbAllowFail -Args @("logcat", "-c") | Out-Null
 
 Write-Host "Verifying APK launch and crash-free execution from host ADB..."
-Invoke-AdbAllowFail -Args @("shell", "am", "start", "-W", "-n", "com.example.flutter_ci_smoke/.MainActivity") | Out-Host
+Invoke-AdbAllowFail -Args @("shell", "am", "start", "--user", "0", "-W", "-n", "com.example.flutter_ci_smoke/.MainActivity") | Out-Host
 
 $livenessPassed = $true
 $appPid = ""

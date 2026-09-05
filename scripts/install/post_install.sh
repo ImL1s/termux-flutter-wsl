@@ -703,44 +703,117 @@ is_synthetic_repo() {
     return 1
 }
 
-# Synthetic repo setup & contamination repair
-if ! [ -d "$FLUTTER_ROOT/.git" ]; then
-    echo "  ! Missing .git, creating synthetic repository on stable branch for version resolution..."
-    rm -f version
-    "$GIT_BIN" init -q -b stable >/dev/null 2>&1 || "$GIT_BIN" init -q >/dev/null 2>&1
-    "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1 || true
-    "$GIT_BIN" config user.email "termux@example.com"
-    "$GIT_BIN" config user.name "termux"
-    "$GIT_BIN" add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
-    "$GIT_BIN" commit -q -m "Init framework" >/dev/null 2>&1 || true
-    "$GIT_BIN" branch -M stable >/dev/null 2>&1 || true
-    "$GIT_BIN" tag -f "$CANONICAL_FLUTTER_VER" HEAD >/dev/null 2>&1
-    echo "{\"synthetic\":true,\"package\":\"termux-flutter-wsl\",\"version\":\"$CANONICAL_FLUTTER_VER\"}" > .git/termux_synthetic
-    rm -f .git/FETCH_HEAD
-    echo "  ✓ Synthetic tag $CANONICAL_FLUTTER_VER created on stable branch"
-elif is_synthetic_repo "$FLUTTER_ROOT"; then
-    echo "  ! Verifying and repairing synthetic repository state..."
-    rm -f version
-    # Normalize branch to stable if needed (handles master, main, trunk, develop, custom-name, detached HEAD)
-    curr_br="$("$GIT_BIN" symbolic-ref --short HEAD 2>/dev/null || echo "")"
-    if [ "$curr_br" != "stable" ]; then
-        "$GIT_BIN" checkout -B stable >/dev/null 2>&1 || "$GIT_BIN" branch -M stable >/dev/null 2>&1 || "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1
-    fi
+mark_synthetic_repo() {
+    echo "{\"synthetic\":true,\"package\":\"termux-flutter-wsl\",\"version\":\"$CANONICAL_FLUTTER_VER\",\"framework_revision\":\"$CANONICAL_FRAMEWORK_REV\"}" > .git/termux_synthetic
+}
 
-    # Purge any imported tag contamination (e.g. 1100+ upstream tags fetched)
+ensure_origin_remote() {
+    if ! "$GIT_BIN" remote get-url origin >/dev/null 2>&1; then
+        "$GIT_BIN" remote add origin "$CANONICAL_REPO_URL" >/dev/null 2>&1 || true
+    else
+        "$GIT_BIN" remote set-url origin "$CANONICAL_REPO_URL" >/dev/null 2>&1 || true
+    fi
+}
+
+purge_noncanonical_tags() {
+    local existing_tags t
     existing_tags=$("$GIT_BIN" tag -l 2>/dev/null || echo "")
     for t in $existing_tags; do
         if [ "$t" != "$CANONICAL_FLUTTER_VER" ]; then
             "$GIT_BIN" tag -d "$t" >/dev/null 2>&1 || true
         fi
     done
-    head_tag=$("$GIT_BIN" tag --points-at HEAD 2>/dev/null || echo "")
-    if ! echo "$head_tag" | grep -qx "$CANONICAL_FLUTTER_VER"; then
-        "$GIT_BIN" tag -f "$CANONICAL_FLUTTER_VER" HEAD >/dev/null 2>&1
+    if ! "$GIT_BIN" tag --points-at HEAD 2>/dev/null | grep -qx "$CANONICAL_FLUTTER_VER"; then
+        "$GIT_BIN" tag -f "$CANONICAL_FLUTTER_VER" HEAD >/dev/null 2>&1 || true
     fi
     rm -f .git/FETCH_HEAD
-    echo "{\"synthetic\":true,\"package\":\"termux-flutter-wsl\",\"version\":\"$CANONICAL_FLUTTER_VER\"}" > .git/termux_synthetic
-    echo "  ✓ Synthetic repository sanitized: branch=stable, tag=$CANONICAL_FLUTTER_VER (contamination purged)"
+}
+
+# Prefer a depth-1 tag fetch so flutter --version reports the real framework
+# revision/URL. Do NOT checkout files — the packaged worktree must stay intact.
+try_shallow_canonical_checkout() {
+    ensure_origin_remote
+    # Drop any local synthetic tag so fetch can bind the canonical object.
+    "$GIT_BIN" tag -d "$CANONICAL_FLUTTER_VER" >/dev/null 2>&1 || true
+    local fetch_ok=1
+    if command -v timeout >/dev/null 2>&1; then
+        # One shared deadline for both fetch variants (avoid 20s+20s offline stalls).
+        if timeout 20 bash -c "
+            '$GIT_BIN' fetch --depth 1 origin tag '$CANONICAL_FLUTTER_VER' >/dev/null 2>&1 ||
+            '$GIT_BIN' fetch --depth 1 -f origin 'refs/tags/${CANONICAL_FLUTTER_VER}:refs/tags/${CANONICAL_FLUTTER_VER}' >/dev/null 2>&1
+        "; then
+            fetch_ok=0
+        fi
+    else
+        if "$GIT_BIN" fetch --depth 1 origin tag "$CANONICAL_FLUTTER_VER" >/dev/null 2>&1 ||
+           "$GIT_BIN" fetch --depth 1 -f origin "refs/tags/${CANONICAL_FLUTTER_VER}:refs/tags/${CANONICAL_FLUTTER_VER}" >/dev/null 2>&1; then
+            fetch_ok=0
+        fi
+    fi
+    [ "$fetch_ok" -eq 0 ] || return 1
+    local tag_rev
+    tag_rev=$("$GIT_BIN" rev-parse "refs/tags/${CANONICAL_FLUTTER_VER}" 2>/dev/null || echo "")
+    if [ -z "$tag_rev" ] || [ "$tag_rev" != "$CANONICAL_FRAMEWORK_REV" ]; then
+        return 1
+    fi
+    # Point stable at the tag without overwriting packaged files.
+    "$GIT_BIN" update-ref refs/heads/stable "$tag_rev" >/dev/null 2>&1 || return 1
+    "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1 || return 1
+    # Flutter resolves repositoryUrl via @{upstream} → remote URL.
+    "$GIT_BIN" update-ref refs/remotes/origin/stable "$tag_rev" >/dev/null 2>&1 || return 1
+    "$GIT_BIN" branch --set-upstream-to=origin/stable stable >/dev/null 2>&1 || true
+    "$GIT_BIN" config core.filemode false >/dev/null 2>&1 || true
+    purge_noncanonical_tags
+    mark_synthetic_repo
+    echo "  ✓ Canonical tag ref ${CANONICAL_FLUTTER_VER} ($CANONICAL_FRAMEWORK_REV) without worktree overwrite"
+    return 0
+}
+
+init_fallback_synthetic_commit() {
+    # Offline fallback must stay remote-less so a later network fetch cannot
+    # pull a newer upstream tag into the synthetic repo and mis-identify version.
+    rm -f version
+    "$GIT_BIN" remote remove origin >/dev/null 2>&1 || true
+    "$GIT_BIN" add -f bin/flutter bin/internal/engine.version bin/internal/*.version >/dev/null 2>&1 || true
+    "$GIT_BIN" commit -q -m "Init framework" >/dev/null 2>&1 || true
+    "$GIT_BIN" branch -M stable >/dev/null 2>&1 || true
+    "$GIT_BIN" tag -f "$CANONICAL_FLUTTER_VER" HEAD >/dev/null 2>&1
+    purge_noncanonical_tags
+    mark_synthetic_repo
+}
+
+# Synthetic repo setup & contamination repair
+if ! [ -d "$FLUTTER_ROOT/.git" ]; then
+    echo "  ! Missing .git, creating identity repository on stable branch..."
+    rm -f version
+    "$GIT_BIN" init -q -b stable >/dev/null 2>&1 || "$GIT_BIN" init -q >/dev/null 2>&1
+    "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1 || true
+    "$GIT_BIN" config user.email "termux@example.com"
+    "$GIT_BIN" config user.name "termux"
+    if ! try_shallow_canonical_checkout; then
+        init_fallback_synthetic_commit
+        echo "  ✓ Fallback synthetic tag $CANONICAL_FLUTTER_VER created on stable branch (offline/no exact commit)"
+    fi
+elif is_synthetic_repo "$FLUTTER_ROOT"; then
+    echo "  ! Verifying and repairing synthetic repository state..."
+    rm -f version
+    curr_br="$("$GIT_BIN" symbolic-ref --short HEAD 2>/dev/null || echo "")"
+    if [ "$curr_br" != "stable" ]; then
+        "$GIT_BIN" checkout -B stable >/dev/null 2>&1 || "$GIT_BIN" branch -M stable >/dev/null 2>&1 || "$GIT_BIN" symbolic-ref HEAD refs/heads/stable >/dev/null 2>&1
+    fi
+    ensure_origin_remote
+    head_rev=$("$GIT_BIN" rev-parse HEAD 2>/dev/null || echo "")
+    if [ "$head_rev" != "$CANONICAL_FRAMEWORK_REV" ]; then
+        if ! try_shallow_canonical_checkout; then
+            purge_noncanonical_tags
+            mark_synthetic_repo
+            echo "  ✓ Synthetic repository sanitized: branch=stable, tag=$CANONICAL_FLUTTER_VER (exact upstream commit unavailable)"
+        fi
+    else
+        purge_noncanonical_tags
+        mark_synthetic_repo
+        echo "  ✓ Synthetic repository sanitized: branch=stable, tag=$CANONICAL_FLUTTER_VER @ $CANONICAL_FRAMEWORK_REV"
+    fi
 else
     # Non-synthetic / real user or upstream checkout: guardrail to protect user work
     echo "  ℹ Non-synthetic / user-owned Git checkout detected at $FLUTTER_ROOT; preserving git history and refs"
@@ -1178,24 +1251,36 @@ else
     echo "  ✓ VM snapshots present"
 fi
 
-# 12. Create linux-x64 -> linux-arm64 symlinks for host platform detection
-# Flutter's getCurrentHostPlatform() in build_info.dart doesn't recognize
-# Termux as Linux (Platform.operatingSystem returns 'android'), so it falls
-# back to HostPlatform.linux_x64, causing gen_snapshot lookup to search
-# linux-x64/ instead of linux-arm64/. Create symlinks to resolve this.
+# 12. Create linux-x64 host aliases that point at linux-arm64 binaries.
+# Flutter's getCurrentHostPlatform() may look up linux-x64/ on Termux.
+# IMPORTANT: never symlink the directory itself — Flutter artifact downloads
+# write into linux-x64/ and would overwrite the real ARM64 gen_snapshot.
 echo "[12.5/13] Creating host platform symlinks..."
 ENG_ART=$FLUTTER_ROOT/bin/cache/artifacts/engine
-for dir in android-arm64-release android-arm64-profile; do
-    if [ -d "$ENG_ART/$dir/linux-arm64" ] && [ ! -e "$ENG_ART/$dir/linux-x64" ]; then
-        ln -sf linux-arm64 "$ENG_ART/$dir/linux-x64"
-        echo "  ✓ $dir/linux-x64 -> linux-arm64"
+
+link_host_platform_files() {
+    local parent="$1"
+    local arm_dir="$parent/linux-arm64"
+    local x64_dir="$parent/linux-x64"
+    [ -d "$arm_dir" ] || return 0
+    if [ -L "$x64_dir" ]; then
+        rm -f "$x64_dir"
     fi
+    mkdir -p "$x64_dir"
+    local f base
+    for f in "$arm_dir"/*; do
+        [ -e "$f" ] || continue
+        base=$(basename "$f")
+        rm -f "$x64_dir/$base"
+        ln -sf "../linux-arm64/$base" "$x64_dir/$base"
+    done
+    echo "  ✓ $(basename "$parent")/linux-x64/* -> ../linux-arm64/*"
+}
+
+for dir in android-arm64-release android-arm64-profile; do
+    link_host_platform_files "$ENG_ART/$dir"
 done
-# Also create top-level linux-x64 -> linux-arm64 symlink for general artifacts
-if [ -d "$ENG_ART/linux-arm64" ] && [ ! -e "$ENG_ART/linux-x64" ]; then
-    ln -sf linux-arm64 "$ENG_ART/linux-x64"
-    echo "  ✓ linux-x64 -> linux-arm64"
-fi
+link_host_platform_files "$ENG_ART"
 
 # 12.7c. Create api-level.h for CMake system detection
 # CMake's CMakeDetermineSystem.cmake reads $PREFIX/include/android/api-level.h
@@ -1334,6 +1419,43 @@ EOF
 
 finalize_flutter_tools_cache || { echo "❌ Failed to finalize flutter_tools cache" >&2; exit 1; }
 ensure_profile_env
+
+# Snapshot compile invokes flutter_tools --version and may rewrite flutter.version.json /
+# touch FETCH_HEAD from git identity. Re-assert canonical provenance at the very end.
+if is_synthetic_repo "$FLUTTER_ROOT"; then
+    cd "$FLUTTER_ROOT" || exit 1
+    ensure_origin_remote
+    purge_noncanonical_tags
+    mark_synthetic_repo
+fi
+EFFECTIVE_DART_VER="$CANONICAL_DART_VER"
+if [ -x "$DART_SDK/bin/dart" ]; then
+    _dv=$("$DART_SDK/bin/dart" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+    [ -n "$_dv" ] && EFFECTIVE_DART_VER="$_dv"
+    unset _dv
+fi
+TMP_VER_JSON="$FLUTTER_ROOT/bin/cache/flutter.version.json.tmp.$$"
+cat > "$TMP_VER_JSON" << EOF
+{
+  "frameworkVersion": "$CANONICAL_FLUTTER_VER",
+  "channel": "$CANONICAL_CHANNEL",
+  "repositoryUrl": "$CANONICAL_REPO_URL",
+  "frameworkRevision": "$CANONICAL_FRAMEWORK_REV",
+  "frameworkCommitDate": "$CANONICAL_FRAMEWORK_DATE",
+  "engineRevision": "$CANONICAL_ENGINE_REV",
+  "dartSdkVersion": "$EFFECTIVE_DART_VER",
+  "devToolsVersion": "$CANONICAL_DEVTOOLS_VER",
+  "flutterVersion": "$CANONICAL_FLUTTER_VER"
+}
+EOF
+mv -f "$TMP_VER_JSON" "$FLUTTER_ROOT/bin/cache/flutter.version.json"
+chmod 644 "$FLUTTER_ROOT/bin/cache/flutter.version.json"
+if is_synthetic_repo "$FLUTTER_ROOT"; then
+    rm -f "$FLUTTER_ROOT/.git/FETCH_HEAD"
+    echo "  ✓ Re-asserted canonical flutter.version.json and cleared synthetic FETCH_HEAD after tool finalize"
+else
+    echo "  ✓ Re-asserted canonical flutter.version.json after tool finalize"
+fi
 
 echo ""
 

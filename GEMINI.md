@@ -146,10 +146,10 @@ android {
 
 ```powershell
 # From Windows (use PowerShell, NOT Git Bash — path mangling)
-adb push flutter_3.44.9_aarch64.deb /data/local/tmp/
+adb push flutter_3.44.9-1_aarch64.deb /data/local/tmp/
 
 # In Termux
-dpkg -i /data/local/tmp/flutter_3.44.9_aarch64.deb
+dpkg -i /data/local/tmp/flutter_3.44.9-1_aarch64.deb
 apt-get install -f
 bash $PREFIX/share/flutter/post_install.sh  # Required for APK builds
 source $PREFIX/etc/profile.d/flutter.sh
