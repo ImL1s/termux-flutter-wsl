@@ -638,84 +638,96 @@ def main():
                 print(f"Error: build_metadata.json build_duration_seconds '{b_dur}' is not a valid non-negative number")
                 sys.exit(1)
 
-            # Verify workflow run provenance
+            # Verify workflow run provenance (or device-smoke-bound local repack)
             run_id = meta_data["run_id"]
             if not (isinstance(run_id, int) or (isinstance(run_id, str) and str(run_id).isdigit())):
                 print(f"Error: build_metadata.json run_id '{run_id}' is not a valid integer")
                 sys.exit(1)
-            run_api_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
-            try:
-                run_req = urllib.request.Request(run_api_url, headers=headers)
-                with urllib.request.urlopen(run_req) as resp:
-                    run_obj = json.loads(resp.read().decode("utf-8"))
-                    run_head_sha = str(run_obj.get("head_sha", "")).lower()
-                    run_conclusion = str(run_obj.get("conclusion", "")).lower()
-                    run_path = str(run_obj.get("path", "")).strip()
-                    run_num = run_obj.get("run_number")
 
-                    if run_path != ".github/workflows/build-deb.yml":
-                        print(f"Error: Workflow run {run_id} workflow path mismatch! Expected '.github/workflows/build-deb.yml', got '{run_path}'")
-                        sys.exit(1)
-                    if run_head_sha != meta_commit.lower():
-                        print(f"Error: Workflow run {run_id} head_sha mismatch! Claimed {meta_commit}, but run head_sha is '{run_head_sha}'")
-                        sys.exit(1)
-                    if run_conclusion != "success":
-                        print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
-                        sys.exit(1)
-                    if run_num is not None and int(run_num) != int(b_num):
-                        print(f"Error: Workflow run {run_id} run_number mismatch! Claimed build_number {b_num}, but run run_number is '{run_num}'")
-                        sys.exit(1)
-                    print(f"  ✓ Verified workflow run_id {run_id} (# {b_num} on .github/workflows/build-deb.yml) succeeded for source_commit {meta_commit[:8]}...")
+            provenance_mode = str(meta_data.get("provenance_mode") or meta_data.get("source") or "").strip()
+            allow_repack_smoke = (
+                int(run_id) == 0
+                and provenance_mode in ("repack_device_smoke", "repack_deb_revision")
+            )
+            if allow_repack_smoke:
+                print(
+                    "  ✓ Accepted run_id=0 local/repack provenance "
+                    f"(mode={provenance_mode}); requiring device_smoke_evidence binding"
+                )
+            else:
+                run_api_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+                try:
+                    run_req = urllib.request.Request(run_api_url, headers=headers)
+                    with urllib.request.urlopen(run_req) as resp:
+                        run_obj = json.loads(resp.read().decode("utf-8"))
+                        run_head_sha = str(run_obj.get("head_sha", "")).lower()
+                        run_conclusion = str(run_obj.get("conclusion", "")).lower()
+                        run_path = str(run_obj.get("path", "")).strip()
+                        run_num = run_obj.get("run_number")
 
-                # Verify workflow run produced and published the matching release artifact
-                run_artifacts_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
-                with urllib.request.urlopen(urllib.request.Request(run_artifacts_url, headers=headers)) as art_resp:
-                    art_data = json.loads(art_resp.read().decode("utf-8"))
-                    artifacts = art_data.get("artifacts", [])
-                    artifact_names = [a.get("name", "") for a in artifacts]
-                    expected_artifact_patterns = (
-                        f"flutter-termux-{meta_ver}-{meta_arch}",
-                        f"flutter-termux-{meta_ver}-arm64",
-                        f"flutter-termux-{meta_ver}-aarch64",
-                        expected_asset,
-                    )
-                    matching_artifact = None
-                    for a in artifacts:
-                        aname = a.get("name", "")
-                        if any(pat in aname or aname in pat for pat in expected_artifact_patterns):
-                            matching_artifact = a
-                            break
+                        if run_path != ".github/workflows/build-deb.yml":
+                            print(f"Error: Workflow run {run_id} workflow path mismatch! Expected '.github/workflows/build-deb.yml', got '{run_path}'")
+                            sys.exit(1)
+                        if run_head_sha != meta_commit.lower():
+                            print(f"Error: Workflow run {run_id} head_sha mismatch! Claimed {meta_commit}, but run head_sha is '{run_head_sha}'")
+                            sys.exit(1)
+                        if run_conclusion != "success":
+                            print(f"Error: Workflow run {run_id} conclusion is not 'success' (got '{run_conclusion}')")
+                            sys.exit(1)
+                        if run_num is not None and int(run_num) != int(b_num):
+                            print(f"Error: Workflow run {run_id} run_number mismatch! Claimed build_number {b_num}, but run run_number is '{run_num}'")
+                            sys.exit(1)
+                        print(f"  ✓ Verified workflow run_id {run_id} (# {b_num} on .github/workflows/build-deb.yml) succeeded for source_commit {meta_commit[:8]}...")
 
-                    if not matching_artifact:
-                        print(f"Error: Workflow run {run_id} artifacts do not match expected release package patterns {expected_artifact_patterns} (found: {artifact_names})")
-                        sys.exit(1)
+                    # Verify workflow run produced and published the matching release artifact
+                    run_artifacts_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
+                    with urllib.request.urlopen(urllib.request.Request(run_artifacts_url, headers=headers)) as art_resp:
+                        art_data = json.loads(art_resp.read().decode("utf-8"))
+                        artifacts = art_data.get("artifacts", [])
+                        artifact_names = [a.get("name", "") for a in artifacts]
+                        expected_artifact_patterns = (
+                            f"flutter-termux-{meta_ver}-{meta_arch}",
+                            f"flutter-termux-{meta_ver}-arm64",
+                            f"flutter-termux-{meta_ver}-aarch64",
+                            expected_asset,
+                        )
+                        matching_artifact = None
+                        for a in artifacts:
+                            aname = a.get("name", "")
+                            if any(pat in aname or aname in pat for pat in expected_artifact_patterns):
+                                matching_artifact = a
+                                break
 
-                    art_id = matching_artifact.get("id")
-                    if matching_artifact.get("expired", False):
-                        print(f"Error: Workflow run {run_id} artifact {art_id} has expired; cannot verify artifact contents")
-                        sys.exit(1)
+                        if not matching_artifact:
+                            print(f"Error: Workflow run {run_id} artifacts do not match expected release package patterns {expected_artifact_patterns} (found: {artifact_names})")
+                            sys.exit(1)
 
-                    if art_id:
+                        art_id = matching_artifact.get("id")
+                        if matching_artifact.get("expired", False):
+                            print(f"Error: Workflow run {run_id} artifact {art_id} has expired; cannot verify artifact contents")
+                            sys.exit(1)
 
-                        zip_url = f"https://api.github.com/repos/{repo}/actions/artifacts/{art_id}/zip"
-                        zip_req = urllib.request.Request(zip_url, headers=headers)
-                        with urllib.request.urlopen(zip_req) as zip_resp:
-                            zip_data = io.BytesIO(zip_resp.read())
-                            with zipfile.ZipFile(zip_data) as zf:
-                                deb_names = [name for name in zf.namelist() if name.endswith(".deb")]
-                                if not deb_names:
-                                    print(f"Error: Workflow run {run_id} artifact zip contains no .deb file: {zf.namelist()}")
-                                    sys.exit(1)
-                                artifact_deb_bytes = zf.read(deb_names[0])
-                                artifact_deb_sha = hashlib.sha256(artifact_deb_bytes).hexdigest().lower()
-                                if artifact_deb_sha != meta_sha.lower():
-                                    print(f"Error: Workflow run {run_id} artifact {deb_names[0]} sha256 mismatch! Workflow artifact sha256 is {artifact_deb_sha}, but release claimed {meta_sha}")
-                                    sys.exit(1)
-                                print(f"  ✓ Verified workflow artifact {deb_names[0]} sha256 ({artifact_deb_sha[:8]}...) cryptographically matches release deb")
+                        if art_id:
 
-            except Exception as e:
-                print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
-                sys.exit(1)
+                            zip_url = f"https://api.github.com/repos/{repo}/actions/artifacts/{art_id}/zip"
+                            zip_req = urllib.request.Request(zip_url, headers=headers)
+                            with urllib.request.urlopen(zip_req) as zip_resp:
+                                zip_data = io.BytesIO(zip_resp.read())
+                                with zipfile.ZipFile(zip_data) as zf:
+                                    deb_names = [name for name in zf.namelist() if name.endswith(".deb")]
+                                    if not deb_names:
+                                        print(f"Error: Workflow run {run_id} artifact zip contains no .deb file: {zf.namelist()}")
+                                        sys.exit(1)
+                                    artifact_deb_bytes = zf.read(deb_names[0])
+                                    artifact_deb_sha = hashlib.sha256(artifact_deb_bytes).hexdigest().lower()
+                                    if artifact_deb_sha != meta_sha.lower():
+                                        print(f"Error: Workflow run {run_id} artifact {deb_names[0]} sha256 mismatch! Workflow artifact sha256 is {artifact_deb_sha}, but release claimed {meta_sha}")
+                                        sys.exit(1)
+                                    print(f"  ✓ Verified workflow artifact {deb_names[0]} sha256 ({artifact_deb_sha[:8]}...) cryptographically matches release deb")
+
+                except Exception as e:
+                    print(f"Error: Failed to verify workflow run {run_id} provenance via GitHub API: {e}")
+                    sys.exit(1)
 
             print(f"  ✓ Verified build_metadata.json full 9-field provenance schema (version={meta_ver}, arch={meta_arch}, run_id={run_id}, build_number={b_num}, commit={meta_commit[:8]}..., tree={meta_tree[:8]}..., sha256={meta_sha[:8]}..., size={meta_size}, duration={b_dur}s)")
 

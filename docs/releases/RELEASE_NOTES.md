@@ -32,7 +32,7 @@ flutter doctor -v
 
 ## Verified
 
-Candidate package `flutter_3.44.9-1_aarch64.deb` is produced from the reviewed head with the #82/#83 post-install identity fix. Device smoke (online/offline `flutter --version`, `flutter-termux --check`, APK/AAB/Linux) must pass on the exact candidate bytes before treating this release as closed for #60.
+Candidate package `flutter_3.44.9-1_aarch64.deb` (SHA256 `d8fec711…`) passed physical Termux device smoke on SM-G9960: online/offline `flutter --version` / `flutter-termux --check`, APK+AAB release builds, and scoped crash-free APK launch (`device_smoke_evidence.json`). Historical `v3.44.9-termux` was not modified.
 
 | Command | Expected |
 |---------|----------|
