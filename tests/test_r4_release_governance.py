@@ -4425,11 +4425,11 @@ class TestVersionDriftGovernance:
     def test_ssot_build_config_loading(self):
         cfg = check_version_drift.load_build_config(REPO_ROOT)
         assert cfg["tag"] == "3.44.9"
-        assert cfg["release_tag"] == "v3.44.9-termux"
+        assert cfg["release_tag"] == "v3.44.9-termux-1"
         assert cfg["dart_version"] == "3.12.2"
         assert cfg["engine_commit"] == "5a2a6a42cce67f965cf540fcecf616faca624aa1"
-        assert cfg["sha256"] == "8b32041a11452b8d995ba45dcc2bb196e4d841410c46871853a6f4c24acddd20"
-        assert cfg["asset_name"] == "flutter_3.44.9_aarch64.deb"
+        assert cfg["sha256"] == "d8fec711e71e471566c6bf1f0cad5be510cdda133cdafb829ec594ab3aff62ae"
+        assert cfg["asset_name"] == "flutter_3.44.9-1_aarch64.deb"
 
     def test_drift_detected_when_build_py_hardcodes_stale_dart(self, tmp_path):
         (tmp_path / "build.py").write_text("""
