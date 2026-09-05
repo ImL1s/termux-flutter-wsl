@@ -28,7 +28,12 @@ def main() -> int:
     listing = subprocess.check_output(["dpkg-deb", "-c", str(deb)], text=True)
     inv = ROOT / "release" / "inventory.txt"
     inv.write_text(listing if listing.endswith("\n") else listing + "\n", encoding="utf-8")
-    inventory_count = sum(1 for line in listing.splitlines() if line.strip())
+    # Match verify_release_asset.parse_inventory_entries (skips malformed/blank lines).
+    inventory_count = 0
+    for line in listing.splitlines():
+        parts = line.split(None, 5)
+        if len(parts) >= 6 and parts[5].strip():
+            inventory_count += 1
 
     source_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
